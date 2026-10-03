@@ -2,6 +2,8 @@
 -- a recompute part way through. See docs/rating.md, "Ratings in the database".
 
 -- When the match went into the ratings. NULL: not rated (yet, or any more).
+-- Matches stored before this migration start unrated: nothing wrote ratings or history yet, so
+-- rating them in play order from new ratings (rateNewMatches) is the same as a recompute.
 ALTER TABLE matches ADD COLUMN rated_at TEXT;
 -- Matches waiting to be rated: accepted, and new or incomplete within the grace period.
 CREATE INDEX matches_unrated ON matches(played_at) WHERE status = 'accepted' AND rated_at IS NULL;
