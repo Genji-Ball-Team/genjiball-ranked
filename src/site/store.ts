@@ -1,0 +1,196 @@
+import { board } from "../rating/store";
+
+/**
+ * The public site's D1 queries (#14). Read-only, and each one reads through an index, so a page
+ * view costs tens of rows (docs/database.md, "Free tier"). Only `accepted` and `void` matches are
+ * public; a match in review or rejected doesn't exist here.
+ */
+
+const publicStatuses = "('accepted', 'void')";
+
+export interface RatingRow {
+  playerId: number;
+  name: string;
+  display: number;
+  rounds: number;
+  wins: number;
+  lastPlayedAt: string | null;
+}
+
+const ratingColumns = `r.player_id AS playerId, p.name, r.display, r.rounds, r.wins, r.last_played_at AS lastPlayedAt`;
+
+/** A leaderboard page: players with at least `minRounds` rated rounds, best first (index `ratings_board_display`). */
+export async function listLeaderboard(db: D1Database, minRounds: number, limit: number, offset: number): Promise<RatingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board = ?1 AND r.rounds >= ?2 ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
+    )
+    .bind(board, minRounds, limit, offset)
+    .all<RatingRow>();
+  return results;
+}
+
+export async function findRating(db: D1Database, playerId: number): Promise<RatingRow | null> {
+  return db
+    .prepare(`SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.board = ?1 AND r.player_id = ?2`)
+    .bind(board, playerId)
+    .first<RatingRow>();
+}
+
+/** The player's place on the leaderboard, in the order `listLeaderboard` uses. */
+export async function rankOf(db: D1Database, rating: RatingRow, minRounds: number): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) + 1 AS rank FROM ratings
+       WHERE board = ?1 AND rounds >= ?2 AND (display > ?3 OR (display = ?3 AND player_id < ?4))`,
+    )
+    .bind(board, minRounds, rating.display, rating.playerId)
+    .first<{ rank: number }>();
+  return row!.rank;
+}
+
+export interface PlayerRow {
+  id: number;
+  name: string;
+  aliases: string[];
+}
+
+export async function findPlayer(db: D1Database, id: number): Promise<PlayerRow | null> {
+  const row = await db
+    .prepare(
+      `SELECT p.id, p.name,
+         (SELECT json_group_array(name) FROM (SELECT a.name FROM aliases a WHERE a.player_id = p.id ORDER BY a.last_seen_at DESC)) AS aliases
+       FROM players p WHERE p.id = ?`,
+    )
+    .bind(id)
+    .first<{ id: number; name: string; aliases: string }>();
+  return row && { ...row, aliases: JSON.parse(row.aliases) as string[] };
+}
+
+export interface PlayerMatchRow {
+  id: number;
+  playedAt: string;
+  map: string | null;
+  legacy: boolean;
+  void: boolean;
+  /** The player's display rating after the match, and before it. Null when the match isn't rated (for them). */
+  ratingAfter: number | null;
+  ratingBefore: number | null;
+}
+
+/**
+ * The player's newest public matches. Newest by id, through index `match_players_player`, so the
+ * page doesn't read every match the player was ever in; a match uploaded late can sort out of play
+ * order, which the page shows by its date anyway. Group and sort on `mp.match_id`, not `m.id`:
+ * then SQLite walks the index and stops at the limit instead of grouping the whole history.
+ */
+export async function listPlayerMatches(db: D1Database, playerId: number, limit: number): Promise<PlayerMatchRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void,
+         (SELECT h.display FROM rating_history h
+          WHERE h.board = ?1 AND h.player_id = ?2 AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+         (SELECT h.display FROM rating_history h
+          WHERE h.board = ?1 AND h.player_id = ?2 AND (h.played_at, h.match_id) < (m.played_at, m.id)
+          ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
+       FROM match_players mp JOIN matches m ON m.id = mp.match_id
+       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses}
+       GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?3`,
+    )
+    .bind(board, playerId, limit)
+    .all<Omit<PlayerMatchRow, "legacy" | "void"> & { legacy: number; void: number }>();
+  return results.map((m) => ({ ...m, legacy: m.legacy === 1, void: m.void === 1, ratingBefore: m.ratingAfter === null ? null : m.ratingBefore }));
+}
+
+export interface MatchRow {
+  id: number;
+  playedAt: string;
+  map: string | null;
+  preset: string | null;
+  gameVersion: string;
+  legacy: boolean;
+  void: boolean;
+  complete: boolean;
+}
+
+export interface MatchPlayerRow {
+  logId: number;
+  playerId: number;
+  name: string;
+  ratingAfter: number | null;
+  ratingBefore: number | null;
+}
+
+export interface RoundRow {
+  id: number;
+  number: number;
+  result: "WIN" | "NONE" | "ABORT";
+  winnerId: number | null;
+  rated: boolean;
+  broken: string | null;
+}
+
+export interface RoundPlayerRow {
+  roundId: number;
+  logId: number;
+  position: number | null;
+  place: number | null;
+  left: boolean;
+}
+
+export interface MatchDetail {
+  match: MatchRow;
+  players: MatchPlayerRow[];
+  rounds: RoundRow[];
+  roundPlayers: RoundPlayerRow[];
+}
+
+/**
+ * A public match with its players, rounds and placements, in one batch. Null if it isn't public.
+ * Every statement checks the status, so asking for a match in review reads one row, not all of it.
+ */
+export async function findMatchDetail(db: D1Database, id: number): Promise<MatchDetail | null> {
+  const [match, players, rounds, roundPlayers] = await db.batch([
+    db
+      .prepare(
+        `SELECT id, played_at AS playedAt, map, preset, game_version AS gameVersion, legacy, status = 'void' AS void, complete
+         FROM matches WHERE id = ?1 AND status IN ${publicStatuses}`,
+      )
+      .bind(id),
+    db
+      .prepare(
+        `SELECT mp.log_id AS logId, mp.player_id AS playerId, mp.name,
+           (SELECT h.display FROM rating_history h
+            WHERE h.board = ?2 AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+           (SELECT h.display FROM rating_history h
+            WHERE h.board = ?2 AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
+            ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
+         FROM match_players mp JOIN matches m ON m.id = mp.match_id
+         WHERE mp.match_id = ?1 AND m.status IN ${publicStatuses} ORDER BY mp.log_id`,
+      )
+      .bind(id, board),
+    db
+      .prepare(
+        `SELECT r.id, r.number, r.result, r.winner_id AS winnerId, r.rated, r.broken
+         FROM matches m JOIN rounds r ON r.match_id = m.id
+         WHERE m.id = ? AND m.status IN ${publicStatuses} ORDER BY r.number`,
+      )
+      .bind(id),
+    db
+      .prepare(
+        `SELECT rp.round_id AS roundId, rp.log_id AS logId, rp.position, rp.place, rp.left_round AS "left"
+         FROM matches m JOIN rounds r ON r.match_id = m.id JOIN round_players rp ON rp.round_id = r.id
+         WHERE m.id = ? AND m.status IN ${publicStatuses}`,
+      )
+      .bind(id),
+  ]);
+  const row = match!.results[0] as (Omit<MatchRow, "legacy" | "void" | "complete"> & { legacy: number; void: number; complete: number }) | undefined;
+  if (!row) return null;
+  return {
+    match: { ...row, legacy: row.legacy === 1, void: row.void === 1, complete: row.complete === 1 },
+    players: (players!.results as MatchPlayerRow[]).map((p) => ({ ...p, ratingBefore: p.ratingAfter === null ? null : p.ratingBefore })),
+    rounds: (rounds!.results as (Omit<RoundRow, "rated"> & { rated: number })[]).map((r) => ({ ...r, rated: r.rated === 1 })),
+    roundPlayers: (roundPlayers!.results as (Omit<RoundPlayerRow, "left"> & { left: number })[]).map((rp) => ({ ...rp, left: rp.left === 1 })),
+  };
+}

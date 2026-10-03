@@ -3,6 +3,7 @@ import { loadConfig } from "./config";
 import type { Env } from "./env";
 import { createLogger } from "./log";
 import { updateRatings } from "./rating/update";
+import { handleSite } from "./site/handler";
 import { handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
@@ -26,6 +27,8 @@ export default {
     }
 
     if (url.pathname.startsWith("/api/")) {
+      const site = await handleSite(request, env.DB, config);
+      if (site) return site;
       return Response.json({ error: "not_found" }, { status: 404 });
     }
 

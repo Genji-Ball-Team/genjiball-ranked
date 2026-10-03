@@ -3,19 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Genji Ball Ranked</title>
-  <style>
-    :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #1d1d1b; --muted: #666; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #141413; --fg: #ecebe6; --muted: #9a9890; } }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
-      font: 16px/1.5 system-ui, sans-serif; padding: 0 16px; }
-    p { color: var(--muted); }
-  </style>
+  <title>Genji Ball Ranked – Leaderboard</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
-<body>
+<body data-page="leaderboard">
+  <header>
+    <a class="brand" href="/"><b>GB</b><div><strong>GENJI BALL</strong><small>RANKED LEADERBOARD</small></div></a>
+    <span class="live">● LIVE RANKINGS</span>
+  </header>
   <main>
-    <h1>Genji Ball Ranked</h1>
-    <p>Leaderboard coming soon. Join the <a href="https://discord.gg/genjiball">Discord</a> for news.</p>
+    <p class="eyebrow">Overwatch custom game</p>
+    <h1>Leaderboard</h1>
+    <p class="intro">Ratings from every ranked Genji Ball round. Join the <a href="https://discord.gg/genjiball">Discord</a> to play.</p>
+    <section class="card board">
+      <div class="thead"><span>RANK</span><span>PLAYER</span><span>RATING</span><span>ROUNDS</span><span>WON</span></div>
+      <div id="list"><div class="loading">Loading the leaderboard…</div></div>
+    </section>
+    <nav class="pager"><a id="prev" hidden>← Better ranks</a><span></span><a id="next" hidden>Next page →</a></nav>
   </main>
+  <footer>GENJI BALL • RANKED</footer>
+  <script src="/site.js"></script>
 </body>
 </html>
