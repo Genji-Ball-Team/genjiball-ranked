@@ -89,7 +89,8 @@ function ladder(players) {
   return html;
 }
 
-// Every leaderboard page, fetched once, for finding a player who isn't on the current page.
+// Every leaderboard page, fetched once, for finding a player who isn't on the current page. A
+// failed fetch isn't kept, so the next search tries again.
 let everyone;
 async function allPlayers() {
   everyone ??= (async () => {
@@ -99,7 +100,10 @@ async function allPlayers() {
       players.push(...d.players);
       if (!d.hasMore) return players;
     }
-  })();
+  })().catch((error) => {
+    everyone = undefined;
+    throw error;
+  });
   return everyone;
 }
 
