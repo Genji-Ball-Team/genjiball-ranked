@@ -11,10 +11,57 @@ export const defaults = {
 
   /** Log format versions (the `format` field of `GBR`) the parser accepts. */
   acceptedLogFormats: [1] as number[],
+
+  /**
+   * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at
+   * `ratingMu` ± `ratingSigma`; `ratingBeta` is how much one performance varies around the skill.
+   * These are openskill's defaults.
+   */
+  ratingMu: 25,
+  ratingSigma: 25 / 3,
+  ratingBeta: 25 / 6,
+  /** Uncertainty added per match's worth of rounds, so ratings can still move after many games. */
+  ratingTau: 25 / 300,
+  /**
+   * Damping: one round moves a rating about 1/N of what a full rated game would. Higher is a
+   * steadier leaderboard; 1 rates every round as a full game.
+   */
+  ratingRoundsPerMatch: 10,
+
+  /**
+   * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
+   * rating mu − z·sigma. `displayCenter` is a new player's mu with no uncertainty; each point of
+   * mu is worth `displayScale`. Never shown below `displayFloor`.
+   */
+  displayZ: 3,
+  displayCenter: 1000,
+  displayScale: 50,
+  displayFloor: 0,
+
+  /**
+   * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier
+   * whose threshold their display rating reaches; below the first, no tier. Labels and colours
+   * match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`; thresholds are the v1.3.2 ones.
+   */
+  tiers: [
+    { label: "Master", color: [255, 215, 0], threshold: 1300 },
+    { label: "Grandmaster", color: [255, 140, 0], threshold: 1600 },
+    { label: "Ascendant", color: [60, 160, 255], threshold: 1900 },
+    { label: "Champion", color: [150, 0, 0], threshold: 2300 },
+    { label: "God", color: [160, 160, 160], threshold: 2600 },
+  ] as Tier[],
 };
 
 export type Config = typeof defaults;
 export type LogLevel = "error" | "info" | "debug";
+
+export interface Tier {
+  label: string;
+  /** RGB, 0–255. */
+  color: [number, number, number];
+  /** Lowest display rating in the tier. */
+  threshold: number;
+}
 
 const logLevels: readonly LogLevel[] = ["error", "info", "debug"];
 
