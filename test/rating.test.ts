@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import {
   displayRating,
-  newRating,
   rateMatch,
   rateRound,
   recompute,
@@ -117,8 +116,8 @@ describe("stability", () => {
     rateRound(ratings, [2, 3, 4, 5, 6, 7, 8, 1], config);
     const afterLoss = displayRating(ratings.get(1)!, config);
     expect(before - afterLoss).toBeGreaterThan(0);
-    // Under 5% of the gap between two tiers.
-    expect(before - afterLoss).toBeLessThan(15);
+    // Under 7% of the gap between two tiers.
+    expect(before - afterLoss).toBeLessThan(20);
   });
 
   it("keeps players of the same skill near the start over many rounds", () => {
@@ -236,8 +235,8 @@ describe("displayRating", () => {
     );
   });
 
-  it("never goes below displayFloor, so a new player shows the floor", () => {
-    expect(displayRating(newRating(config), config)).toBe(config.displayFloor);
+  it("never goes below displayFloor", () => {
+    expect(displayRating({ mu: 0, sigma: config.ratingSigma }, config)).toBe(config.displayFloor);
   });
 });
 

@@ -16,7 +16,7 @@ The parser builds the finishing order. The engine gets it with player ids (`play
 
 ## Damping
 
-A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu, and shrinks the variance, by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 10, a match of 25 rounds counts about as much as 2.5 full games.
+A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu, and shrinks the variance, by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 5, a match of 25 rounds counts about as much as 5 full games.
 
 ## Recompute
 
@@ -61,8 +61,34 @@ The leaderboard shows an Elo-like number from the conservative rating, mu − `d
 display = displayCenter + displayScale · (mu − displayZ · sigma − ratingMu)
 ```
 
-rounded and never below `displayFloor`. A new player has a large sigma, so they start at the floor and climb as the server gets surer of them. Someone who stops playing keeps their number.
+rounded and never below `displayFloor`. A new player has a large sigma, so they start low (about 630) and an average player climbs as the server gets surer of them. Someone who stops playing keeps their number.
 
 The tiers (Master 1300, Grandmaster 1600, Ascendant 1900, Champion 2300, God 2600) are the v1.3.2 ones, with the labels and colours of GenjiBall-CE `src/features/rank-tags.opy`.
 
-**The scale isn't calibrated yet.** The defaults were checked on simulated lobbies only: the stronger regulars reach Master and Grandmaster, and newcomers sit at the floor for their first few matches. Once the old logs are imported (#13), set `displayCenter` and `displayScale` so the tiers hold about as many players as they did in v1.3.2.
+The scale is fitted to the v1.3.2 logs (see "Tuning" below).
+
+## Tuning
+
+`npm run tune:rating -- <log folder>` replays real logs (legacy v1.3.2 files for now) through the parser and the engine, offline, with the config in `src/config.ts`. It prints:
+
+- **Prediction:** before each round is rated, how likely the ratings so far made its finishing order, against a random order (Plackett-Luce log-likelihood, nats per round). Higher is better. Only the newest 40% of rounds count, and only rounds where every player already had 20 rated rounds.
+- **Movement:** how far a regular's (50+ rounds) display rating moves in one match: median and 90th percentile. Lower is a steadier leaderboard.
+- How many players reach each tier, against how many v1.3.2 tagged (`rank1_names`... in GenjiBall-CE `original/genjiball-v1.3.2-ranked.txt`: 17 Master, 4 Grandmaster, 3 Ascendant), and the `displayCenter` and `displayScale` that fit those counts best.
+
+`--grid` sweeps `ratingRoundsPerMatch`, `ratingBeta` and `ratingTau` instead.
+
+On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (192 matches, 2,560 rated rounds), with the display scale below (movement is in its points):
+
+| `ratingRoundsPerMatch` | Prediction | Move median | Move p90 |
+|---|---|---|---|
+| 1 | 0.85 | 40 | 153 |
+| 3 | 0.85 | 29 | 114 |
+| **5** | **0.84** | **25** | **91** |
+| 10 | 0.80 | 16 | 61 |
+| 20 | 0.74 | 10 | 36 |
+
+Damping is the setting that matters: up to 5 predicts about as well as rating every round in full, and moves half as much; past it, prediction drops. Beta and tau barely change anything (tau 25/100 is a little better than 25/300). The fitted display scale is center 1780, scale 46: 24 players at Master or above, 9 at Grandmaster, 2 at Ascendant. The top of the board is the players v1.3.2 tagged.
+
+- Re-run it when there are a few weeks of v1.3.3R logs. Regulars' sigma is still shrinking after 11 days, so their display rating will rise and the tiers will fill: refit `displayCenter` and `displayScale` then.
+- The host of these lobbies (Fealthy, in every file) comes last: many of their lines are deaths with no attacker, probably rounds they weren't really playing. Check how hosts show up in v1.3.3R logs.
+- After changing the rating config, add a migration that marks every rating stale (like `migrations/0004_rating_tuning.sql`), so the cron recomputes them.

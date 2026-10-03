@@ -59,18 +59,19 @@ export const defaults = {
   /**
    * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at
    * `ratingMu` ± `ratingSigma`; `ratingBeta` is how much one performance varies around the skill.
-   * These are openskill's defaults.
+   * These are openskill's defaults (`npm run tune:rating` found no better beta on the v1.3.2 logs).
    */
   ratingMu: 25,
   ratingSigma: 25 / 3,
   ratingBeta: 25 / 6,
   /** Uncertainty added per match's worth of rounds, so ratings can still move after many games. */
-  ratingTau: 25 / 300,
+  ratingTau: 25 / 100,
   /**
    * Damping: one round moves a rating about 1/N of what a full rated game would. Higher is a
-   * steadier leaderboard; 1 rates every round as a full game.
+   * steadier leaderboard; 1 rates every round as a full game. On the v1.3.2 logs, 5 predicts rounds
+   * about as well as 1 with half the movement; 10 and up predict worse (docs/rating.md, "Tuning").
    */
-  ratingRoundsPerMatch: 10,
+  ratingRoundsPerMatch: 5,
 
   /**
    * A match with no MATCH_END is rated once this many hours have passed since it started: until
@@ -86,11 +87,12 @@ export const defaults = {
   /**
    * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
    * rating mu − z·sigma. `displayCenter` is a new player's mu with no uncertainty; each point of
-   * mu is worth `displayScale`. Never shown below `displayFloor`.
+   * mu is worth `displayScale`. Never shown below `displayFloor`. Center and scale are fitted with
+   * `npm run tune:rating` so the tiers hold about as many players as v1.3.2 tagged.
    */
   displayZ: 3,
-  displayCenter: 1000,
-  displayScale: 50,
+  displayCenter: 1780,
+  displayScale: 46,
   displayFloor: 0,
 
   /**
