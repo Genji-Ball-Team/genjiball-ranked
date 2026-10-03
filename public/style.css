@@ -1,0 +1,61 @@
+/* The site's look, taken from the old genjiball.us: dark, quiet, one card per page. */
+* { box-sizing: border-box; }
+:root { --bg: #090b10; --panel: #0e1117; --head: #151922; --line: #1d222b; --border: #252a34; --fg: #eef1f7;
+  --muted: #858d9a; --faint: #707887; --good: #67d49a; --bad: #ef6b6b; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: Inter, system-ui, sans-serif; }
+a { color: inherit; }
+header { height: 76px; border-bottom: 1px solid #222733; background: #0d1016; display: flex; align-items: center;
+  justify-content: space-between; padding: 0 6%; }
+.brand { display: flex; align-items: center; gap: 13px; text-decoration: none; }
+.brand > b { width: 42px; height: 42px; border: 1px solid #66707d; border-radius: 10px; display: grid; place-items: center; }
+.brand strong { display: block; letter-spacing: 2px; font-size: 15px; }
+.brand small { display: block; color: #7d8592; letter-spacing: 2px; font-size: 9px; margin-top: 3px; }
+.live { font-size: 10px; letter-spacing: 1.5px; color: #aab1bd; }
+.live::first-letter { color: var(--good); }
+main { max-width: 1100px; margin: auto; padding: 70px 22px; }
+.eyebrow { font-size: 11px; letter-spacing: 3px; color: #8d95a3; text-transform: uppercase; }
+h1 { font-size: 52px; line-height: 1; margin: 0 0 14px; letter-spacing: -2px; overflow-wrap: anywhere; }
+h2 { font-size: 13px; letter-spacing: 2px; color: var(--faint); text-transform: uppercase; margin: 45px 0 0; }
+.intro { color: #9ca4b2; }
+.card { margin-top: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+.thead, .row { display: grid; align-items: center; gap: 10px; }
+.thead { padding: 15px 22px; background: var(--head); color: var(--faint); font-size: 10px; letter-spacing: 1.5px; font-weight: 800; }
+.row { padding: 17px 22px; border-top: 1px solid var(--line); text-decoration: none; }
+a.row:hover { background: #131720; }
+.board .thead, .board .row { grid-template-columns: 70px 1fr 120px 100px 90px; }
+.matches .thead, .matches .row { grid-template-columns: 1fr 1fr 110px 90px; }
+.players .thead, .players .row { grid-template-columns: 1fr 90px 90px 140px; }
+.rank, .muted { color: var(--muted); }
+.player { font-weight: 750; overflow-wrap: anywhere; }
+.rating { font-size: 20px; font-weight: 900; }
+.tier { display: inline-block; margin-left: 8px; padding: 1px 7px; border: 1px solid; border-radius: 6px; font-size: 10px;
+  letter-spacing: 1px; font-weight: 800; text-transform: uppercase; vertical-align: 2px; }
+.flag { display: inline-block; margin-left: 8px; font-size: 11px; color: var(--bad); font-weight: 600; }
+.flag.plain { color: var(--muted); }
+.up { color: var(--good); } .down { color: var(--bad); }
+.loading { text-align: center; padding: 45px; color: #747d8c; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-top: 18px; }
+.stats div { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+.stats b { display: block; font-size: 22px; }
+.stats small { color: #747d8c; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.pager { display: flex; justify-content: space-between; margin-top: 18px; font-size: 13px; }
+.pager a { color: #aab1bd; }
+.round { padding: 15px 22px; border-top: 1px solid var(--line); }
+.round ol { margin: 6px 0 0; padding-left: 22px; color: #c9ced8; }
+.round li.left { color: var(--muted); }
+footer { text-align: center; padding: 35px; color: #555d69; font-size: 10px; letter-spacing: 2px; }
+[hidden] { display: none !important; }
+
+@media (max-width: 700px) {
+  header { padding: 0 18px; } .live { display: none; }
+  main { padding: 45px 14px; } h1 { font-size: 40px; }
+  .row, .thead, .round { padding-left: 14px; padding-right: 14px; }
+  .board .thead, .board .row { grid-template-columns: 44px 1fr 70px; }
+  .board .thead > :nth-child(n+4), .board .row > :nth-child(n+4) { display: none; }
+  .matches .thead, .matches .row { grid-template-columns: 1fr 70px; }
+  .matches .thead > :nth-child(2), .matches .row > :nth-child(2), .matches .thead > :nth-child(4), .matches .row > :nth-child(4) { display: none; }
+  .players .thead, .players .row { grid-template-columns: 1fr 50px 100px; }
+  .players .thead > :nth-child(3), .players .row > :nth-child(3) { display: none; }
+  .rating { font-size: 17px; }
+  .stats { grid-template-columns: 1fr 1fr; }
+}

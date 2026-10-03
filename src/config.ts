@@ -83,6 +83,20 @@ export const defaults = {
     { label: "Champion", color: [150, 0, 0], threshold: 2300 },
     { label: "God", color: [160, 160, 160], threshold: 2600 },
   ] as Tier[],
+
+  /** Rated rounds a player needs before they show on the leaderboard and get a tier. */
+  minRankedRounds: 10,
+  /**
+   * A player with no rated round in this many days is inactive: they stay on the leaderboard with
+   * an "Inactive since <last played>" mark, and get no rank tag in game.
+   */
+  inactiveAfterDays: 30,
+  /** Players per leaderboard page. */
+  leaderboardPageSize: 50,
+  /** Matches on a player page, newest first. */
+  playerRecentMatches: 20,
+  /** How long a browser may keep a public read (leaderboard, player, match), in seconds. */
+  publicCacheSeconds: 60,
 };
 
 export type Config = typeof defaults;
