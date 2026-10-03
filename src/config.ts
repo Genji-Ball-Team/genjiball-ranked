@@ -3,7 +3,7 @@ import type { Env } from "./env";
 /**
  * Every tunable of the server, with its default. Nothing else in src/ hard-codes one of these
  * numbers: read it from the config. A wrangler.toml var with the same name in SCREAMING_SNAKE_CASE
- * overrides the default (see `fromEnv`).
+ * overrides the default (see `loadConfig`).
  */
 export const defaults = {
   /** error, info or debug. debug logs every parsed line and why a match was rejected. */
