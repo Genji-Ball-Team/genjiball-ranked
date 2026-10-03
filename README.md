@@ -33,7 +33,7 @@ npm run dev                # http://localhost:8787
 | `npm run admin:token -- <name>` | Make an admin token, and the SQL file that adds the admin |
 | `npm run deploy:test` | Migrate and deploy the test server |
 | `npm run upload -- <server> <file>...` | Upload log files by hand, with `GENJIBALL_HOST_TOKEN` set |
-| `npm run import:legacy -- <server> <host id> <file>...` | Import old v1.3.2 logs, with `GENJIBALL_ADMIN_TOKEN` set ([legacy.md](docs/legacy.md)) |
+| `npm run import:legacy -- <server> <host id> <folder or file>...` | Import old v1.3.2 logs, with `GENJIBALL_ADMIN_TOKEN` set ([legacy.md](docs/legacy.md)) |
 
 The leaderboard is at `/`, with player (`/player?id=`) and match (`/match?id=`) pages. The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
 

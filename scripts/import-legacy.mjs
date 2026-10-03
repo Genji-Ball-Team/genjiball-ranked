@@ -1,17 +1,26 @@
 /* global process, console, fetch, URL */
 // Imports old v1.3.2 logs as legacy matches (#13, docs/legacy.md):
-// `npm run import:legacy -- <server> <host id> <file>...` with an admin token in GENJIBALL_ADMIN_TOKEN.
+// `npm run import:legacy -- <server> <host id> <file or folder>...` with an admin token in
+// GENJIBALL_ADMIN_TOKEN. A folder means every .txt file in it (a folder of logs is too many names for
+// a Windows command line).
 // Files go oldest first, so the ratings are built in the order the matches were played. A file whose
 // KILL lines are the start of another file's is a shorter copy of that match and is left out (legacy
 // logs have no matchKey to tell copies apart). X-Log-Started-At comes from the file name, read in
 // this computer's time zone, so run it in the host's.
-import { readFileSync, statSync } from "node:fs";
-import { basename } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { basename, join } from "node:path";
 
-const [server, hostId, ...files] = process.argv.slice(2);
+const [server, hostId, ...args] = process.argv.slice(2);
+const files = args.flatMap((arg) =>
+  statSync(arg).isDirectory()
+    ? readdirSync(arg)
+        .filter((name) => name.toLowerCase().endsWith(".txt"))
+        .map((name) => join(arg, name))
+    : [arg],
+);
 const token = process.env.GENJIBALL_ADMIN_TOKEN?.trim();
 if (!server || !/^\d+$/.test(hostId ?? "") || files.length === 0 || !token) {
-  console.error("Usage: GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- <server URL> <host id> <log file>...");
+  console.error("Usage: GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- <server URL> <host id> <log file or folder>...");
   process.exit(1);
 }
 

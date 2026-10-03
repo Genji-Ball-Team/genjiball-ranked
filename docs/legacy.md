@@ -13,7 +13,7 @@ Before ranked logging (v1.3.3R), the v1.3.2 RANKED version logged one line per d
 An admin imports them; hosts can't upload them (`422 legacy_log`).
 
 ```sh
-GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- https://test.genjiball.us <host id> path/to/logs/Log-*.txt
+GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- https://test.genjiball.us <host id> path/to/logs
 ```
 
 - `<host id>` is the host whose lobbies the files are from (add one at `/admin` first). The import counts as from a trusted host.
