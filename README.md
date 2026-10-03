@@ -30,7 +30,7 @@ npm run dev                # http://localhost:8787
 | `npm run check` | Typecheck, lint and test. What CI runs |
 | `npm test` | Tests only (in the Workers runtime, with a local D1) |
 | `npm run db:migrate:local` | Apply migrations to the local D1 |
-| `npm run admin:token -- <name>` | Make an admin token, and print the command that adds the admin |
+| `npm run admin:token -- <name>` | Make an admin token, and the SQL file that adds the admin |
 
 The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
 
