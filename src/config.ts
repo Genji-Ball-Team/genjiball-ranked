@@ -32,6 +32,23 @@ export const defaults = {
   /** What happens to a match from an untrusted host: `review` (admins accept it) or `reject`. */
   untrustedHostUploads: "review" as "review" | "reject",
 
+  /**
+   * Legacy v1.3.2 logs (#4, docs/legacy.md). A round one of these AI bots played in isn't rated: new
+   * logs reject a whole match with a bot, but a legacy file is often a long lobby where a bot was in
+   * only some rounds.
+   */
+  legacyBotNames: ["Genji Bot", "zSh4d0Ws bozo"] as string[],
+  /** `game_version` stored for a legacy match: the log doesn't say. */
+  legacyGameVersion: "1.3.2",
+  /**
+   * Shortest time between a legacy round's last death and the next round's first, in seconds: the
+   * game waits 2.25 s and counts down 5 s, and the ball still has to fly. Deaths closer together
+   * are in one round. Real v1.3.2 logs never go below 7.6 s between rounds.
+   */
+  legacyRoundGapSeconds: 7,
+  /** v1.3.2 resurrects everyone this many seconds after a round is won (0.25 s and 2 s waits). */
+  legacyResurrectSeconds: 2.25,
+
   /** Random bytes in a new host token (shown once, as hex). 32 bytes can't be guessed. */
   hostTokenBytes: 32,
   /** Most rows an admin list returns (matches, hosts, actions). The newest come first. */

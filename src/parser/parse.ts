@@ -66,7 +66,7 @@ const eventTypes = new Set([
 const roundResults = new Set<string>(["WIN", "NONE", "ABORT"]);
 
 /** Removes the Workshop's `[hh:mm:ss] ` prefix. */
-function stripPrefix(line: string): string {
+export function stripPrefix(line: string): string {
   return line.replace(/^\[\d+:\d{2}:\d{2}\] ?/, "").trimEnd();
 }
 
@@ -311,7 +311,7 @@ function closeRound(round: OpenRound, endTime: number, result: RoundResult, winn
 }
 
 /** A number with `.` or `,` as the decimal mark, or `null`. */
-function num(field: string | undefined): number | null {
+export function num(field: string | undefined): number | null {
   if (field === undefined || !/^-?\d+(?:[.,]\d+)?$/.test(field)) return null;
   return Number(field.replace(",", "."));
 }

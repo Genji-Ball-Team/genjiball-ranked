@@ -58,13 +58,18 @@ export interface UploadWrite {
   plans: MatchPlan[];
   rows: MatchRows;
   chunkRows: number;
+  /** More statements for the same transaction. */
+  extra?: D1PreparedStatement[];
 }
 
 /** Writes the upload and its matches in one transaction. Returns the upload id. */
 export async function writeUpload(db: D1Database, w: UploadWrite): Promise<number> {
   const json = (value: unknown) => JSON.stringify(value);
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
-  const matchJoin = "JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'";
+  // CROSS JOIN keeps json_each the outer loop: SQLite has no row count for it, and with a plain JOIN
+  // it may loop over every stored match (and its rounds and players) and scan the JSON for each,
+  // which grows with the database until D1 runs out of CPU time.
+  const matchJoin = "CROSS JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'";
 
   const replacedIds = w.rows.replaced.flatMap((m) => (m.id === null ? [] : [m.id]));
   const repointIds = w.plans.filter((p) => p.action === "repoint").map((p) => p.storedId);
@@ -139,10 +144,10 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       .bind(json(repointIds), w.contentHash),
     db
       .prepare(
-        `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, status, rejection_code,
+        `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, legacy, status, rejection_code,
            rejection_message, review_reasons, unranked, map, preset, played_at, complete)
          SELECT ${uploadId.replace("?2", "?3")}, ?2, e.value ->> 'matchKey', e.value ->> 'lineCount', e.value ->> 'format',
-           e.value ->> 'gameVersion', e.value ->> 'status', e.value ->> 'rejectionCode', e.value ->> 'rejectionMessage',
+           e.value ->> 'gameVersion', e.value ->> 'legacy', e.value ->> 'status', e.value ->> 'rejectionCode', e.value ->> 'rejectionMessage',
            e.value ->> 'reviewReasons', e.value ->> 'unranked', e.value ->> 'map', e.value ->> 'preset',
            e.value ->> 'playedAt', e.value ->> 'complete'
          FROM json_each(?1) e`,
@@ -155,7 +160,7 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
           `INSERT INTO match_players (match_id, log_id, player_id, name, join_time, leave_time)
            SELECT m.id, e.value ->> 'logId', a.player_id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime'
            FROM json_each(?1) e ${matchJoin}
-           JOIN aliases a ON a.name_key = e.value ->> 'key'`,
+           CROSS JOIN aliases a ON a.name_key = e.value ->> 'key'`,
         )
         .bind(json(rows), w.hostId),
     ),
@@ -176,8 +181,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
            SELECT r.id, e.value ->> 'logId', mp.player_id, e.value ->> 'position', e.value ->> 'place',
              e.value ->> 'leftRound', e.value ->> 'killerId'
            FROM json_each(?1) e ${matchJoin}
-           JOIN rounds r ON r.match_id = m.id AND r.number = e.value ->> 'round'
-           JOIN match_players mp ON mp.match_id = m.id AND mp.log_id = e.value ->> 'logId'`,
+           CROSS JOIN rounds r ON r.match_id = m.id AND r.number = e.value ->> 'round'
+           CROSS JOIN match_players mp ON mp.match_id = m.id AND mp.log_id = e.value ->> 'logId'`,
         )
         .bind(json(rows), w.hostId),
     ),
@@ -201,6 +206,7 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       )
       .bind(json(oldUploadIds), w.contentHash),
     db.prepare("UPDATE hosts SET last_upload_at = ?2 WHERE id = ?1").bind(w.hostId, w.now),
+    ...(w.extra ?? []),
   ];
 
   const [upload] = await db.batch<{ id: number }>(statements);
