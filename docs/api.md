@@ -119,12 +119,12 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 
 What the website's pages read (`/`, `/player?id=`, `/match?id=`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
-Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color }` (RGB 0–255) or `null`: a player needs `minRankedRounds` (10) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
+Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (10) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
 
 | Route | Answers |
 |---|---|
 | `GET /api/leaderboard?page=1` | `{ page, pageSize, hasMore, players }`. Players with at least `minRankedRounds` rated rounds, best first, `leaderboardPageSize` (50) a page. Each: `rank, id, name, rating, rounds, wins, lastPlayedAt, tier, inactiveSince` |
-| `GET /api/players/:id` | `{ player, matches }`. `player`: `id, name, aliases` (newest first) and `rating` (as on the leaderboard, `rank` `null` below `minRankedRounds`; `null` with no rated round). `matches`: the newest `playerRecentMatches` (20), newest uploaded first: `id, playedAt, map, legacy, void, ratingBefore, ratingAfter` (`null` when the match didn't rate them; `ratingBefore` `null` for their first) |
+| `GET /api/players/:id` | `{ player, matches }`. `player`: `id, name, aliases` (newest first) and `rating` (as on the leaderboard, `rank` `null` below `minRankedRounds`, plus `nextTier`: the next tier up from their rating, like `tier`, `null` at the top; `null` with no rated round). `matches`: the newest `playerRecentMatches` (20), newest uploaded first: `id, playedAt, map, legacy, void, ratingBefore, ratingAfter` (`null` when the match didn't rate them; `ratingBefore` `null` for their first) |
 | `GET /api/matches/:id` | `{ match }`: `id, playedAt, map, preset, gameVersion, legacy, void, complete`, `players` (`id, name, rounds, wins` in the match's rated rounds, `ratingBefore, ratingAfter`) and `rounds` (`number, result, rated, broken, winner`, and `placements`: `playerId, name, position, left`, in finishing order, leavers last) |
 
 ## Rank tags: `GET /api/rank-tags`

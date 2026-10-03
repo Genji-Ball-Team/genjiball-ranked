@@ -317,6 +317,6 @@ describe("admin page", () => {
   it("is served", async () => {
     const res = await SELF.fetch("https://example.com/admin.html");
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain("Genji Ball Ranked admin");
+    expect(await res.text()).toContain("<title>Admin – Genji Ball Ranked</title>");
   });
 });

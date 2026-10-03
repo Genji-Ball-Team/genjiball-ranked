@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { handleSite } from "../src/site/handler";
-import { standing } from "../src/site/standing";
+import { nextTier, standing } from "../src/site/standing";
 import { sha256 } from "../src/upload/handler";
 import { matchId, matchLog } from "./helpers";
 
@@ -65,8 +65,15 @@ describe("standing", () => {
 
   it("gives the tier only from minRankedRounds rated rounds", () => {
     expect(standing({ display: 1700, rounds: 9, lastPlayedAt: null }, config, now).tier).toBeNull();
-    expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Grandmaster", color: [255, 140, 0] });
+    expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Grandmaster", color: [255, 140, 0], threshold: 1600 });
     expect(standing({ display: 1299, rounds: 10, lastPlayedAt: null }, config, now).tier).toBeNull();
+  });
+
+  it("gives the next tier up, none at the top", () => {
+    expect(nextTier(0, config.tiers)).toEqual({ label: "Master", color: [255, 215, 0], threshold: 1300 });
+    expect(nextTier(1600, config.tiers)?.label).toBe("Ascendant");
+    expect(nextTier(1599, config.tiers)?.label).toBe("Grandmaster");
+    expect(nextTier(2600, config.tiers)).toBeNull();
   });
 
   it("marks a player inactive after inactiveAfterDays, since their last match", () => {
@@ -131,7 +138,7 @@ describe("player", () => {
     await playMatches(defaults.minRankedRounds / 2);
     const alpha = await playerId("Alpha");
     const { player, matches } = await get<{
-      player: { id: number; name: string; aliases: string[]; rating: { rank: number; rating: number; rounds: number; wins: number } };
+      player: { id: number; name: string; aliases: string[]; rating: { rank: number; rating: number; rounds: number; wins: number; nextTier: { label: string } | null } };
       matches: { id: number; ratingBefore: number | null; ratingAfter: number | null; void: boolean; legacy: boolean }[];
     }>(`players/${alpha}`);
 
@@ -139,6 +146,7 @@ describe("player", () => {
     expect(player.rating).toMatchObject({ rounds: defaults.minRankedRounds, wins: defaults.minRankedRounds / 2 });
     const board = await get<Board>("leaderboard");
     expect(player.rating.rank).toBe(board.players.find((p) => p.id === alpha)!.rank);
+    expect(player.rating.nextTier).toEqual(nextTier(player.rating.rating, defaults.tiers));
 
     expect(matches).toHaveLength(defaults.minRankedRounds / 2);
     expect(matches[0]!.id).toBeGreaterThan(matches[1]!.id);

@@ -4,32 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Genji Ball Ranked admin</title>
-  <style>
-    /* Minimal on purpose: the site design comes with #14. */
-    :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #1d1d1b; --muted: #666; --line: #d8d7d2; --bad: #b3261e; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #141413; --fg: #ecebe6; --muted: #9a9890; --line: #33322f; --bad: #f2b8b5; } }
-    body { margin: 0 auto; max-width: 1100px; padding: 0 16px 48px; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
-    h1 { font-size: 1.4em; } h2 { font-size: 1.15em; margin-top: 2em; }
-    .muted { color: var(--muted); } .error { color: var(--bad); }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
-    input, select, button { font: inherit; padding: 4px 8px; }
-    .scroll { overflow-x: auto; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { font-weight: 600; white-space: nowrap; }
-    code { word-break: break-all; }
-    [hidden] { display: none !important; }
-  </style>
+  <title>Admin – Genji Ball Ranked</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
 </head>
-<body>
-  <h1>Genji Ball Ranked admin</h1>
+<body class="admin">
+  <header class="top">
+    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
+    <nav><a href="/">Leaderboard</a><a href="/admin" aria-current="page">Admin</a></nav>
+  </header>
+  <main>
+  <h1>Admin</h1>
 
   <section id="signin">
-    <p>Sign in with your admin token. It stays in this tab only.</p>
+    <p class="lede">Sign in with your admin token. It stays in this tab only.</p>
     <form class="row" id="signin-form">
       <input id="token" type="password" autocomplete="off" placeholder="Admin token" size="40" required>
-      <button>Sign in</button>
+      <button class="primary">Sign in</button>
     </form>
   </section>
 
@@ -46,7 +37,7 @@
       </select></label>
       <button id="reload-matches">Reload</button>
     </div>
-    <div class="scroll"><table>
+    <div class="scroll"><table class="data">
       <thead><tr><th>Id</th><th>Played</th><th>Host</th><th>Players</th><th>Why</th><th>Rated</th><th>Actions</th></tr></thead>
       <tbody id="matches"></tbody>
     </table></div>
@@ -55,21 +46,22 @@
     <form class="row" id="host-form">
       <input id="host-name" placeholder="Host name" required maxlength="200">
       <select id="host-trust"><option value="untrusted">untrusted</option><option value="trusted">trusted</option></select>
-      <button>Create host token</button>
+      <button class="primary">Create host token</button>
     </form>
     <p id="new-token" hidden>New token for <strong id="new-token-host"></strong>, shown once: <code id="new-token-value"></code></p>
-    <div class="scroll"><table>
+    <div class="scroll"><table class="data">
       <thead><tr><th>Id</th><th>Name</th><th>Trust</th><th>Created</th><th>Last upload</th><th>Actions</th></tr></thead>
       <tbody id="hosts"></tbody>
     </table></div>
 
     <h2>Action log</h2>
-    <div class="scroll"><table>
+    <div class="scroll"><table class="data">
       <thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Match</th><th>Host</th><th>Detail</th></tr></thead>
       <tbody id="actions"></tbody>
     </table></div>
   </div>
 
+  </main>
   <script>
     const $ = (id) => document.getElementById(id);
     const storage = { get: () => { try { return sessionStorage.getItem("adminToken"); } catch { return null; } },

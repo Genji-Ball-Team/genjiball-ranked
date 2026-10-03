@@ -2,28 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Player – Genji Ball</title>
+  <meta name="theme-color" content="#090b10">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Player – Genji Ball Ranked</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body data-page="player">
-  <header>
-    <a class="brand" href="/"><b>GB</b><div><strong>GENJI BALL</strong><small>RANKED LEADERBOARD</small></div></a>
-    <a class="live" href="/">● LEADERBOARD</a>
+  <header class="top">
+    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
+    <nav><a href="/">Leaderboard</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
   </header>
   <main>
-    <p class="eyebrow">Player</p>
-    <h1 id="name">Loading…</h1>
-    <p id="standing"></p>
-    <p id="aliases" class="intro"></p>
-    <div id="stats" class="stats"></div>
+    <div class="headline"><h1 id="name">&nbsp;</h1><span id="tier"></span></div>
+    <p id="about" class="lede"></p>
+    <dl id="stats" class="figures"></dl>
+    <div id="next-tier" class="next-tier"></div>
     <h2>Recent matches</h2>
-    <section class="card matches">
-      <div class="thead"><span>PLAYED</span><span>MAP</span><span>RATING</span><span>MATCH</span></div>
-      <div id="matches"><div class="loading">Loading…</div></div>
-    </section>
+    <ol id="matches" class="history" aria-busy="true" data-loading>
+      <li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li>
+    </ol>
   </main>
-  <footer>GENJI BALL • RANKED</footer>
+  <footer>Genji Ball is an Overwatch custom game. Play ranked on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</footer>
   <script src="/site.js"></script>
 </body>
 </html>
