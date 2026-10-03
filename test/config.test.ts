@@ -14,6 +14,11 @@ describe("loadConfig", () => {
     expect(loadConfig({ LOG_LEVEL: "loud" }).logLevel).toBe(defaults.logLevel);
   });
 
+  it("turns the test server banner on from TEST_SERVER", () => {
+    expect(loadConfig({ TEST_SERVER: "true" }).testServer).toBe(true);
+    expect(loadConfig({ TEST_SERVER: "false" }).testServer).toBe(false);
+  });
+
   it("doesn't share state between calls", () => {
     loadConfig({}).acceptedLogFormats.push(99);
     expect(defaults.acceptedLogFormats).toEqual([1]);

@@ -31,8 +31,19 @@ npm run dev                # http://localhost:8787
 | `npm test` | Tests only (in the Workers runtime, with a local D1) |
 | `npm run db:migrate:local` | Apply migrations to the local D1 |
 | `npm run admin:token -- <name>` | Make an admin token, and the SQL file that adds the admin |
+| `npm run deploy:test` | Migrate and deploy the test server |
+| `npm run upload -- <server> <file>...` | Upload log files by hand, with `GENJIBALL_HOST_TOKEN` set |
 
 The leaderboard is at `/`, with player (`/player?id=`) and match (`/match?id=`) pages. The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
+
+## Test server
+
+A second deployment for playtests and for trying changes before they reach the real leaderboard: [test.genjiball.us](https://test.genjiball.us). It's the `test` environment in `wrangler.toml`: the same Worker with its own D1 database (`genjiball-ranked-test`), so nothing done there touches the real ratings. Every page shows a "Test server" banner, and it logs at `debug`.
+
+- **Deploy:** `npm run deploy:test` applies the migrations to the test database and deploys.
+- **Admin token:** `npm run admin:token -- <name>`, then run the printed command with `--env test` added.
+- **Host token:** sign in at `/admin` on the test server and add a host. Production tokens don't work there, and the other way round.
+- **Upload logs by hand** (until the host tool can point at the test server): `GENJIBALL_HOST_TOKEN=<token> npm run upload -- https://test.genjiball.us Log-*.txt`. Run it in the host's time zone: the start time comes from the file name.
 
 ## Layout
 

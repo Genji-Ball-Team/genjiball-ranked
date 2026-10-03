@@ -2,6 +2,9 @@ name = "genjiball-ranked"
 main = "src/index.ts"
 compatibility_date = "2026-08-22"
 compatibility_flags = ["nodejs_compat"]
+# The Genji Ball Cloudflare account (the genjiball.us zone). Pinned so a deploy never goes to whatever
+# other account wrangler is logged into.
+account_id = "c212ad20cc4f4b5382766735f57b91c3"
 
 # The website. Files in public/ are served as they are; any other path runs the Worker.
 [assets]
@@ -23,3 +26,23 @@ crons = ["*/10 * * * *"]
 # Overrides for the defaults in src/config.ts. Leave a var out to use the default.
 [vars]
 LOG_LEVEL = "info"
+
+# The test server (#37): the same Worker with its own D1, for playtests and trying changes before
+# they reach the real leaderboard. Deploy with `npm run deploy:test`. Nothing here touches the
+# production database.
+[env.test]
+name = "genjiball-ranked-test"
+routes = [{ pattern = "test.genjiball.us", custom_domain = true }]
+
+[[env.test.d1_databases]]
+binding = "DB"
+database_name = "genjiball-ranked-test"
+database_id = "b925c703-2670-4642-911e-23e483117b7c"
+migrations_dir = "migrations"
+
+[env.test.triggers]
+crons = ["*/10 * * * *"]
+
+[env.test.vars]
+LOG_LEVEL = "debug"
+TEST_SERVER = "true"
