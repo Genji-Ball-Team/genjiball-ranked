@@ -42,7 +42,7 @@ The leaderboard is at `/`, with player (`/player?id=`) and match (`/match?id=`) 
 | `src/config.ts` | Every tunable and its default |
 | `public/` | The website's static files |
 | `migrations/` | D1 schema migrations. Tables and free-tier budget: [docs/database.md](docs/database.md) |
-| `docs/` | [api.md](docs/api.md) (the upload, admin and site APIs), [rating.md](docs/rating.md), [database.md](docs/database.md) |
+| `docs/` | [api.md](docs/api.md) (the upload, admin, site and rank tags APIs), [rating.md](docs/rating.md), [database.md](docs/database.md) |
 | `scripts/` | Small Node scripts (`admin:token`) |
 | `test/` | Vitest tests |
 

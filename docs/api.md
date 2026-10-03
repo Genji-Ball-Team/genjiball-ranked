@@ -126,3 +126,22 @@ Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, co
 | `GET /api/leaderboard?page=1` | `{ page, pageSize, hasMore, players }`. Players with at least `minRankedRounds` rated rounds, best first, `leaderboardPageSize` (50) a page. Each: `rank, id, name, rating, rounds, wins, lastPlayedAt, tier, inactiveSince` |
 | `GET /api/players/:id` | `{ player, matches }`. `player`: `id, name, aliases` (newest first) and `rating` (as on the leaderboard, `rank` `null` below `minRankedRounds`; `null` with no rated round). `matches`: the newest `playerRecentMatches` (20), newest uploaded first: `id, playedAt, map, legacy, void, ratingBefore, ratingAfter` (`null` when the match didn't rate them; `ratingBefore` `null` for their first) |
 | `GET /api/matches/:id` | `{ match }`: `id, playedAt, map, preset, gameVersion, legacy, void, complete`, `players` (`id, name, rounds, wins` in the match's rated rounds, `ratingBefore, ratingAfter`) and `rounds` (`number, result, rated, broken, winner`, and `placements`: `playerId, name, position, left`, in finishing order, leavers last) |
+
+## Rank tags: `GET /api/rank-tags`
+
+What the host tool builds the game's `RANKS - generated` rule from (GenjiBall-CE [`docs/rank-tags.md`](https://github.com/Genji-Ball-Team/GenjiBall-CE/blob/v1.3.3R/docs/rank-tags.md)). Public, cached for `rankTagsCacheSeconds` (1 h). Code: `src/site/rankTags.ts`.
+
+```json
+{
+  "header": "Ranks updated 2026-10-03",
+  "updatedAt": "2026-10-03T12:00:00Z",
+  "tiers": [
+    { "label": "Master", "color": [255, 215, 0, 255], "guide": "Master - 1300", "names": ["Kenzo"] },
+    { "label": "Grandmaster", "color": [255, 140, 0, 255], "guide": "Grandmaster - 1600", "names": [] }
+  ]
+}
+```
+
+- `header` is the line under the guide's header (`rankTags[0]`); then one entry per tier, **lowest first**, every tier even with no names. `color` is RGBA, 0–255.
+- A player is listed in their tier when they have `minRankedRounds` rated rounds and aren't inactive (the same rules as the site). At most `rankTagsMaxNames` (500) names, the best ratings first.
+- `names` are display names as the log has them, which is how the Workshop writes them. Names with `{` or `}`, and names over 128 characters, are left out. The rest are raw: **the host tool escapes `"` and `\`** when it writes the `Custom String`s.

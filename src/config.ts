@@ -95,6 +95,13 @@ export const defaults = {
   leaderboardPageSize: 50,
   /** Matches on a player page, newest first. */
   playerRecentMatches: 20,
+  /**
+   * Most names in the rank tags (`/api/rank-tags`), the best ones. Each costs Workshop elements;
+   * GenjiBall-CE docs/rank-tags.md asks for under about 500.
+   */
+  rankTagsMaxNames: 500,
+  /** How long the rank tags may be cached, in seconds. Tags only need to change about once a day. */
+  rankTagsCacheSeconds: 60 * 60,
   /** How long a browser may keep a public read (leaderboard, player, match), in seconds. */
   publicCacheSeconds: 60,
 };

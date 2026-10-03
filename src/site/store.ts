@@ -1,4 +1,5 @@
 import { board } from "../rating/store";
+import { workshopStringMax } from "./rankTags";
 
 /**
  * The public site's D1 queries (#14). Read-only, and each one reads through an index, so a page
@@ -27,6 +28,30 @@ export async function listLeaderboard(db: D1Database, minRounds: number, limit: 
        WHERE r.board = ?1 AND r.rounds >= ?2 ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
     )
     .bind(board, minRounds, limit, offset)
+    .all<RatingRow>();
+  return results;
+}
+
+/**
+ * Who may get a rank tag, best first: at least `minRounds` rated rounds, a display rating of at
+ * least `minDisplay` (the lowest tier) and a rated round since `activeSince`. Names the Workshop
+ * can't hold are left out here, so they don't use up the `limit` (index `ratings_board_display`).
+ */
+export async function listTagCandidates(
+  db: D1Database,
+  minRounds: number,
+  minDisplay: number,
+  activeSince: string,
+  limit: number,
+): Promise<RatingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board = ?1 AND r.display >= ?2 AND r.rounds >= ?3 AND r.last_played_at >= ?4
+         AND length(p.name) BETWEEN 1 AND ?6 AND instr(p.name, '{') = 0 AND instr(p.name, '}') = 0
+       ORDER BY r.display DESC, r.player_id LIMIT ?5`,
+    )
+    .bind(board, minDisplay, minRounds, activeSince, limit, workshopStringMax)
     .all<RatingRow>();
   return results;
 }
