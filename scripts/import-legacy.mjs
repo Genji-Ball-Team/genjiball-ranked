@@ -24,6 +24,13 @@ if (!server || !/^\d+$/.test(hostId ?? "") || files.length === 0 || !token) {
   process.exit(1);
 }
 
+// The admin token goes in a header: never over plain HTTP, except to a server on this computer.
+const base = new URL(server);
+if (base.protocol !== "https:" && !(base.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname))) {
+  console.error(`Use an https:// server URL (http:// only for localhost), not ${server}`);
+  process.exit(1);
+}
+
 function startedAt(file) {
   const m = /(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})/.exec(basename(file));
   return m ? new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6]) : statSync(file).mtime;
@@ -63,16 +70,25 @@ for (const log of logs) {
   }
   const url = new URL("/api/admin/legacy-import", server);
   url.searchParams.set("host", hostId);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "text/plain; charset=utf-8",
-      "X-Log-File": name,
-      "X-Log-Started-At": log.started.toISOString(),
-    },
-    body: log.text,
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      // A redirect would send the log on to somewhere else: count it as a failure instead.
+      redirect: "manual",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Log-File": name,
+        "X-Log-Started-At": log.started.toISOString(),
+      },
+      body: log.text,
+    });
+  } catch (error) {
+    failed++;
+    console.log(`${name}: ${error.message}`);
+    continue;
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     failed++;
