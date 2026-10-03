@@ -1,0 +1,39 @@
+{
+  "name": "genjiball-ranked",
+  "version": "0.0.0",
+  "description": "Genji Ball Ranked: API, rating engine and website (Cloudflare Workers + D1)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "cf-typegen": "wrangler types --include-runtime false",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Genji-Ball-Team/genjiball-ranked.git"
+  },
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/Genji-Ball-Team/genjiball-ranked/issues"
+  },
+  "homepage": "https://github.com/Genji-Ball-Team/genjiball-ranked#readme",
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20261003.1",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.12.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.147.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  }
+}

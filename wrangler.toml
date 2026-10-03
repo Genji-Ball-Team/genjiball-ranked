@@ -1,0 +1,20 @@
+name = "genjiball-ranked"
+main = "src/index.ts"
+compatibility_date = "2026-08-22"
+compatibility_flags = ["nodejs_compat"]
+
+# The website. Files in public/ are served as they are; any other path runs the Worker.
+[assets]
+directory = "public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "genjiball-ranked"
+# Replace with the id from `wrangler d1 create genjiball-ranked` when deploying.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# Overrides for the defaults in src/config.ts. Leave a var out to use the default.
+[vars]
+LOG_LEVEL = "info"

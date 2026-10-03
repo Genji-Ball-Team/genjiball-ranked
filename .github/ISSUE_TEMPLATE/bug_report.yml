@@ -1,0 +1,23 @@
+name: Bug report
+description: Something on the ranked site or API doesn't work as it should
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The page or API call, the player or match, and the steps.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: For a parsing or rating problem, attach the Workshop log file of the match.
