@@ -10,13 +10,14 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `aliases` | name seen for a player | A name (ignoring case) belongs to one player. Admins merge them (#8) |
 | `hosts` | host | Only the SHA-256 of the token. `trust`: `trusted`, `untrusted` or `revoked` |
 | `uploads` | uploaded file | The raw log, gzipped, and its SHA-256 (the same file is stored once) |
-| `matches` | match | `status`: `accepted`, `review`, `rejected`, `void`. One per host + `match_key` |
+| `matches` | match | `status`: `accepted`, `review`, `rejected`, `void`. One per host + `match_key`. `rated_at`: when it went into the ratings |
 | `match_players` | player in a match | By the per-match log id from `JOIN` |
 | `rounds` | round | `rated` = a `WIN` round that isn't broken |
 | `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
 | `ratings` | player per leaderboard | `board` is `ranked` now; `tourney` and `global` come with #26 |
-| `rating_history` | player per match | The rating after each match, for the graph |
+| `rating_history` | player per match | The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
+| `rating_state` | leaderboard | Whether the ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)) |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
 
@@ -61,20 +62,21 @@ Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the
 | Table | Rows | With indexes |
 |---|---|---|
 | `uploads` | 1 | 3 |
-| `matches` | 1 | 3 |
+| `matches` | 1 | 5 |
 | `match_players` | 8 | 16 |
 | `aliases` (last seen) | 8 | 8 |
 | `rounds` | 25 | 50 |
 | `round_players` | 200 | 400 |
 | `events` | 575 | 575 |
 | `ratings` | 8 | 16 |
-| `rating_history` | 8 | 8 |
-| **Total** | | **≈ 1,100** |
+| `rating_history` | 8 | 16 |
+| `rating_state` | 1 | 1 |
+| **Total** | | **≈ 1,110** |
 
-40 matches a day is **≈ 44,000 rows written a day, 44% of the limit**. Without the "drop a copy that isn't longer" rule above, a match uploaded in 3 files would cost up to 3 times that, and a busy day would go over the limit. So the upload endpoint must check the line count before it writes anything, and the host tool should upload a file only once it has stopped growing.
+40 matches a day is **≈ 44,500 rows written a day, 45% of the limit**. Without the "drop a copy that isn't longer" rule above, a match uploaded in 3 files would cost up to 3 times that, and a busy day would go over the limit. So the upload endpoint must check the line count before it writes anything, and the host tool should upload a file only once it has stopped growing.
 
 `events` is the biggest table. If writes get tight, deflects can be stored as per-player counts per match instead of rows: the raw log keeps the detail.
 
 **Storage.** A log line is about 35 bytes, so a match is about 28 KB of text, about 7 KB gzipped (gzip shrinks even the tiny spec example 2.6×; long logs shrink more). The rows add about 1,100 rows × ~40 bytes ≈ 45 KB a match. Together about **50 KB a match, 2 MB a day, 14 MB a week, 730 MB a year** at this rate. That passes the 500 MB database limit after about 8 months of every day being this busy. Before that: drop `events` rows for old matches (stats can be kept as totals, the raw log stays), or move raw logs to R2 (10 GB free).
 
-**Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The cost to watch is a **full rating recompute** (#6): it reads every rated `round_players` row, about 200 a match. After a year at this rate that's about 3 million rows, most of a day's reads. Recompute should be an admin action, not run on every upload; a new match is rated incrementally. A recompute that changes old ratings rewrites `rating_history` for every later match, which can also pass the daily write limit after a few months: it should write only the rows that changed, and spread a large rewrite over several runs.
+**Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The cost to watch is a **rating recompute** (#6): it reads every rated `round_players` row of the matches it re-rates, about 200 a match, and a full one would read about 3 million rows after a year at this rate, most of a day's reads. So a new match is rated incrementally, and a recompute starts at the first changed match, from the players' `rating_history` just before it, not from scratch. It re-rates `ratingMatchesPerRun` matches a run (about 2,000 rows read) and writes only the history and ratings rows that changed, so a late upload only rewrites the later matches of the players it moved ([rating.md](rating.md), "Ratings in the database").

@@ -1,3 +1,4 @@
+import { staleFromMatchesStatement } from "../rating/store";
 import type { HostTrust, MatchPlan, MatchRows, MatchStatus, StoredCopy } from "./plan";
 
 /**
@@ -61,7 +62,7 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
   const matchJoin = "JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'";
 
-  const replacedIds = w.rows.replaced.map((m) => m.id);
+  const replacedIds = w.rows.replaced.flatMap((m) => (m.id === null ? [] : [m.id]));
   const repointIds = w.plans.filter((p) => p.action === "repoint").map((p) => p.storedId);
   const oldUploadIds = w.plans
     .filter((p) => p.action === "replace" || p.action === "repoint")
@@ -127,6 +128,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
          FROM json_each(?1) e WHERE matches.id = e.value ->> 'id'`,
       )
       .bind(json(w.rows.replaced), w.contentHash),
+    // A rated match whose rounds just changed: the ratings are stale from it (docs/rating.md).
+    staleFromMatchesStatement(db, replacedIds, w.now, true),
     db
       .prepare(`UPDATE matches SET upload_id = ${uploadId} WHERE id IN (SELECT value FROM json_each(?1))`)
       .bind(json(repointIds), w.contentHash),

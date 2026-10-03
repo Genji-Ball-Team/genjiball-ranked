@@ -42,7 +42,10 @@ export interface PlayerRating {
   lastPlayedAt: string | null;
 }
 
-/** A player's rating after a match they were in, for the history graph. */
+/**
+ * A player's rating after a match they were in, for the history graph. It holds the whole
+ * `PlayerRating`, so a recompute can start from it (`lastPlayedAt` is `playedAt`).
+ */
 export interface HistoryEntry {
   playerId: number;
   matchId: number;
@@ -50,6 +53,8 @@ export interface HistoryEntry {
   mu: number;
   sigma: number;
   display: number;
+  rounds: number;
+  wins: number;
 }
 
 export type Ratings = Map<number, PlayerRating>;
@@ -113,6 +118,8 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
       mu: rating.mu,
       sigma: rating.sigma,
       display: displayRating(rating, config),
+      rounds: rating.rounds,
+      wins: rating.wins,
     };
   });
 }

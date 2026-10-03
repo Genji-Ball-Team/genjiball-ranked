@@ -44,6 +44,17 @@ export const defaults = {
   ratingRoundsPerMatch: 10,
 
   /**
+   * A match with no MATCH_END is rated once this many hours have passed since it started: until
+   * then, a longer copy may still arrive. A complete match is rated as soon as it's uploaded.
+   */
+  ratingIncompleteGraceHours: 6,
+  /**
+   * Most matches rated in one go (one upload, one cron run). Rating costs about 0.5 ms of CPU a
+   * match and the free plan allows 10 ms an invocation, so a long recompute is spread over runs.
+   */
+  ratingMatchesPerRun: 10,
+
+  /**
    * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
    * rating mu − z·sigma. `displayCenter` is a new player's mu with no uncertainty; each point of
    * mu is worth `displayScale`. Never shown below `displayFloor`.

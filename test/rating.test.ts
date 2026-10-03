@@ -159,6 +159,8 @@ describe("rateMatch", () => {
         mu: rating.mu,
         sigma: rating.sigma,
         display: displayRating(rating, config),
+        rounds: rating.rounds,
+        wins: rating.wins,
       });
       expect(rating.lastPlayedAt).toBe("2026-10-01T20:00:00Z");
     }
