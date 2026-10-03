@@ -1,6 +1,7 @@
 import { loadConfig } from "./config";
 import type { Env } from "./env";
 import { createLogger } from "./log";
+import { handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
 export default {
@@ -12,6 +13,10 @@ export default {
     if (url.pathname === "/api/health") {
       const db = await env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>();
       return Response.json({ ok: db?.ok === 1 });
+    }
+
+    if (url.pathname === "/api/upload") {
+      return handleUpload(request, env.DB, config, log);
     }
 
     if (url.pathname.startsWith("/api/")) {

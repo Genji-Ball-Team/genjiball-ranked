@@ -13,6 +13,21 @@ export const defaults = {
   acceptedLogFormats: [1] as number[],
 
   /**
+   * Largest log file the upload endpoint takes, in bytes. A match is about 30 KB and a new match
+   * starts its own file, so this is plenty; it also keeps one upload inside the free plan's CPU time
+   * and its 50 queries per request (see docs/database.md).
+   */
+  maxUploadBytes: 512 * 1024,
+  /** Stored uploads per host token per hour. Past it, uploads get 429 until the hour has passed. */
+  maxUploadsPerHour: 60,
+  /** Rows per bulk insert statement. Smaller is more statements; bigger risks D1's size limits. */
+  insertChunkRows: 2000,
+  /** A match needs this many different players in its rated rounds, or it's rejected (`too_few_players`). */
+  minMatchPlayers: 4,
+  /** What happens to a match from an untrusted host: `review` (admins accept it) or `reject`. */
+  untrustedHostUploads: "review" as "review" | "reject",
+
+  /**
    * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at
    * `ratingMu` ± `ratingSigma`; `ratingBeta` is how much one performance varies around the skill.
    * These are openskill's defaults.

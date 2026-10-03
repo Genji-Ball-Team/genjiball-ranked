@@ -23,7 +23,8 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
 ## Rules for code that writes
 
 - **Keep the raw log.** Ratings, stats and players can always be rebuilt from `uploads.raw_log`. When the parser or the rating engine changes, re-run it over the stored logs.
-- **Copies of one match.** The same match can arrive in several files (see "One match in several files" in the spec). The upload endpoint (#5) looks up `(host_id, match_key)`: if the stored copy has as many lines or more, it drops the new one without writing it. If the new copy is longer, it replaces the match's rows (rounds, players and events go with it: delete them, then insert the new ones under the same match id) and deletes the shorter upload's raw log, since it is the start of the longer one.
+- **Copies of one match.** The same match can arrive in several files (see "One match in several files" in the spec). The upload endpoint (`src/upload/`, [api.md](api.md)) looks up `(host_id, match_key)`. A shorter stored copy is replaced: the match's rounds, players and events are deleted and the new ones inserted under the same match id. A copy with the same line count isn't rewritten; the match just points at the new upload. A longer stored copy wins and the new one isn't written. An upload no match points at any more is deleted: it was the start of a longer one. If no match in a file is new or longer, nothing is written at all.
+- **Every player has at least one alias.** A new name creates a player and its alias in the same batch; the upload finds the new players as those without an alias. Merging players (#8) must keep that true.
 - **Bulk inserts.** The free plan allows 50 queries per Worker invocation and 100 bound parameters per query, and one match has hundreds of events. Insert the rows of a table in one statement from a JSON parameter:
 
   ```sql
@@ -33,7 +34,8 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
   FROM json_each(?2) AS e
   ```
 
-  One match then takes about ten statements, in one `db.batch` (a transaction).
+  An upload is about 15 statements whatever the number of matches in the file, plus one per `insertChunkRows` rows of a big table, all in one `db.batch` (a transaction).
+- **BLOBs come back as arrays.** D1 returns a `BLOB` column (`raw_log`) as an array of byte values, not an `ArrayBuffer`: wrap it in `new Uint8Array(...)` before gunzipping.
 
 ## Free tier
 

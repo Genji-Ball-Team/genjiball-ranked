@@ -39,6 +39,7 @@ npm run dev                # http://localhost:8787
 | `src/config.ts` | Every tunable and its default |
 | `public/` | The website's static files |
 | `migrations/` | D1 schema migrations. Tables and free-tier budget: [docs/database.md](docs/database.md) |
+| `docs/` | [api.md](docs/api.md) (the upload API for the host tool), [rating.md](docs/rating.md), [database.md](docs/database.md) |
 | `test/` | Vitest tests |
 
 ## Contributing
