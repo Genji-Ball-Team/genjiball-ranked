@@ -58,6 +58,8 @@ export interface UploadWrite {
   plans: MatchPlan[];
   rows: MatchRows;
   chunkRows: number;
+  /** More statements for the same transaction. */
+  extra?: D1PreparedStatement[];
 }
 
 /** Writes the upload and its matches in one transaction. Returns the upload id. */
@@ -139,10 +141,10 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       .bind(json(repointIds), w.contentHash),
     db
       .prepare(
-        `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, status, rejection_code,
+        `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, legacy, status, rejection_code,
            rejection_message, review_reasons, unranked, map, preset, played_at, complete)
          SELECT ${uploadId.replace("?2", "?3")}, ?2, e.value ->> 'matchKey', e.value ->> 'lineCount', e.value ->> 'format',
-           e.value ->> 'gameVersion', e.value ->> 'status', e.value ->> 'rejectionCode', e.value ->> 'rejectionMessage',
+           e.value ->> 'gameVersion', e.value ->> 'legacy', e.value ->> 'status', e.value ->> 'rejectionCode', e.value ->> 'rejectionMessage',
            e.value ->> 'reviewReasons', e.value ->> 'unranked', e.value ->> 'map', e.value ->> 'preset',
            e.value ->> 'playedAt', e.value ->> 'complete'
          FROM json_each(?1) e`,
@@ -201,6 +203,7 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       )
       .bind(json(oldUploadIds), w.contentHash),
     db.prepare("UPDATE hosts SET last_upload_at = ?2 WHERE id = ?1").bind(w.hostId, w.now),
+    ...(w.extra ?? []),
   ];
 
   const [upload] = await db.batch<{ id: number }>(statements);

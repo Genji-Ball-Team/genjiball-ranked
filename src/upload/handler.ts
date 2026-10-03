@@ -1,11 +1,13 @@
 import type { Config } from "../config";
 import { fail, type ApiError } from "../http";
 import type { Logger } from "../log";
+import { parseLegacyLog } from "../parser/legacy";
 import { parseLog } from "../parser/parse";
+import type { ParsedMatch } from "../parser/types";
 import { rateNewMatches, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
 import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus } from "./plan";
-import { countRecentUploads, findHost, findStoredCopies, findUploadByHash, writeUpload } from "./store";
+import { countRecentUploads, findHost, findStoredCopies, findUploadByHash, writeUpload, type Host } from "./store";
 
 /**
  * `POST /api/upload`: the host tool sends a Workshop log file (#5).
@@ -42,7 +44,7 @@ export interface MatchResult {
 
 export type UploadError = ApiError;
 
-type UploadConfig = UpdateConfig &
+export type UploadConfig = UpdateConfig &
   Pick<
     Config,
     | "acceptedLogFormats"
@@ -51,6 +53,10 @@ type UploadConfig = UpdateConfig &
     | "insertChunkRows"
     | "minMatchPlayers"
     | "untrustedHostUploads"
+    | "legacyBotNames"
+    | "legacyGameVersion"
+    | "legacyRoundGapSeconds"
+    | "legacyResurrectSeconds"
   >;
 
 const hourMs = 60 * 60 * 1000;
@@ -73,12 +79,36 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
     return fail(429, "rate_limited", `At most ${config.maxUploadsPerHour} uploads an hour`, { "Retry-After": "3600" });
   }
 
+  const bytes = await readBody(request, config);
+  if (bytes instanceof Response) return bytes;
+  return storeLog(db, config, log, { host, bytes, request, now, legacy: false });
+}
+
+export interface StoreLog {
+  host: Host;
+  bytes: Uint8Array;
+  /** For `X-Log-File` and `X-Log-Started-At`. */
+  request: Request;
+  now: Date;
+  /** A v1.3.2 log, imported by an admin (#13): read with the legacy parser. */
+  legacy: boolean;
+  /** Written in the upload's transaction (the admin action log of an import). */
+  extra?: (db: D1Database) => D1PreparedStatement[];
+}
+
+/** The file's body, or the error response when it's empty or too large. */
+export async function readBody(request: Request, config: Pick<Config, "maxUploadBytes">): Promise<Uint8Array | Response> {
   const declaredSize = Number(request.headers.get("Content-Length") ?? 0);
   if (declaredSize > config.maxUploadBytes) return tooLarge(config);
   const bytes = await readLimited(request, config.maxUploadBytes);
   if (!bytes) return tooLarge(config);
   if (!bytes.length) return fail(400, "empty", "The body is empty: send the log file's text");
+  return bytes;
+}
 
+/** Parses a log file and stores its matches: the upload endpoint and the legacy import share it. */
+export async function storeLog(db: D1Database, config: UploadConfig, log: Logger, s: StoreLog): Promise<Response> {
+  const { host, bytes, request, now } = s;
   const contentHash = await sha256(bytes);
   const existing = await findUploadByHash(db, contentHash);
   if (existing) {
@@ -87,16 +117,34 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   }
 
   const text = new TextDecoder().decode(bytes);
-  const parsed = parseLog(text, { acceptedFormats: config.acceptedLogFormats });
-  if (!parsed.matches.length) {
-    return parsed.legacy
-      ? fail(422, "legacy_log", "This is a v1.3.2 log (KILL lines, no GBR). Old logs are imported by an admin, not uploaded")
-      : fail(422, "not_ranked", "No GBR line: this file has no ranked match");
+  let parsedMatches: ParsedMatch[];
+  if (s.legacy) {
+    const match = parseLegacyLog(text, {
+      botNames: config.legacyBotNames,
+      gameVersion: config.legacyGameVersion,
+      roundGapSeconds: config.legacyRoundGapSeconds,
+      resurrectSeconds: config.legacyResurrectSeconds,
+    });
+    if (!match) return fail(422, "not_legacy", "No KILL line: this isn't a v1.3.2 log");
+    if (parseLog(text, { acceptedFormats: config.acceptedLogFormats }).matches.length) {
+      return fail(422, "not_legacy", "This file has a GBR line: upload it as a ranked log, not a legacy one");
+    }
+    // Legacy logs have no matchKey. Each file is its own match, keyed by its content; the import
+    // script leaves out a file that's the start of a longer one (docs/legacy.md).
+    parsedMatches = [{ ...match, matchKey: `legacy-${contentHash.slice(0, 16)}` }];
+  } else {
+    const parsed = parseLog(text, { acceptedFormats: config.acceptedLogFormats });
+    if (!parsed.matches.length) {
+      return parsed.legacy
+        ? fail(422, "legacy_log", "This is a v1.3.2 log (KILL lines, no GBR). Old logs are imported by an admin, not uploaded")
+        : fail(422, "not_ranked", "No GBR line: this file has no ranked match");
+    }
+    parsedMatches = parsed.matches;
   }
 
-  const keys = parsed.matches.map((m) => m.matchKey).filter((key) => key !== "");
+  const keys = parsedMatches.map((m) => m.matchKey).filter((key) => key !== "");
   const stored = await findStoredCopies(db, host.id, keys);
-  const plans = planUpload(parsed.matches, stored, host.trust, config);
+  const plans = planUpload(parsedMatches, stored, host.trust, config);
   for (const plan of plans) {
     log.debug("match", {
       matchKey: plan.matchKey,
@@ -129,6 +177,7 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
       plans,
       rows: matchRows(plans, playedAt),
       chunkRows: config.insertChunkRows,
+      extra: s.extra?.(db) ?? [],
     });
   } catch (error) {
     // Another upload of the same file or match was written between our reads and this write.
@@ -163,7 +212,7 @@ function result(plan: MatchPlan): MatchResult {
   };
 }
 
-function tooLarge(config: UploadConfig): Response {
+function tooLarge(config: Pick<Config, "maxUploadBytes">): Response {
   return fail(413, "too_large", `The file is larger than ${config.maxUploadBytes} bytes`);
 }
 

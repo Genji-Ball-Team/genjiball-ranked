@@ -10,6 +10,7 @@
     "deploy:test": "wrangler d1 migrations apply DB --env test --remote && wrangler deploy --env test",
     "upload": "node scripts/upload.mjs",
     "admin:token": "node scripts/admin-token.mjs",
+    "import:legacy": "node scripts/import-legacy.mjs",
     "cf-typegen": "wrangler types --include-runtime false",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

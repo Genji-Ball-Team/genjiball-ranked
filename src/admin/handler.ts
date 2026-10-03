@@ -4,10 +4,11 @@ import type { Logger } from "../log";
 import { readState, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
-import { sha256 } from "../upload/handler";
+import { readBody, sha256, storeLog, type UploadConfig } from "../upload/handler";
 import type { HostTrust, MatchStatus } from "../upload/plan";
 import { matchActions, matchTransition, newToken, trustChange, type MatchAction } from "./plan";
 import {
+  actionStatement,
   createHost,
   findAdmin,
   findHostById,
@@ -22,12 +23,13 @@ import {
 } from "./store";
 
 /**
- * `/api/admin/*`: hosts, the review queue, voiding matches and the action log (#7, docs/api.md).
+ * `/api/admin/*`: hosts, the review queue, voiding matches, the action log (#7, docs/api.md) and the
+ * legacy log import (#13).
  * Every request needs `Authorization: Bearer <admin token>`; every change is logged in
  * `admin_actions` in the same transaction.
  */
 
-type AdminConfig = UpdateConfig & Pick<Config, "hostTokenBytes" | "adminListLimit" | "adminTextMaxLength">;
+type AdminConfig = UpdateConfig & UploadConfig & Pick<Config, "hostTokenBytes" | "adminListLimit" | "adminTextMaxLength">;
 
 interface Context {
   db: D1Database;
@@ -83,6 +85,9 @@ export async function handleAdmin(request: Request, db: D1Database, config: Admi
         if (method !== "POST") return notAllowed("POST");
         return await changeMatch(ctx, id, path[2] as MatchAction, await body(request));
       }
+    }
+    if (path.length === 1 && path[0] === "legacy-import") {
+      return method === "POST" ? await importLegacy(ctx, request) : notAllowed("POST");
     }
     if (path.length === 1 && path[0] === "actions") {
       return method === "GET" ? Response.json({ actions: await listActions(db, config.adminListLimit) }) : notAllowed("GET");
@@ -186,6 +191,33 @@ async function changeMatch(ctx: Context, matchId: number, action: MatchAction, d
     ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
   }
   return Response.json({ match: { ...match, ...transition.to }, ratingsStale });
+}
+
+/**
+ * `POST /api/admin/legacy-import?host=<id>`: stores a v1.3.2 log file (body, as with an upload) as
+ * the host's legacy match (#13, docs/legacy.md). The admin vouches for the file, so it's stored as
+ * from a trusted host, with no upload rate limit. Answers like `POST /api/upload`.
+ */
+async function importLegacy(ctx: Context, request: Request): Promise<Response> {
+  const hostParam = new URL(request.url).searchParams.get("host") ?? "";
+  const hostId = /^[1-9]\d{0,15}$/.test(hostParam) ? Number(hostParam) : null;
+  if (hostId === null) throw new BadRequest("host=<host id> is required");
+  const host = await findHostById(ctx.db, hostId);
+  if (!host) return fail(404, "not_found", "No such host");
+
+  const bytes = await readBody(request, ctx.config);
+  if (bytes instanceof Response) return bytes;
+  const fileName = request.headers.get("X-Log-File")?.trim().slice(0, 255) || null;
+  return storeLog(ctx.db, ctx.config, ctx.log, {
+    host: { id: host.id, name: host.name, trust: "trusted" },
+    bytes,
+    request,
+    now: ctx.now,
+    legacy: true,
+    extra: (db) => [
+      actionStatement(db, { adminId: ctx.admin.id, action: "legacy_import", hostId, detail: { file: fileName }, at: isoSeconds(ctx.now) }),
+    ],
+  });
 }
 
 class BadRequest extends Error {}
