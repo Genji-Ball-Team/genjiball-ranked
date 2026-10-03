@@ -22,6 +22,27 @@ A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So
 
 Ratings are always rebuildable from scratch: `recompute` rates the matches that count (accepted, not void, legacy included) in play order (`played_at`, then id), starting everyone at `ratingMu` ± `ratingSigma`. The same matches always give the same ratings. Rating a new match as it arrives (`rateMatch`) gives exactly what a recompute would, as long as it's the newest match. A void or a late upload of an older match needs a recompute.
 
+## Ratings in the database
+
+`src/rating/update.ts` keeps `ratings` and `rating_history` up to date. `src/rating/plan.ts` decides what to write (pure, like the engine) and `src/rating/store.ts` holds the queries.
+
+**Which matches count:** accepted ones (`status`), complete (with `MATCH_END`), or incomplete and started more than `ratingIncompleteGraceHours` ago: until then a longer copy may still arrive. `matches.rated_at` says which matches are in the ratings now.
+
+**A new match.** After an upload stores an accepted match, `rateNewMatches` looks at the matches that count and aren't rated yet:
+
+- After the newest rated match, in play order (`played_at`, then id): rated on top of the current ratings, writing `ratings`, `rating_history` and `rated_at`. This is what a recompute would give.
+- Before it (a late upload, or an incomplete match whose grace period just ended): the ratings are **stale** from that match on. It's left for the recompute.
+
+A longer copy that replaces a rated match makes the ratings stale from it too, in the upload's own batch. For whatever else changes a rated match (a void or un-void, accepting a match from the review queue, #7), call `markMatchesChanged`; after a change to the rating config or the engine, `markAllStale`.
+
+**Stale ratings** are recorded in `rating_state`: the first match to re-rate. New matches are still rated on top in the meantime, so the leaderboard keeps moving; the recompute redoes them.
+
+**The recompute** (`recomputeRatings`) re-rates from the first stale match on. It starts each player from their last `rating_history` row before it (a history row holds the whole rating), which gives exactly what a recompute from scratch would, and writes only the history and ratings rows that differ. A match that no longer counts loses its history, and a player left with no rated match loses their ratings row. One run re-rates at most `ratingMatchesPerRun` matches (about 0.5 ms of CPU each; the free plan allows 10 ms an invocation) and moves the stale point past them, so a long recompute continues on the next run.
+
+**The cron** (`[triggers]` in `wrangler.toml`, daily) runs `updateRatings`: it rates the matches that became due (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute while the ratings are stale.
+
+**Concurrent writes.** Every rating write is one batch that starts by checking `rating_state.version` and moving it on. If another write landed since the data was read, the batch fails and writes nothing; the cron tries again.
+
 ## Display rating and tiers
 
 The leaderboard shows an Elo-like number from the conservative rating, mu − `displayZ`·sigma:

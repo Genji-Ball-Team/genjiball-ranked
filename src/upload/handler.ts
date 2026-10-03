@@ -1,6 +1,8 @@
 import type { Config } from "../config";
 import type { Logger } from "../log";
 import { parseLog } from "../parser/parse";
+import { rateNewMatches, type UpdateConfig } from "../rating/update";
+import { isoSeconds } from "../time";
 import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus } from "./plan";
 import { countRecentUploads, findHost, findStoredCopies, findUploadByHash, writeUpload } from "./store";
 
@@ -42,15 +44,16 @@ export interface UploadError {
   message: string;
 }
 
-type UploadConfig = Pick<
-  Config,
-  | "acceptedLogFormats"
-  | "maxUploadBytes"
-  | "maxUploadsPerHour"
-  | "insertChunkRows"
-  | "minMatchPlayers"
-  | "untrustedHostUploads"
->;
+type UploadConfig = UpdateConfig &
+  Pick<
+    Config,
+    | "acceptedLogFormats"
+    | "maxUploadBytes"
+    | "maxUploadsPerHour"
+    | "insertChunkRows"
+    | "minMatchPlayers"
+    | "untrustedHostUploads"
+  >;
 
 const hourMs = 60 * 60 * 1000;
 
@@ -139,6 +142,15 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
     throw error;
   }
   log.info("upload stored", { host: host.id, upload: uploadId, matches: matches.map((m) => `${m.matchKey}:${m.action}:${m.status}`) });
+
+  if (plans.some((p) => (p.action === "insert" || p.action === "replace") && p.status === "accepted")) {
+    try {
+      await rateNewMatches(db, config, now, log);
+    } catch (error) {
+      // The match is stored and still unrated: the cron rates it.
+      log.error("rating after upload failed", { upload: uploadId, error: String(error) });
+    }
+  }
   return Response.json({ result: "stored", uploadId, matches } satisfies UploadResponse);
 }
 
@@ -195,11 +207,6 @@ function startedAt(header: string | null, now: Date): string | null {
   const time = new Date(header);
   if (Number.isNaN(time.getTime()) || time > now) return null;
   return isoSeconds(time);
-}
-
-/** ISO 8601 in UTC without milliseconds, the format the schema's defaults use. */
-export function isoSeconds(date: Date): string {
-  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 export async function sha256(data: string | Uint8Array): Promise<string> {
