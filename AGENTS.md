@@ -23,9 +23,11 @@ Every tunable lives in `src/config.ts`, with its default and a comment saying wh
 
 ## Database
 
+Read [docs/database.md](docs/database.md) before writing to D1: the tables, how copies of one match replace each other, bulk inserts, and the free-tier budget.
+
 - The schema changes only through a new file in `migrations/` (`npx wrangler d1 migrations create DB <name>`). Never edit a migration that's been merged: it may already be applied in production.
 - Keep the raw log of every upload. Ratings and stats must be rebuildable from the stored logs alone, so a parser or rating fix can be re-run over everything.
-- Stay inside the D1 free tier: index what pages query, and avoid per-row writes in loops (use `db.batch`).
+- Stay inside the D1 free tier: index what pages query, and never write rows one query at a time (50 queries per invocation): insert a table's rows in one statement from a JSON parameter, in one `db.batch`.
 
 ## The log format is a contract
 

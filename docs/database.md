@@ -1,0 +1,78 @@
+# Database
+
+The server stores everything in one D1 database (SQLite). The schema is in [`migrations/`](../migrations), and follows GenjiBall-CE [`docs/ranked-log.md`](https://github.com/Genji-Ball-Team/GenjiBall-CE/blob/v1.3.3R/docs/ranked-log.md) (format 1).
+
+## Tables
+
+| Table | One row per | Notes |
+|---|---|---|
+| `players` | player account | `name` is the alias seen most recently |
+| `aliases` | name seen for a player | A name (ignoring case) belongs to one player. Admins merge them (#8) |
+| `hosts` | host | Only the SHA-256 of the token. `trust`: `trusted`, `untrusted` or `revoked` |
+| `uploads` | uploaded file | The raw log, gzipped, and its SHA-256 (the same file is stored once) |
+| `matches` | match | `status`: `accepted`, `review`, `rejected`, `void`. One per host + `match_key` |
+| `match_players` | player in a match | By the per-match log id from `JOIN` |
+| `rounds` | round | `rated` = a `WIN` round that isn't broken |
+| `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
+| `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
+| `ratings` | player per leaderboard | `board` is `ranked` now; `tourney` and `global` come with #26 |
+| `rating_history` | player per match | The rating after each match, for the graph |
+
+Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
+
+## Rules for code that writes
+
+- **Keep the raw log.** Ratings, stats and players can always be rebuilt from `uploads.raw_log`. When the parser or the rating engine changes, re-run it over the stored logs.
+- **Copies of one match.** The same match can arrive in several files (see "One match in several files" in the spec). The upload endpoint (#5) looks up `(host_id, match_key)`: if the stored copy has as many lines or more, it drops the new one without writing it. If the new copy is longer, it replaces the match's rows (rounds, players and events go with it: delete them, then insert the new ones under the same match id) and deletes the shorter upload's raw log, since it is the start of the longer one.
+- **Bulk inserts.** The free plan allows 50 queries per Worker invocation and 100 bound parameters per query, and one match has hundreds of events. Insert the rows of a table in one statement from a JSON parameter:
+
+  ```sql
+  INSERT INTO events (match_id, seq, type, round, time, actor_id, target_id, speed)
+  SELECT ?1, e.value ->> 'seq', e.value ->> 'type', e.value ->> 'round', e.value ->> 'time',
+         e.value ->> 'actor', e.value ->> 'target', e.value ->> 'speed'
+  FROM json_each(?2) AS e
+  ```
+
+  One match then takes about ten statements, in one `db.batch` (a transaction).
+
+## Free tier
+
+The Workers Free plan limits for D1 (checked 2026-10-03, [limits](https://developers.cloudflare.com/d1/platform/limits/), [pricing](https://developers.cloudflare.com/d1/platform/pricing/)):
+
+| Limit | Free plan |
+|---|---|
+| Database size | 500 MB (5 GB across all databases) |
+| Rows read | 5 million / day |
+| Rows written | 100,000 / day. An index on a written column counts as one more row |
+| Queries per Worker invocation | 50 |
+| Row, string or BLOB size | 2 MB |
+| Statement length / bound parameters | 100 KB / 100 |
+
+Past a daily limit, every query fails until the next day, so the site and uploads stop. These are the numbers to watch.
+
+### A busy week
+
+Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the spec example, a round with 5 players logs about 6 deflects and 4 kills; with 8 players, say 15 deflects and 8 kills. That's about 575 events and 800 log lines a match.
+
+**Rows written per match**, counting index rows:
+
+| Table | Rows | With indexes |
+|---|---|---|
+| `uploads` | 1 | 3 |
+| `matches` | 1 | 3 |
+| `match_players` | 8 | 16 |
+| `aliases` (last seen) | 8 | 8 |
+| `rounds` | 25 | 50 |
+| `round_players` | 200 | 400 |
+| `events` | 575 | 575 |
+| `ratings` | 8 | 16 |
+| `rating_history` | 8 | 8 |
+| **Total** | | **≈ 1,100** |
+
+40 matches a day is **≈ 44,000 rows written a day, 44% of the limit**. Without the "drop a copy that isn't longer" rule above, a match uploaded in 3 files would cost up to 3 times that, and a busy day would go over the limit. So the upload endpoint must check the line count before it writes anything, and the host tool should upload a file only once it has stopped growing.
+
+`events` is the biggest table. If writes get tight, deflects can be stored as per-player counts per match instead of rows: the raw log keeps the detail.
+
+**Storage.** A log line is about 35 bytes, so a match is about 28 KB of text, about 7 KB gzipped (gzip shrinks even the tiny spec example 2.6×; long logs shrink more). The rows add about 1,100 rows × ~40 bytes ≈ 45 KB a match. Together about **50 KB a match, 2 MB a day, 14 MB a week, 730 MB a year** at this rate. That passes the 500 MB database limit after about 8 months of every day being this busy. Before that: drop `events` rows for old matches (stats can be kept as totals, the raw log stays), or move raw logs to R2 (10 GB free).
+
+**Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The cost to watch is a **full rating recompute** (#6): it reads every rated `round_players` row, about 200 a match. After a year at this rate that's about 3 million rows, most of a day's reads. Recompute should be an admin action, not run on every upload; a new match is rated incrementally. A recompute that changes old ratings rewrites `rating_history` for every later match, which can also pass the daily write limit after a few months: it should write only the rows that changed, and spread a large rewrite over several runs.
