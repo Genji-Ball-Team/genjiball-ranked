@@ -37,7 +37,7 @@ export const defaults = {
    * logs reject a whole match with a bot, but a legacy file is often a long lobby where a bot was in
    * only some rounds.
    */
-  legacyBotNames: ["Genji Bot"] as string[],
+  legacyBotNames: ["Genji Bot", "zSh4d0Ws bozo"] as string[],
   /** `game_version` stored for a legacy match: the log doesn't say. */
   legacyGameVersion: "1.3.2",
   /**

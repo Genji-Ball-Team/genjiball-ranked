@@ -66,7 +66,10 @@ export interface UploadWrite {
 export async function writeUpload(db: D1Database, w: UploadWrite): Promise<number> {
   const json = (value: unknown) => JSON.stringify(value);
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
-  const matchJoin = "JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'";
+  // CROSS JOIN keeps json_each the outer loop: SQLite has no row count for it, and with a plain JOIN
+  // it may loop over every stored match (and its rounds and players) and scan the JSON for each,
+  // which grows with the database until D1 runs out of CPU time.
+  const matchJoin = "CROSS JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'";
 
   const replacedIds = w.rows.replaced.flatMap((m) => (m.id === null ? [] : [m.id]));
   const repointIds = w.plans.filter((p) => p.action === "repoint").map((p) => p.storedId);
@@ -157,7 +160,7 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
           `INSERT INTO match_players (match_id, log_id, player_id, name, join_time, leave_time)
            SELECT m.id, e.value ->> 'logId', a.player_id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime'
            FROM json_each(?1) e ${matchJoin}
-           JOIN aliases a ON a.name_key = e.value ->> 'key'`,
+           CROSS JOIN aliases a ON a.name_key = e.value ->> 'key'`,
         )
         .bind(json(rows), w.hostId),
     ),
@@ -178,8 +181,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
            SELECT r.id, e.value ->> 'logId', mp.player_id, e.value ->> 'position', e.value ->> 'place',
              e.value ->> 'leftRound', e.value ->> 'killerId'
            FROM json_each(?1) e ${matchJoin}
-           JOIN rounds r ON r.match_id = m.id AND r.number = e.value ->> 'round'
-           JOIN match_players mp ON mp.match_id = m.id AND mp.log_id = e.value ->> 'logId'`,
+           CROSS JOIN rounds r ON r.match_id = m.id AND r.number = e.value ->> 'round'
+           CROSS JOIN match_players mp ON mp.match_id = m.id AND mp.log_id = e.value ->> 'logId'`,
         )
         .bind(json(rows), w.hostId),
     ),

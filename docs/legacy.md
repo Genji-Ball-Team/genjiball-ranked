@@ -35,14 +35,14 @@ The log has no rounds, joins, leaves, winners or deflects. The parser rebuilds t
 
 ## What isn't rated
 
-- **Rounds with a bot** (`legacyBotNames`: `Genji Bot`). New logs reject a whole match with a bot; a legacy file is often a long lobby with a bot in only some rounds, so only those rounds are left out.
+- **Rounds with a bot** (`legacyBotNames`: `Genji Bot` and the dummy bot `zSh4d0Ws bozo`). New logs reject a whole match with a bot; a legacy file is often a long lobby with a bot in only some rounds, so only those rounds are left out.
 - **Rounds the rebuild can't be sure of** (`ABORT`, with the reason in `broken`): a player died twice before the round had a winner, so someone joined or left unseen.
 - **`NONE` rounds:** everyone in the round died.
 - A match still needs `minMatchPlayers` (4) players in its rated rounds, like a new one.
 
 Everything else is rated like a new round, AFK players included: a player who idles in the lobby loses each round to the first ball, as they would in a new log.
 
-On the 306 real files (Sep 22 to Oct 3, 2026): about 5,800 rounds, of which about 2,900 are rated (about 2,050 had the bot, about 800 were uncertain), with about 780 players, and 200 matches with enough players to count.
+On the 306 real files (Sep 22 to Oct 3, 2026): about 5,800 rounds, of which about 2,700 are rated (about 2,200 had a bot, about 800 were uncertain), with about 770 players, and 193 matches with enough players to count.
 
 ## Guesses that can be wrong
 
