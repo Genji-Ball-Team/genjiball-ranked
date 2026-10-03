@@ -12,7 +12,7 @@ Genji Ball Ranked does **not** currently have an open-source license, the same a
 - Running your own copy of the ranked server or website publicly.
 - Copying significant parts of the code into another project.
 
-If you want to do either of those, ask on the [Discord](https://discord.gg/genjiball).
+If you want to do either of those, ask on the [Discord](https://discord.gg/sv9VVjh5pT).
 
 ## Contributions
 

@@ -10,7 +10,7 @@ How ranked works end to end:
 
 It's one Cloudflare Worker that serves both the API and the website, with a D1 database, so there is one thing to deploy. It fits in the Cloudflare free tier.
 
-- **Discord:** [discord.gg/genjiball](https://discord.gg/genjiball)
+- **Discord:** [discord.gg/sv9VVjh5pT](https://discord.gg/sv9VVjh5pT), the Genji Ball Ranked server
 
 ## Run it locally
 
