@@ -31,6 +31,29 @@ export async function listLeaderboard(db: D1Database, minRounds: number, limit: 
   return results;
 }
 
+/**
+ * Who may get a rank tag, best first: at least `minRounds` rated rounds, a display rating of at
+ * least `minDisplay` (the lowest tier) and a rated round since `activeSince`. At most `limit` rows
+ * (index `ratings_board_display`).
+ */
+export async function listTagCandidates(
+  db: D1Database,
+  minRounds: number,
+  minDisplay: number,
+  activeSince: string,
+  limit: number,
+): Promise<RatingRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board = ?1 AND r.display >= ?2 AND r.rounds >= ?3 AND r.last_played_at >= ?4
+       ORDER BY r.display DESC, r.player_id LIMIT ?5`,
+    )
+    .bind(board, minDisplay, minRounds, activeSince, limit)
+    .all<RatingRow>();
+  return results;
+}
+
 export async function findRating(db: D1Database, playerId: number): Promise<RatingRow | null> {
   return db
     .prepare(`SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.board = ?1 AND r.player_id = ?2`)

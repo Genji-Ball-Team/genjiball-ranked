@@ -1,12 +1,15 @@
 import type { Config } from "../config";
 import { fail } from "../http";
-import { standing, type StandingConfig } from "./standing";
+import { isoSeconds } from "../time";
+import { rankTags, type RankTagsConfig } from "./rankTags";
+import { standing } from "./standing";
 import {
   findMatchDetail,
   findPlayer,
   findRating,
   listLeaderboard,
   listPlayerMatches,
+  listTagCandidates,
   rankOf,
   type MatchDetail,
   type RatingRow,
@@ -15,10 +18,12 @@ import {
 /**
  * The public read API behind the site's pages (#14, docs/api.md "Site"): `/api/leaderboard`,
  * `/api/players/:id` and `/api/matches/:id`. No token; browsers may cache an answer for
- * `publicCacheSeconds`.
+ * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
+ * `/api/rank-tags`, cached for `rankTagsCacheSeconds`.
  */
 
-export type SiteConfig = StandingConfig & Pick<Config, "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds">;
+export type SiteConfig = RankTagsConfig &
+  Pick<Config, "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds" | "rankTagsCacheSeconds">;
 
 /** Answers a site route, or returns null when the path isn't one. */
 export async function handleSite(request: Request, db: D1Database, config: SiteConfig, now = new Date()): Promise<Response | null> {
@@ -27,14 +32,18 @@ export async function handleSite(request: Request, db: D1Database, config: SiteC
   const route = path[0];
   if (path.length === 1 && route === "leaderboard") {
     if (!isRead(request)) return notAllowed();
-    return cached(await leaderboard(db, config, url.searchParams.get("page"), now), config);
+    return cached(await leaderboard(db, config, url.searchParams.get("page"), now), config.publicCacheSeconds);
+  }
+  if (path.length === 1 && route === "rank-tags") {
+    if (!isRead(request)) return notAllowed();
+    return cached(await tags(db, config, now), config.rankTagsCacheSeconds);
   }
   if (path.length === 2 && (route === "players" || route === "matches")) {
     if (!isRead(request)) return notAllowed();
     const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
     const body = id === null ? null : route === "players" ? await player(db, config, id, now) : await match(db, id);
     if (!body) return fail(404, "not_found", route === "players" ? "No such player" : "No such match");
-    return cached(body, config);
+    return cached(body, config.publicCacheSeconds);
   }
   return null;
 }
@@ -82,6 +91,15 @@ function ratingView(row: RatingRow, config: SiteConfig, now: Date) {
   };
 }
 
+async function tags(db: D1Database, config: SiteConfig, now: Date) {
+  const lowest = config.tiers[0];
+  const activeSince = isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * 24 * 60 * 60 * 1000));
+  const candidates = lowest
+    ? await listTagCandidates(db, config.minRankedRounds, lowest.threshold, activeSince, config.rankTagsMaxNames)
+    : [];
+  return rankTags(candidates, config, now);
+}
+
 async function match(db: D1Database, id: number) {
   const detail = await findMatchDetail(db, id);
   return detail && { match: matchView(detail) };
@@ -127,6 +145,6 @@ function notAllowed(): Response {
   return fail(405, "method_not_allowed", "Use GET", { Allow: "GET, HEAD" });
 }
 
-function cached(body: unknown, config: SiteConfig): Response {
-  return Response.json(body, { headers: { "Cache-Control": `public, max-age=${config.publicCacheSeconds}` } });
+function cached(body: unknown, seconds: number): Response {
+  return Response.json(body, { headers: { "Cache-Control": `public, max-age=${seconds}` } });
 }
