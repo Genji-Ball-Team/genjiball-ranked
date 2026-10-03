@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
+import { handleSite } from "../src/site/handler";
 import { rankTags, type RankTags } from "../src/site/rankTags";
 import type { RatingRow } from "../src/site/store";
 
@@ -64,6 +65,7 @@ describe("GET /api/rank-tags", () => {
       ["Gone", 2000, defaults.minRankedRounds, inactive],
       ["New", 2000, defaults.minRankedRounds - 1, active],
       ["Low", 1000, defaults.minRankedRounds, active],
+      ["{0}", 2500, defaults.minRankedRounds, active],
     ];
     await db().batch(
       rows.flatMap(([name, display, rounds, last], i) => [
@@ -73,6 +75,13 @@ describe("GET /api/rank-tags", () => {
           .bind(i + 1, display, rounds, last),
       ]),
     );
+
+    // A name the Workshop can't hold doesn't take a place under rankTagsMaxNames.
+    await db().prepare("INSERT INTO players (id, name) VALUES (6, 'Second')").run();
+    await db().prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('ranked', 6, 25, 1, 1300, ?, ?)").bind(defaults.minRankedRounds, active).run();
+    const capped = await handleSite(new Request("https://example.com/api/rank-tags"), db(), { ...defaults, rankTagsMaxNames: 2 });
+    expect(((await capped!.json()) as RankTags).tiers.map((t) => t.names)).toEqual([["Second"], ["Kenzo"], [], [], []]);
+    await db().prepare("DELETE FROM ratings WHERE player_id = 6").run();
 
     const res = await SELF.fetch("https://example.com/api/rank-tags");
     expect(res.status).toBe(200);
