@@ -146,7 +146,10 @@ export interface MatchDetail {
   roundPlayers: RoundPlayerRow[];
 }
 
-/** A public match with its players, rounds and placements, in one batch. Null if it isn't public. */
+/**
+ * A public match with its players, rounds and placements, in one batch. Null if it isn't public.
+ * Every statement checks the status, so asking for a match in review reads one row, not all of it.
+ */
 export async function findMatchDetail(db: D1Database, id: number): Promise<MatchDetail | null> {
   const [match, players, rounds, roundPlayers] = await db.batch([
     db
@@ -164,18 +167,21 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
             WHERE h.board = ?2 AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
             ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
          FROM match_players mp JOIN matches m ON m.id = mp.match_id
-         WHERE mp.match_id = ?1 ORDER BY mp.log_id`,
+         WHERE mp.match_id = ?1 AND m.status IN ${publicStatuses} ORDER BY mp.log_id`,
       )
       .bind(id, board),
     db
       .prepare(
-        `SELECT id, number, result, winner_id AS winnerId, rated, broken FROM rounds WHERE match_id = ? ORDER BY number`,
+        `SELECT r.id, r.number, r.result, r.winner_id AS winnerId, r.rated, r.broken
+         FROM matches m JOIN rounds r ON r.match_id = m.id
+         WHERE m.id = ? AND m.status IN ${publicStatuses} ORDER BY r.number`,
       )
       .bind(id),
     db
       .prepare(
         `SELECT rp.round_id AS roundId, rp.log_id AS logId, rp.position, rp.place, rp.left_round AS "left"
-         FROM rounds r JOIN round_players rp ON rp.round_id = r.id WHERE r.match_id = ?`,
+         FROM matches m JOIN rounds r ON r.match_id = m.id JOIN round_players rp ON rp.round_id = r.id
+         WHERE m.id = ? AND m.status IN ${publicStatuses}`,
       )
       .bind(id),
   ]);
