@@ -8,6 +8,11 @@ import type { Env } from "./env";
 export const defaults = {
   /** error, info or debug. debug logs every parsed line and why a match was rejected. */
   logLevel: "info" as LogLevel,
+  /**
+   * The test server (test environment in wrangler.toml, #37): every page shows a banner saying its
+   * ratings aren't real. `TEST_SERVER = "true"` turns it on.
+   */
+  testServer: false,
 
   /** Log format versions (the `format` field of `GBR`) the parser accepts. */
   acceptedLogFormats: [1] as number[],
@@ -126,5 +131,6 @@ export function loadConfig(env: Partial<Env>): Config {
   if (logLevel && (logLevels as string[]).includes(logLevel)) {
     config.logLevel = logLevel as LogLevel;
   }
+  if (env.TEST_SERVER !== undefined) config.testServer = env.TEST_SERVER.trim().toLowerCase() === "true";
   return config;
 }

@@ -19,11 +19,12 @@ import {
  * The public read API behind the site's pages (#14, docs/api.md "Site"): `/api/leaderboard`,
  * `/api/players/:id` and `/api/matches/:id`. No token; browsers may cache an answer for
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
- * `/api/rank-tags`, cached for `rankTagsCacheSeconds`.
+ * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
+ * (#37), for the banner on every page.
  */
 
 export type SiteConfig = RankTagsConfig &
-  Pick<Config, "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds" | "rankTagsCacheSeconds">;
+  Pick<Config, "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer">;
 
 /** Answers a site route, or returns null when the path isn't one. */
 export async function handleSite(request: Request, db: D1Database, config: SiteConfig, now = new Date()): Promise<Response | null> {
@@ -33,6 +34,10 @@ export async function handleSite(request: Request, db: D1Database, config: SiteC
   if (path.length === 1 && route === "leaderboard") {
     if (!isRead(request)) return notAllowed();
     return cached(await leaderboard(db, config, url.searchParams.get("page"), now), config.publicCacheSeconds);
+  }
+  if (path.length === 1 && route === "server") {
+    if (!isRead(request)) return notAllowed();
+    return cached({ testServer: config.testServer }, config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "rank-tags") {
     if (!isRead(request)) return notAllowed();

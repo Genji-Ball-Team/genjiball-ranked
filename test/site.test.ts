@@ -227,3 +227,11 @@ describe("pages", () => {
     expect(await res.text()).toContain(marker);
   });
 });
+
+describe("server", () => {
+  it("says whether this is the test server", async () => {
+    expect(await (await SELF.fetch("https://example.com/api/server")).json()).toEqual({ testServer: false });
+    const res = await handleSite(new Request("https://example.com/api/server"), db(), { ...defaults, testServer: true });
+    expect(await res!.json()).toEqual({ testServer: true });
+  });
+});
