@@ -82,7 +82,8 @@ export interface PlayerMatchRow {
 /**
  * The player's newest public matches. Newest by id, through index `match_players_player`, so the
  * page doesn't read every match the player was ever in; a match uploaded late can sort out of play
- * order, which the page shows by its date anyway.
+ * order, which the page shows by its date anyway. Group and sort on `mp.match_id`, not `m.id`:
+ * then SQLite walks the index and stops at the limit instead of grouping the whole history.
  */
 export async function listPlayerMatches(db: D1Database, playerId: number, limit: number): Promise<PlayerMatchRow[]> {
   const { results } = await db
@@ -95,7 +96,7 @@ export async function listPlayerMatches(db: D1Database, playerId: number, limit:
           ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
        FROM match_players mp JOIN matches m ON m.id = mp.match_id
        WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses}
-       GROUP BY m.id ORDER BY m.id DESC LIMIT ?3`,
+       GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?3`,
     )
     .bind(board, playerId, limit)
     .all<Omit<PlayerMatchRow, "legacy" | "void"> & { legacy: number; void: number }>();
