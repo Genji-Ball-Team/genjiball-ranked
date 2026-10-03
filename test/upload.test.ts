@@ -283,6 +283,27 @@ describe("upload: bad files and limits", () => {
     expect(res.status).toBe(413);
   });
 
+  it("stops reading a chunked body without Content-Length once it passes maxUploadBytes", async () => {
+    const chunk = new TextEncoder().encode(matchLog());
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent++;
+        controller.enqueue(chunk);
+        if (sent === 100) controller.close();
+      },
+    });
+    const request = new Request("https://example.com/api/upload", {
+      method: "POST",
+      body,
+      headers: { Authorization: `Bearer ${tokens.trusted}` },
+    });
+    expect(request.headers.get("Content-Length")).toBeNull();
+    const res = await handleUpload(request, db(), { ...defaults, maxUploadBytes: chunk.length * 2 }, createLogger("error"));
+    expect(res.status).toBe(413);
+    expect(sent).toBeLessThan(100);
+  });
+
   it("rate-limits a host past maxUploadsPerHour", async () => {
     const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
     await db()

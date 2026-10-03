@@ -74,8 +74,8 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
 
   const declaredSize = Number(request.headers.get("Content-Length") ?? 0);
   if (declaredSize > config.maxUploadBytes) return tooLarge(config);
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.length > config.maxUploadBytes) return tooLarge(config);
+  const bytes = await readLimited(request, config.maxUploadBytes);
+  if (!bytes) return tooLarge(config);
   if (!bytes.length) return fail(400, "empty", "The body is empty: send the log file's text");
 
   const contentHash = await sha256(bytes);
@@ -159,6 +159,34 @@ function fail(status: number, error: string, message: string, headers?: Record<s
 
 function tooLarge(config: UploadConfig): Response {
   return fail(413, "too_large", `The file is larger than ${config.maxUploadBytes} bytes`);
+}
+
+/**
+ * The body, or `null` once it passes `limit` bytes. Counts what is read, since a chunked request has
+ * no `Content-Length`, and stops reading there.
+ */
+async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      return null;
+    }
+    parts.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const part of parts) {
+    bytes.set(part, offset);
+    offset += part.length;
+  }
+  return bytes;
 }
 
 /** `X-Log-Started-At`, if it's a valid time that isn't in the future. */
