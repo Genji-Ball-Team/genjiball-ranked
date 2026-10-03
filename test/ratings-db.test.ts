@@ -279,7 +279,7 @@ describe("ratings: cron", () => {
     await upload(matchLog({ key: "000000000002", players: others }), "2026-09-01T20:00:00Z");
     expect((await readState(db())).staleFrom).not.toBeNull();
 
-    await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "0 6 * * *" }), env);
+    await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "*/10 * * * *" }), env);
     await expectUpToDate();
   });
 });

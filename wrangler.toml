@@ -15,10 +15,10 @@ database_name = "genjiball-ranked"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
-# Daily, at a quiet hour (UTC): rate incomplete matches past their grace period, and recompute the
-# ratings when they're stale. See docs/rating.md.
+# Every 10 minutes: rate incomplete matches past their grace period, and recompute the ratings when
+# they're stale. A run with nothing to do reads 3 rows; the free-tier budget is in docs/rating.md.
 [triggers]
-crons = ["0 6 * * *"]
+crons = ["*/10 * * * *"]
 
 # Overrides for the defaults in src/config.ts. Leave a var out to use the default.
 [vars]

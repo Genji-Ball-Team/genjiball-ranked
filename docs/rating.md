@@ -39,7 +39,15 @@ A longer copy that replaces a rated match makes the ratings stale from it too, i
 
 **The recompute** (`recomputeRatings`) re-rates from the first stale match on. It starts each player from their last `rating_history` row before it (a history row holds the whole rating), which gives exactly what a recompute from scratch would, and writes only the history and ratings rows that differ. A match that no longer counts loses its history, and a player left with no rated match loses their ratings row. One run re-rates at most `ratingMatchesPerRun` matches (about 0.5 ms of CPU each; the free plan allows 10 ms an invocation) and moves the stale point past them, so a long recompute continues on the next run.
 
-**The cron** (`[triggers]` in `wrangler.toml`, daily) runs `updateRatings`: it rates the matches that became due (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute while the ratings are stale.
+**The cron** (`[triggers]` in `wrangler.toml`, every 10 minutes) runs `updateRatings`: it rates the matches that became due (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute while the ratings are stale. That's 144 runs and up to 1,440 re-rated matches a day. On the free tier:
+
+| Cost | Nothing stale | Recomputing all day |
+|---|---|---|
+| Rows read | about 3 a run, 450 a day | about 2,500 a run, 360,000 a day (7% of 5 million) |
+| Rows written | none | up to about 16 per match re-rated with indexes, 23,000 a day (23% of 100,000) |
+| Invocations | 144 a day, out of 100,000 | the same |
+
+Every 5 minutes would double the recompute speed but, during a long recompute on a busy day of uploads (about 44,500 rows written, docs/database.md), could pass the daily write limit. Every 10 minutes keeps the worst case under it.
 
 **Concurrent writes.** Every rating write is one batch that starts by checking `rating_state.version` and moving it on. If another write landed since the data was read, the batch fails and writes nothing; the cron tries again.
 
