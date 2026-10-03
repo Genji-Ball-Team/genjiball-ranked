@@ -27,6 +27,13 @@ export const defaults = {
   /** What happens to a match from an untrusted host: `review` (admins accept it) or `reject`. */
   untrustedHostUploads: "review" as "review" | "reject",
 
+  /** Random bytes in a new host token (shown once, as hex). 32 bytes can't be guessed. */
+  hostTokenBytes: 32,
+  /** Most rows an admin list returns (matches, hosts, actions). The newest come first. */
+  adminListLimit: 100,
+  /** Longest host name or reason an admin can enter, in characters. */
+  adminTextMaxLength: 200,
+
   /**
    * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at
    * `ratingMu` ± `ratingSigma`; `ratingBeta` is how much one performance varies around the skill.

@@ -15,8 +15,13 @@ export interface StoredCopy {
   matchKey: string;
   lineCount: number;
   status: MatchStatus;
+  /** Why it's rejected, for a rejected match. */
+  rejection: { code: string; message: string } | null;
   uploadId: number;
 }
+
+/** `rejection.code` of a match an admin rejected from the review queue. */
+export const adminRejection = "admin";
 
 /** What happens to one match of the file. */
 export type MatchAction =
@@ -69,9 +74,14 @@ export function planUpload(
     if (!match.matchKey) return { ...plan, action: "skip" };
     if (!copy) return plan;
     if (copy.lineCount > match.lineCount) return { ...plan, action: "skip", status: copy.status };
-    // An admin's void survives a longer copy of the match.
+    const action = copy.lineCount === match.lineCount ? "repoint" : "replace";
+    // An admin's rejection survives a longer copy of the match.
+    if (copy.status === "rejected" && copy.rejection?.code === adminRejection) {
+      return { ...plan, action, status: "rejected", rejection: copy.rejection, reviewReasons: [] };
+    }
+    // So does a void. The new copy's own verdict is kept with it, for an un-void (docs/api.md).
     const status = copy.status === "void" ? "void" : plan.status;
-    return { ...plan, status, action: copy.lineCount === match.lineCount ? "repoint" : "replace" };
+    return { ...plan, status, action };
   });
 }
 

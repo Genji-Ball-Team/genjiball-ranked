@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Genji Ball Ranked admin</title>
+  <style>
+    /* Minimal on purpose: the site design comes with #14. */
+    :root { color-scheme: light dark; --bg: #f6f6f4; --fg: #1d1d1b; --muted: #666; --line: #d8d7d2; --bad: #b3261e; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #141413; --fg: #ecebe6; --muted: #9a9890; --line: #33322f; --bad: #f2b8b5; } }
+    body { margin: 0 auto; max-width: 1100px; padding: 0 16px 48px; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+    h1 { font-size: 1.4em; } h2 { font-size: 1.15em; margin-top: 2em; }
+    .muted { color: var(--muted); } .error { color: var(--bad); }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+    input, select, button { font: inherit; padding: 4px 8px; }
+    .scroll { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 600; white-space: nowrap; }
+    code { word-break: break-all; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1>Genji Ball Ranked admin</h1>
+
+  <section id="signin">
+    <p>Sign in with your admin token. It stays in this tab only.</p>
+    <form class="row" id="signin-form">
+      <input id="token" type="password" autocomplete="off" placeholder="Admin token" size="40" required>
+      <button>Sign in</button>
+    </form>
+  </section>
+
+  <p id="message" role="status"></p>
+
+  <div id="app" hidden>
+    <div class="row"><span>Signed in as <strong id="admin-name"></strong></span><button id="signout">Sign out</button></div>
+
+    <h2>Matches</h2>
+    <div class="row">
+      <label>Status <select id="status">
+        <option value="review">review</option><option value="accepted">accepted</option>
+        <option value="void">void</option><option value="rejected">rejected</option>
+      </select></label>
+      <button id="reload-matches">Reload</button>
+    </div>
+    <div class="scroll"><table>
+      <thead><tr><th>Id</th><th>Played</th><th>Host</th><th>Players</th><th>Why</th><th>Rated</th><th>Actions</th></tr></thead>
+      <tbody id="matches"></tbody>
+    </table></div>
+
+    <h2>Hosts</h2>
+    <form class="row" id="host-form">
+      <input id="host-name" placeholder="Host name" required maxlength="200">
+      <select id="host-trust"><option value="untrusted">untrusted</option><option value="trusted">trusted</option></select>
+      <button>Create host token</button>
+    </form>
+    <p id="new-token" hidden>New token for <strong id="new-token-host"></strong>, shown once: <code id="new-token-value"></code></p>
+    <div class="scroll"><table>
+      <thead><tr><th>Id</th><th>Name</th><th>Trust</th><th>Created</th><th>Last upload</th><th>Actions</th></tr></thead>
+      <tbody id="hosts"></tbody>
+    </table></div>
+
+    <h2>Action log</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Match</th><th>Host</th><th>Detail</th></tr></thead>
+      <tbody id="actions"></tbody>
+    </table></div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const storage = { get: () => { try { return sessionStorage.getItem("adminToken"); } catch { return null; } },
+      set: (v) => { try { v ? sessionStorage.setItem("adminToken", v) : sessionStorage.removeItem("adminToken"); } catch { /* not kept */ } } };
+    let token = storage.get();
+
+    async function api(path, options = {}) {
+      const res = await fetch(`/api/admin/${path}`, { ...options, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) { signOut(); throw new Error(data.message || "Signed out"); }
+      if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+      return data;
+    }
+
+    function say(text, isError = false) { $("message").textContent = text; $("message").className = isError ? "error" : "muted"; }
+
+    // Every value from the server goes in with textContent: names come from game logs.
+    function cell(row, value) { const td = document.createElement("td"); td.textContent = value ?? ""; row.append(td); return td; }
+    function button(parent, label, onClick) { const b = document.createElement("button"); b.textContent = label; b.onclick = onClick; parent.append(b, " "); }
+
+    async function act(label, run) {
+      try { say(await run() || `${label}: done`); } catch (e) { say(`${label}: ${e.message}`, true); }
+      await loadAll();
+    }
+
+    async function matchAction(match, action) {
+      const reason = action === "accept" ? null : prompt(`Reason to ${action} match ${match.id} (optional)`);
+      if (reason === null && action !== "accept") return;
+      await act(`${action} match ${match.id}`, async () => {
+        const res = await api(`matches/${match.id}/${action}`, { method: "POST", body: JSON.stringify(reason ? { reason } : {}) });
+        return `Match ${match.id} is ${res.match.status}.` + (res.ratingsStale ? " Ratings are still being recomputed (every 10 minutes)." : " Ratings are up to date.");
+      });
+    }
+
+    async function loadMatches() {
+      const { matches } = await api(`matches?status=${$("status").value}`);
+      const body = $("matches"); body.replaceChildren();
+      if (!matches.length) { const tr = body.insertRow(); cell(tr, "None.").colSpan = 7; }
+      for (const m of matches) {
+        const tr = body.insertRow();
+        cell(tr, m.id); cell(tr, m.playedAt); cell(tr, m.hostName); cell(tr, m.players.join(", "));
+        cell(tr, [...m.reviewReasons, m.rejection && `${m.rejection.code}: ${m.rejection.message}`].filter(Boolean).join("; "));
+        cell(tr, m.rated ? "yes" : m.complete ? "no" : "no (incomplete)");
+        const actions = cell(tr, "");
+        if (m.status === "review") { button(actions, "Accept", () => matchAction(m, "accept")); button(actions, "Reject", () => matchAction(m, "reject")); }
+        if (m.status === "rejected" && m.rejection?.code === "admin") button(actions, "Accept", () => matchAction(m, "accept"));
+        if (m.status === "accepted") button(actions, "Void", () => matchAction(m, "void"));
+        if (m.status === "void") button(actions, "Un-void", () => matchAction(m, "unvoid"));
+      }
+    }
+
+    async function loadHosts() {
+      const { hosts } = await api("hosts");
+      const body = $("hosts"); body.replaceChildren();
+      for (const h of hosts) {
+        const tr = body.insertRow();
+        cell(tr, h.id); cell(tr, h.name); cell(tr, h.trust); cell(tr, h.createdAt); cell(tr, h.lastUploadAt);
+        const actions = cell(tr, "");
+        if (h.trust === "revoked") continue;
+        const other = h.trust === "trusted" ? "untrusted" : "trusted";
+        button(actions, `Make ${other}`, () => act(`host ${h.id}`, () => api(`hosts/${h.id}/trust`, { method: "POST", body: JSON.stringify({ trust: other }) }).then(() => `${h.name} is ${other}.`)));
+        button(actions, "Revoke", () => {
+          if (confirm(`Revoke ${h.name}'s token? It can't be undone: they'll need a new token.`)) {
+            act(`revoke host ${h.id}`, () => api(`hosts/${h.id}/revoke`, { method: "POST" }).then(() => `${h.name}'s token is revoked.`));
+          }
+        });
+      }
+    }
+
+    async function loadActions() {
+      const { actions } = await api("actions");
+      const body = $("actions"); body.replaceChildren();
+      for (const a of actions) {
+        const tr = body.insertRow();
+        cell(tr, a.at); cell(tr, a.admin); cell(tr, a.action); cell(tr, a.matchId); cell(tr, a.hostId);
+        cell(tr, a.detail === null ? "" : JSON.stringify(a.detail));
+      }
+    }
+
+    async function loadAll() {
+      try { await Promise.all([loadMatches(), loadHosts(), loadActions()]); } catch (e) { say(e.message, true); }
+    }
+
+    async function signIn() {
+      try {
+        const { admin } = await api("me");
+        $("admin-name").textContent = admin.name;
+        $("signin").hidden = true; $("app").hidden = false;
+        await loadAll();
+      } catch (e) { say(e.message, true); }
+    }
+
+    function signOut() { token = null; storage.set(null); $("app").hidden = true; $("signin").hidden = false; $("new-token").hidden = true; }
+
+    $("signin-form").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); storage.set(token); $("token").value = ""; signIn(); };
+    $("signout").onclick = signOut;
+    $("status").onchange = () => loadMatches().catch((e) => say(e.message, true));
+    $("reload-matches").onclick = () => loadMatches().catch((e) => say(e.message, true));
+    $("host-form").onsubmit = (e) => {
+      e.preventDefault();
+      act("create host", async () => {
+        const res = await api("hosts", { method: "POST", body: JSON.stringify({ name: $("host-name").value, trust: $("host-trust").value }) });
+        $("new-token-host").textContent = res.host.name; $("new-token-value").textContent = res.token; $("new-token").hidden = false;
+        $("host-name").value = "";
+        return `Host ${res.host.name} created. Copy the token now: it isn't shown again.`;
+      });
+    };
+    if (token) signIn();
+  </script>
+</body>
+</html>

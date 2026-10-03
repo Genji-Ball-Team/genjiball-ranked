@@ -17,6 +17,8 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
 | `ratings` | player per leaderboard | `board` is `ranked` now; `tourney` and `global` come with #26 |
 | `rating_history` | player per match | The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
+| `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
+| `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |
 | `rating_state` | leaderboard | Whether the ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)) |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
