@@ -2,7 +2,7 @@ import type { Config } from "../config";
 import { fail } from "../http";
 import { isoSeconds } from "../time";
 import { rankTags, type RankTagsConfig } from "./rankTags";
-import { standing } from "./standing";
+import { nextTier, standing } from "./standing";
 import {
   findMatchDetail,
   findPlayer,
@@ -73,7 +73,11 @@ async function player(db: D1Database, config: SiteConfig, id: number, now: Date)
   return {
     player: {
       ...found,
-      rating: rating && { rank: ranked ? await rankOf(db, rating, config.minRankedRounds) : null, ...ratingView(rating, config, now) },
+      rating: rating && {
+        rank: ranked ? await rankOf(db, rating, config.minRankedRounds) : null,
+        ...ratingView(rating, config, now),
+        nextTier: nextTier(rating.display, config.tiers),
+      },
     },
     matches,
   };
