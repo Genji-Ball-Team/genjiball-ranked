@@ -34,12 +34,16 @@ export async function findStoredCopies(db: D1Database, hostId: number, matchKeys
   if (!matchKeys.length) return [];
   const { results } = await db
     .prepare(
-      `SELECT id, match_key AS matchKey, line_count AS lineCount, status, upload_id AS uploadId
+      `SELECT id, match_key AS matchKey, line_count AS lineCount, status, upload_id AS uploadId,
+         rejection_code AS rejectionCode, rejection_message AS rejectionMessage
        FROM matches WHERE host_id = ?1 AND match_key IN (SELECT value FROM json_each(?2))`,
     )
     .bind(hostId, JSON.stringify(matchKeys))
-    .all<StoredCopy & { status: MatchStatus }>();
-  return results;
+    .all<Omit<StoredCopy, "rejection"> & { status: MatchStatus; rejectionCode: string | null; rejectionMessage: string | null }>();
+  return results.map(({ rejectionCode, rejectionMessage, ...copy }) => ({
+    ...copy,
+    rejection: rejectionCode === null ? null : { code: rejectionCode, message: rejectionMessage ?? "" },
+  }));
 }
 
 export interface UploadWrite {

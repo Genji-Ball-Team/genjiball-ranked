@@ -1,3 +1,4 @@
+import { handleAdmin } from "./admin/handler";
 import { loadConfig } from "./config";
 import type { Env } from "./env";
 import { createLogger } from "./log";
@@ -18,6 +19,10 @@ export default {
 
     if (url.pathname === "/api/upload") {
       return handleUpload(request, env.DB, config, log);
+    }
+
+    if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
+      return handleAdmin(request, env.DB, config, log);
     }
 
     if (url.pathname.startsWith("/api/")) {

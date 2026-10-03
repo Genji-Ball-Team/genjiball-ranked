@@ -1,4 +1,5 @@
 import type { Config } from "../config";
+import { fail, type ApiError } from "../http";
 import type { Logger } from "../log";
 import { parseLog } from "../parser/parse";
 import { rateNewMatches, type UpdateConfig } from "../rating/update";
@@ -39,10 +40,7 @@ export interface MatchResult {
   reviewReasons: string[];
 }
 
-export interface UploadError {
-  error: string;
-  message: string;
-}
+export type UploadError = ApiError;
 
 type UploadConfig = UpdateConfig &
   Pick<
@@ -163,10 +161,6 @@ function result(plan: MatchPlan): MatchResult {
     rejection: plan.rejection,
     reviewReasons: plan.reviewReasons,
   };
-}
-
-function fail(status: number, error: string, message: string, headers?: Record<string, string>): Response {
-  return Response.json({ error, message } satisfies UploadError, { status, headers });
 }
 
 function tooLarge(config: UploadConfig): Response {

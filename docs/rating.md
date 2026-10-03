@@ -33,7 +33,9 @@ Ratings are always rebuildable from scratch: `recompute` rates the matches that 
 - After the newest rated match, in play order (`played_at`, then id): rated on top of the current ratings, writing `ratings`, `rating_history` and `rated_at`. This is what a recompute would give.
 - Before it (a late upload, or an incomplete match whose grace period just ended): the ratings are **stale** from that match on. It's left for the recompute.
 
-A longer copy that replaces a rated match makes the ratings stale from it too, in the upload's own batch. For whatever else changes a rated match (a void or un-void, accepting a match from the review queue, #7), call `markMatchesChanged`; after a change to the rating config or the engine, `markAllStale`.
+A longer copy that replaces a rated match makes the ratings stale from it too, in the upload's own batch. For whatever else changes a rated match, call `markMatchesChanged` (or put `staleFromMatchesStatement` in the batch that changes it); after a change to the rating config or the engine, `markAllStale`.
+
+**Admin actions** ([api.md](api.md), "Admin"). A void marks the ratings stale from the match in the same batch as the status change. Accepting from the review queue and un-voiding make the match accepted and unrated, so `rateNewMatches` treats it like a new upload: rated on top if it's the newest, stale from it if it's late. After each of them the admin API runs `updateRatings` once, like a cron run, so a short tail is recomputed straight away and the cron finishes a longer one.
 
 **Stale ratings** are recorded in `rating_state`: the first match to re-rate. New matches are still rated on top in the meantime, so the leaderboard keeps moving; the recompute redoes them.
 

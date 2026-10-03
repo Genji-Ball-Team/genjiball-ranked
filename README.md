@@ -30,6 +30,9 @@ npm run dev                # http://localhost:8787
 | `npm run check` | Typecheck, lint and test. What CI runs |
 | `npm test` | Tests only (in the Workers runtime, with a local D1) |
 | `npm run db:migrate:local` | Apply migrations to the local D1 |
+| `npm run admin:token -- <name>` | Make an admin token, and print the command that adds the admin |
+
+The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
 
 ## Layout
 
@@ -39,7 +42,8 @@ npm run dev                # http://localhost:8787
 | `src/config.ts` | Every tunable and its default |
 | `public/` | The website's static files |
 | `migrations/` | D1 schema migrations. Tables and free-tier budget: [docs/database.md](docs/database.md) |
-| `docs/` | [api.md](docs/api.md) (the upload API for the host tool), [rating.md](docs/rating.md), [database.md](docs/database.md) |
+| `docs/` | [api.md](docs/api.md) (the upload and admin APIs), [rating.md](docs/rating.md), [database.md](docs/database.md) |
+| `scripts/` | Small Node scripts (`admin:token`) |
 | `test/` | Vitest tests |
 
 ## Contributing
