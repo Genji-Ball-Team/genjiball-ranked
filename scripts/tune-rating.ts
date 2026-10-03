@@ -121,8 +121,9 @@ function score(config: RatingConfig) {
     }
   }
   moves.sort((a, b) => a - b);
-  const at = (q: number) => Math.round(moves[Math.floor(moves.length * q)] ?? 0);
-  return { ratings, prediction: gain / scored, scored, moveMedian: at(0.5), moveP90: at(0.9) };
+  // "n/a" rather than NaN or 0 when too few rounds or regulars were measured.
+  const at = (q: number) => (moves.length ? String(Math.round(moves[Math.floor(moves.length * q)]!)) : "n/a");
+  return { ratings, prediction: scored ? (gain / scored).toFixed(3) : "n/a", scored, moveMedian: at(0.5), moveP90: at(0.9) };
 }
 
 const pad = (value: unknown, width: number) => String(value).padStart(width);
@@ -134,7 +135,7 @@ if (flags.includes("--grid")) {
       for (const ratingTau of [0, 25 / 300, 25 / 100]) {
         const s = score({ ...defaults, ratingRoundsPerMatch, ratingBeta, ratingTau });
         console.log(
-          `${pad(ratingRoundsPerMatch, 3)} ${pad(ratingBeta.toFixed(2), 6)} ${pad(ratingTau.toFixed(3), 6)} ${pad(s.prediction.toFixed(3), 11)} ${pad(s.moveMedian, 12)} ${pad(s.moveP90, 9)}`,
+          `${pad(ratingRoundsPerMatch, 3)} ${pad(ratingBeta.toFixed(2), 6)} ${pad(ratingTau.toFixed(3), 6)} ${pad(s.prediction, 11)} ${pad(s.moveMedian, 12)} ${pad(s.moveP90, 9)}`,
         );
       }
   process.exit(0);
@@ -145,7 +146,7 @@ if (flags.includes("--grid")) {
 const s = score(defaults);
 console.log(
   `N ${defaults.ratingRoundsPerMatch}, beta ${defaults.ratingBeta.toFixed(2)}, tau ${defaults.ratingTau.toFixed(3)}: ` +
-    `prediction ${s.prediction.toFixed(3)} over ${s.scored} rounds, move median ${s.moveMedian}, p90 ${s.moveP90}\n`,
+    `prediction ${s.prediction} over ${s.scored} rounds, move median ${s.moveMedian}, p90 ${s.moveP90}\n`,
 );
 
 const ranked = [...s.ratings.entries()]

@@ -77,15 +77,15 @@ The scale is fitted to the v1.3.2 logs (see "Tuning" below).
 
 `--grid` sweeps `ratingRoundsPerMatch`, `ratingBeta` and `ratingTau` instead.
 
-On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (192 matches, 2,560 rated rounds):
+On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (192 matches, 2,560 rated rounds), with the display scale below (movement is in its points):
 
 | `ratingRoundsPerMatch` | Prediction | Move median | Move p90 |
 |---|---|---|---|
-| 1 | 0.85 | 44 | 166 |
-| 3 | 0.85 | 31 | 124 |
-| **5** | **0.84** | **27** | **99** |
-| 10 | 0.80 | 17 | 66 |
-| 20 | 0.74 | 11 | 40 |
+| 1 | 0.85 | 40 | 153 |
+| 3 | 0.85 | 29 | 114 |
+| **5** | **0.84** | **25** | **91** |
+| 10 | 0.80 | 16 | 61 |
+| 20 | 0.74 | 10 | 36 |
 
 Damping is the setting that matters: up to 5 predicts about as well as rating every round in full, and moves half as much; past it, prediction drops. Beta and tau barely change anything (tau 25/100 is a little better than 25/300). The fitted display scale is center 1780, scale 46: 24 players at Master or above, 9 at Grandmaster, 2 at Ascendant. The top of the board is the players v1.3.2 tagged.
 
