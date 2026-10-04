@@ -2,7 +2,7 @@ import { fail } from "../http";
 import { readState, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
-import { expireOverCaps } from "../tourney/expiry";
+import { expireOverCaps, flushScreenshotDeletions } from "../tourney/expiry";
 import { imageType, screenshotKey } from "../tourney/screenshot";
 import {
   createLobby,
@@ -11,10 +11,13 @@ import {
   findLobby,
   findTourney,
   isLinkedElsewhere,
+  isLobbyChanged,
   listAllTourneys,
   listLobbies,
+  queueScreenshot,
   setScreenshot,
   setVerified,
+  stageScreenshot,
   tournamentStatement,
   tourneyStatuses,
   updateLobby,
@@ -24,7 +27,7 @@ import {
   type TourneyStatus,
 } from "../tourney/store";
 import { readLimited } from "../upload/handler";
-import { BadRequest, body, notAllowed, text, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, notAllowed, text, type Context } from "./request";
 import { findMatch, type ActionLog } from "./store";
 
 /**
@@ -128,13 +131,14 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
   try {
     await updateLobby(
       ctx.db,
-      id,
+      lobby,
       label,
       matchId,
       { ...log(ctx, "lobby_edit", { lobby: id, tourney: lobby.tourneyId, label, matchId }), matchId },
       relink.statements,
     );
   } catch (error) {
+    if (isLobbyChanged(error)) return changedMeanwhile();
     if (isLinkedElsewhere(error)) return fail(409, "conflict", `Match ${matchId} is already another lobby's`);
     throw error;
   }
@@ -148,13 +152,18 @@ async function removeLobby(ctx: Context, id: number): Promise<Response> {
   if (!lobby) return fail(404, "not_found", "No such lobby");
   const relink = await relinkStatements(ctx, lobby.matchId, null, isoSeconds(ctx.now));
   if (relink instanceof Response) return relink;
-  await deleteLobby(
-    ctx.db,
-    id,
-    { ...log(ctx, "lobby_delete", { lobby: id, tourney: lobby.tourneyId, label: lobby.label }), matchId: lobby.matchId },
-    relink.statements,
-  );
-  if (lobby.screenshotKey) await ctx.proofs.delete(lobby.screenshotKey);
+  try {
+    await deleteLobby(
+      ctx.db,
+      lobby,
+      { ...log(ctx, "lobby_delete", { lobby: id, tourney: lobby.tourneyId, label: lobby.label }), matchId: lobby.matchId },
+      relink.statements,
+    );
+  } catch (error) {
+    if (isLobbyChanged(error)) return changedMeanwhile();
+    throw error;
+  }
+  await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
   ctx.log.info("admin: lobby deleted", { admin: ctx.admin.id, lobby: id });
   return Response.json({ ratingsStale: await rerate(ctx, relink.rated, id) });
 }
@@ -176,14 +185,20 @@ async function putScreenshot(ctx: Context, id: number, request: Request): Promis
   if (!type) return fail(415, "unsupported_type", "Send a PNG, JPEG or WebP image");
 
   const key = screenshotKey(id, type);
-  await ctx.proofs.put(key, bytes, { httpMetadata: { contentType: type } });
+  await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
+  if (!await stageScreenshot(ctx.db, key, bytes.length, new Date(), ctx.config)) {
+    return fail(409, "conflict", "Screenshot cleanup is pending and storage is full. Try again after cleanup succeeds");
+  }
   try {
-    await setScreenshot(ctx.db, id, key, bytes.length, log(ctx, "lobby_screenshot", { lobby: id, tourney: lobby.tourneyId, bytes: bytes.length, type }));
+    await ctx.proofs.put(key, bytes, { httpMetadata: { contentType: type } });
+    await setScreenshot(ctx.db, lobby, key, bytes.length, log(ctx, "lobby_screenshot", { lobby: id, tourney: lobby.tourneyId, bytes: bytes.length, type }));
   } catch (error) {
-    await ctx.proofs.delete(key);
+    // Keep failed or conflicting uploads discoverable even if R2 cleanup fails.
+    await queueScreenshot(ctx.db, key, bytes.length, isoSeconds(new Date()));
+    await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
+    if (isLobbyChanged(error)) return changedMeanwhile();
     throw error;
   }
-  if (lobby.screenshotKey) await ctx.proofs.delete(lobby.screenshotKey);
   ctx.log.info("admin: screenshot", { admin: ctx.admin.id, lobby: id, bytes: bytes.length, type });
   let expired: string[] = [];
   try {
@@ -200,8 +215,13 @@ async function removeScreenshot(ctx: Context, id: number): Promise<Response> {
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
   if (!lobby.screenshotKey) return fail(409, "conflict", "The lobby has no screenshot");
-  await setScreenshot(ctx.db, id, null, null, log(ctx, "lobby_screenshot_delete", { lobby: id, tourney: lobby.tourneyId }));
-  await ctx.proofs.delete(lobby.screenshotKey);
+  try {
+    await setScreenshot(ctx.db, lobby, null, null, log(ctx, "lobby_screenshot_delete", { lobby: id, tourney: lobby.tourneyId }));
+  } catch (error) {
+    if (isLobbyChanged(error)) return changedMeanwhile();
+    throw error;
+  }
+  await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
   ctx.log.info("admin: screenshot deleted", { admin: ctx.admin.id, lobby: id });
   return Response.json({ lobby: await findLobby(ctx.db, id) });
 }
@@ -214,14 +234,24 @@ async function verify(ctx: Context, id: number, data: Record<string, unknown>): 
   if (typeof data.verified !== "boolean") throw new BadRequest("verified must be true or false");
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
+  if (data.verified && data.version === undefined) return fail(409, "conflict", "Reload the lobby and send the version of the screenshot and result you checked");
+  if (data.version !== undefined) {
+    if (typeof data.version !== "number" || !Number.isSafeInteger(data.version) || data.version < 0) throw new BadRequest("version must be a non-negative integer");
+    if (data.version !== lobby.version) return changedMeanwhile();
+  }
   if (data.verified && (!lobby.matchId || !lobby.screenshotKey)) {
     return fail(409, "conflict", "Link the lobby's match and upload its screenshot before verifying it");
   }
   if ((lobby.verifiedAt !== null) === data.verified) return fail(409, "conflict", `The lobby is ${data.verified ? "already" : "not"} verified`);
-  await setVerified(ctx.db, id, data.verified, {
-    ...log(ctx, "lobby_verify", { lobby: id, tourney: lobby.tourneyId, verified: data.verified }),
-    matchId: lobby.matchId,
-  });
+  try {
+    await setVerified(ctx.db, lobby, data.verified, {
+      ...log(ctx, "lobby_verify", { lobby: id, tourney: lobby.tourneyId, verified: data.verified }),
+      matchId: lobby.matchId,
+    });
+  } catch (error) {
+    if (isLobbyChanged(error)) return changedMeanwhile();
+    throw error;
+  }
   ctx.log.info("admin: lobby verified", { admin: ctx.admin.id, lobby: id, verified: data.verified });
   return Response.json({ lobby: await findLobby(ctx.db, id) });
 }
@@ -273,17 +303,19 @@ async function relinkStatements(
   if (to !== null) {
     const match = await findMatch(ctx.db, to);
     if (!match) return fail(404, "not_found", "No such match");
-    if (!match.tournament) changed.push(to);
-    rated ||= match.status === "accepted" && !match.tournament;
+    changed.push(to);
+    rated ||= match.status === "accepted";
     statements.push(tournamentStatement(ctx.db, [to], true));
   }
   if (from !== null) {
     const match = await findMatch(ctx.db, from);
-    if (match?.tournament) changed.push(from);
-    rated ||= match?.status === "accepted" && match.tournament;
+    changed.push(from);
+    rated ||= match?.status === "accepted";
     statements.push(tournamentStatement(ctx.db, [from], false));
   }
   if (changed.length) statements.push(staleFromMatchesStatement(ctx.db, changed, at, true));
+  // Also invalidate a rating run that read an as-yet-unrated match before this flag changed.
+  if (changed.length) statements.push(ctx.db.prepare("UPDATE rating_state SET version = version + 1"));
   return { statements, rated };
 }
 

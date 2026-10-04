@@ -204,6 +204,9 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
   if (match.tournament === data.tournament) {
     return fail(409, "conflict", `The match is ${match.tournament ? "already" : "not"} a tournament`);
   }
+  if (!data.tournament && await ctx.db.prepare("SELECT id FROM tourney_lobbies WHERE match_id = ?").bind(matchId).first()) {
+    return fail(409, "conflict", "Unlink the match from its tourney lobby before removing its tournament flag");
+  }
 
   const at = isoSeconds(ctx.now);
   try {
@@ -212,7 +215,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
       matchId,
       data.tournament,
       { adminId: ctx.admin.id, action: "match_tournament", matchId, hostId: match.hostId, detail: { tournament: data.tournament }, at },
-      [staleFromMatchesStatement(ctx.db, [matchId], at, true)],
+      [staleFromMatchesStatement(ctx.db, [matchId], at, true), ctx.db.prepare("UPDATE rating_state SET version = version + 1")],
     );
   } catch (error) {
     if (isStale(error)) return changedMeanwhile();

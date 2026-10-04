@@ -2,7 +2,7 @@ import type { Config } from "../config";
 import { fail } from "../http";
 import { isoSeconds } from "../time";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
-import { findTourney, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
+import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
@@ -61,7 +61,7 @@ export async function handleSite(
   }
   if (path.length === 2 && route === "screenshots") {
     if (!isRead(request)) return notAllowed();
-    return screenshot(proofs, path[1]!, config);
+    return screenshot(db, proofs, path[1]!, config);
   }
   if (path.length === 2 && (route === "players" || route === "matches" || route === "tourneys")) {
     if (!isRead(request)) return notAllowed();
@@ -213,9 +213,9 @@ async function tourneyViews(db: D1Database, list: TourneyRow[]) {
   return list.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id).map(lobbyView) }));
 }
 
-/** A verify screenshot from R2. Keys are never reused, so the browser may keep it for good. */
-async function screenshot(proofs: R2Bucket | undefined, key: string, config: SiteConfig): Promise<Response> {
-  const object = proofs && isScreenshotKey(key) ? await proofs.get(key) : null;
+/** A currently attached verify screenshot from R2, cached for the configured lifetime. */
+async function screenshot(db: D1Database, proofs: R2Bucket | undefined, key: string, config: SiteConfig): Promise<Response> {
+  const object = proofs && isScreenshotKey(key) && await hasScreenshot(db, key) ? await proofs.get(key) : null;
   if (!object) return fail(404, "not_found", "No such screenshot");
   return new Response(object.body, {
     headers: {

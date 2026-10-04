@@ -46,13 +46,17 @@ export default {
   },
 
   // The cron in wrangler.toml: rates incomplete matches whose grace period has passed, and
-  // recomputes the ratings when they're stale (docs/rating.md). Then deletes verify screenshots past
-  // screenshotKeepDays, when that's set (src/tourney/expiry.ts).
+  // recomputes the ratings when they're stale (docs/rating.md). Also retries queued screenshot
+  // deletes and expires screenshots past screenshotKeepDays, when that's set (src/tourney/expiry.ts).
   async scheduled(controller, env): Promise<void> {
     const config = loadConfig(env);
     const log = createLogger(config.logLevel);
     const now = new Date(controller.scheduledTime);
-    await updateRatings(env.DB, config, now, log);
-    await expireOld(env.DB, env.PROOFS, config, now, log);
+    try {
+      await updateRatings(env.DB, config, now, log);
+    } finally {
+      // Screenshot cleanup must keep retrying even when rating work fails.
+      await expireOld(env.DB, env.PROOFS, config, now, log);
+    }
   },
 } satisfies ExportedHandler<Env>;

@@ -133,9 +133,10 @@ export const defaults = {
   screenshotMaxBytes: 8 * 1024 * 1024,
   /**
    * How long a browser may keep a verify screenshot, in seconds. A replaced screenshot gets a new
-   * key, so an image never changes under its URL.
+   * key, so an image never changes under its URL. Keep this bounded so removed screenshots age out
+   * of existing browser and shared caches within an hour.
    */
-  screenshotCacheSeconds: 365 * 24 * 60 * 60,
+  screenshotCacheSeconds: 60 * 60,
   /**
    * Storage caps for verify screenshots: past either one, the oldest are deleted after each upload
    * (the lobby keeps its result and verified mark). R2's free tier holds 10 GB; 8 GB leaves room.
@@ -146,6 +147,8 @@ export const defaults = {
   screenshotKeepDays: 0,
   /** Most screenshots the cron deletes in one run; the next run goes on. */
   screenshotExpiryBatch: 100,
+  /** Staged uploads may attach for this long before orphan cleanup can delete their reserved key. */
+  screenshotUploadGraceSeconds: 15 * 60,
 
   /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier

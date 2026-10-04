@@ -167,8 +167,11 @@
       const actions = cell(tr, "");
       button(actions, l.matchId ? "Change match" : "Link match", () => {
         const id = prompt(`Match id for ${l.label} (from the match list or /match?id=)`, l.matchId ?? "");
-        if (!id) return;
-        act(`link ${l.label}`, async () => `${l.label} is match ${id}.` + staleNote(await post(`lobbies/${l.id}`, { matchId: Number(id) })));
+        if (id === null) return;
+        const digits = id.trim().replace(/^#\s*/, "");
+        const matchId = Number(digits);
+        if (!/^[1-9]\d*$/.test(digits) || !Number.isSafeInteger(matchId)) return say("Enter a positive whole match id, like 123 or #123.", true);
+        act(`link ${l.label}`, async () => `${l.label} is match ${matchId}.` + staleNote(await post(`lobbies/${l.id}`, { matchId })));
       });
       if (l.matchId) button(actions, "Unlink", () => act(`unlink ${l.label}`, async () => `${l.label} has no match.` + staleNote(await post(`lobbies/${l.id}`, { matchId: null }))));
       button(actions, l.screenshotKey ? "Replace screenshot" : "Upload screenshot", () => {
@@ -178,8 +181,8 @@
         input.click();
       });
       if (l.screenshotKey) button(actions, "Delete screenshot", () => confirm(`Delete ${l.label}'s screenshot?`) && act(`delete screenshot`, () => api(`lobbies/${l.id}/screenshot`, { method: "DELETE" }).then(() => "Screenshot deleted.")));
-      if (l.matchId && l.screenshotKey) {
-        button(actions, l.verifiedAt ? "Unverify" : "Verify", () => act(`verify ${l.label}`, () => post(`lobbies/${l.id}/verify`, { verified: !l.verifiedAt }).then(() => (l.verifiedAt ? `${l.label} is unverified.` : `${l.label} is verified.`))));
+      if (l.verifiedAt || (l.matchId && l.screenshotKey)) {
+        button(actions, l.verifiedAt ? "Unverify" : "Verify", () => act(`verify ${l.label}`, () => post(`lobbies/${l.id}/verify`, { verified: !l.verifiedAt, version: l.version }).then(() => (l.verifiedAt ? `${l.label} is unverified.` : `${l.label} is verified.`))));
       }
       button(actions, "Rename", () => { const label = prompt("Lobby label", l.label); if (label) act("rename lobby", () => post(`lobbies/${l.id}`, { label }).then(() => `Renamed to ${label}.`)); });
       button(actions, "Delete", () => confirm(`Delete ${l.label}? Its match stops being a tourney match.`) && act("delete lobby", async () => `${l.label} deleted.` + staleNote(await api(`lobbies/${l.id}`, { method: "DELETE" }))));
