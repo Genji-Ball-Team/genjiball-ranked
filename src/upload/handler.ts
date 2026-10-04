@@ -66,11 +66,8 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
     return fail(405, "method_not_allowed", "Use POST", { Allow: "POST" });
   }
 
-  const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
-  if (!token) return fail(401, "unauthorized", "Send the host token as Authorization: Bearer <token>");
-  const host = await findHost(db, await sha256(token));
-  if (!host) return fail(401, "unauthorized", "Unknown host token");
-  if (host.trust === "revoked") return fail(403, "revoked", "This host token has been revoked");
+  const host = await authHost(request, db);
+  if (host instanceof Response) return host;
 
   const now = new Date();
   const recent = await countRecentUploads(db, host.id, isoSeconds(new Date(now.getTime() - hourMs)));
@@ -82,6 +79,29 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   const bytes = await readBody(request, config);
   if (bytes instanceof Response) return bytes;
   return storeLog(db, config, log, { host, bytes, request, now, legacy: false });
+}
+
+/**
+ * `GET /api/host/me`: checks a host token, for the host tool's settings screen.
+ * `{ host: { id, name, trust } }`, or the 401 / 403 an upload with that token would get.
+ */
+export async function handleHostMe(request: Request, db: D1Database): Promise<Response> {
+  if (request.method !== "GET") {
+    return fail(405, "method_not_allowed", "Use GET", { Allow: "GET" });
+  }
+  const host = await authHost(request, db);
+  if (host instanceof Response) return host;
+  return Response.json({ host: { id: host.id, name: host.name, trust: host.trust } });
+}
+
+/** The host whose token the request carries, or the error: no or unknown token (401), revoked (403). */
+async function authHost(request: Request, db: D1Database): Promise<Host | Response> {
+  const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
+  if (!token) return fail(401, "unauthorized", "Send the host token as Authorization: Bearer <token>");
+  const host = await findHost(db, await sha256(token));
+  if (!host) return fail(401, "unauthorized", "Unknown host token");
+  if (host.trust === "revoked") return fail(403, "revoked", "This host token has been revoked");
+  return host;
 }
 
 export interface StoreLog {
