@@ -6,4 +6,5 @@ export interface Env {
   PROOFS: R2Bucket;
   LOG_LEVEL?: string;
   TEST_SERVER?: string;
+  RATING_MATCHES_PER_RUN?: string;
 }

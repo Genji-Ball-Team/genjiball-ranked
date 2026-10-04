@@ -24,6 +24,8 @@ npm run dev                # http://localhost:8787
 
 `npm run dev` runs the Worker with a local D1 (stored in `.wrangler/`), so nothing touches the real database.
 
+Rating recomputation processes 100 matches per run by default, intended for the Workers Standard plan. On the free plan, set `RATING_MATCHES_PER_RUN = "10"` under `[vars]` in `wrangler.toml`, and under `[env.test.vars]` if the test deployment uses the free plan too. Environment variables are configured separately for each deployment. See [docs/rating.md](docs/rating.md) for the resource budget.
+
 | Command | Use |
 |---|---|
 | `npm run dev` | Run the Worker and website locally |
@@ -53,6 +55,7 @@ npx wrangler r2 bucket create genjiball-proofs-test
 
 A second deployment for playtests and for trying changes before they reach the real leaderboard: [test.genjiball.us](https://test.genjiball.us). It's the `test` environment in `wrangler.toml`: the same Worker with its own D1 database (`genjiball-ranked-test`), so nothing done there touches the real ratings. Every page shows a "Test server" banner, and it logs at `debug`.
 
+- **Its data never goes to production.** The test database holds playtests, fake results and admin experiments. Never copy, export or restore it into the production database. Production starts empty and gets real matches only from hosts' uploads and from importing the release logs (the v1.3.2 logs, [legacy.md](docs/legacy.md)) into it directly.
 - **Deploy:** `npm run deploy:test` applies the migrations to the test database and deploys.
 - **Admin token:** `npm run admin:token -- <name>`, then run the printed command with `--env test` added.
 - **Host token:** sign in at `/admin` on the test server and add a host. Production tokens don't work there, and the other way round.

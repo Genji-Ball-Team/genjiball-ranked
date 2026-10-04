@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { matchTransition, trustChange } from "../src/admin/plan";
 import { isStale, setMatchState, setTournament } from "../src/admin/store";
-import { defaults } from "../src/config";
+import { defaults, loadConfig } from "../src/config";
 import { createLogger } from "../src/log";
 import { readState } from "../src/rating/store";
 import { recomputeRatings } from "../src/rating/update";
@@ -236,14 +236,16 @@ describe("admin: void", () => {
   });
 
   it("leaves a long tail to the cron", async () => {
-    const count = defaults.ratingMatchesPerRun + 3;
+    // What the worker runs with: RATING_MATCHES_PER_RUN in vitest.config.ts.
+    const config = loadConfig(env);
+    const count = config.ratingMatchesPerRun + 3;
     for (let i = 1; i <= count; i++) {
       await upload(matchLog({ key: String(i).padStart(12, "0") }), `2026-09-${String(i).padStart(2, "0")}T20:00:00Z`);
     }
     const res = await adminOk<{ ratingsStale: boolean }>(`matches/${await matchId("000000000001")}/void`, { method: "POST" });
     expect(res.ratingsStale).toBe(true);
     // The cron carries on.
-    while (!(await recomputeRatings(db(), defaults, new Date(), log)).done);
+    while (!(await recomputeRatings(db(), config, new Date(), log)).done);
     await expectUpToDate();
   });
 

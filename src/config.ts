@@ -91,10 +91,13 @@ export const defaults = {
    */
   ratingIncompleteGraceHours: 6,
   /**
-   * Most matches rated in one go (one upload, one cron run). Rating costs about 0.5 ms of CPU a
-   * match and the free plan allows 10 ms an invocation, so a long recompute is spread over runs.
+   * Most matches rated in one go (one upload, one cron run); a longer recompute is spread over runs.
+   * Rating costs about 0.5 ms of CPU a match. The Workers Standard plan allows 30 s an invocation,
+   * so 100 is far inside it, and a run's history rows (about 150 bytes each, a dozen a match) stay
+   * well under D1's 2 MB per bound value. On the free plan (10 ms CPU, 100k rows written a day),
+   * set `RATING_MATCHES_PER_RUN = "10"`.
    */
-  ratingMatchesPerRun: 10,
+  ratingMatchesPerRun: 100,
 
   /**
    * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
@@ -211,5 +214,7 @@ export function loadConfig(env: Partial<Env>): Config {
     config.logLevel = logLevel as LogLevel;
   }
   if (env.TEST_SERVER !== undefined) config.testServer = env.TEST_SERVER.trim().toLowerCase() === "true";
+  const matchesPerRun = Number(env.RATING_MATCHES_PER_RUN);
+  if (Number.isInteger(matchesPerRun) && matchesPerRun > 0) config.ratingMatchesPerRun = matchesPerRun;
   return config;
 }
