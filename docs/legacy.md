@@ -38,7 +38,7 @@ The log has no rounds, joins, leaves, winners or deflects. The parser rebuilds t
 - **Rounds with a bot** (`legacyBotNames`: `Genji Bot` and the dummy bot `zSh4d0Ws bozo`). New logs reject a whole match with a bot; a legacy file is often a long lobby with a bot in only some rounds, so only those rounds are left out.
 - **Rounds the rebuild can't be sure of** (`ABORT`, with the reason in `broken`): a player died twice before the round had a winner, so someone joined or left unseen.
 - **`NONE` rounds:** everyone in the round died.
-- A match still needs `minMatchPlayers` (4) players in its rated rounds, like a new one.
+- A match still needs `minMatchPlayers` (2) players in its rated rounds, like a new one.
 
 Everything else is rated like a new round, AFK players included: a player who idles in the lobby loses each round to the first ball, as they would in a new log.
 

@@ -196,21 +196,29 @@ describe("upload: a new match", () => {
     expect(await storedMatch()).toMatchObject({ status: "rejected", rejection_code: "unranked", unranked: "BOT,MAP" });
   });
 
-  it("rejects a match with too few players in rated rounds", async () => {
-    const threePlayers = [
+  it("accepts a 1v1", async () => {
+    const oneVsOne = [
       "GBR|1.00|1|1.3.3R|000000000001",
       "MATCH_START|1.00|workshop-island-night|Default|0|",
       "JOIN|1.00|1|Alpha",
       "JOIN|1.00|2|Bravo",
-      "JOIN|1.00|3|Charlie",
-      "ROUND_START|2.00|1|1,2,3",
-      "ELIM|3.00|1|2|1|3",
-      "ELIM|4.00|1|3|1|2",
-      "ROUND_END|4.00|1|1|WIN",
+      "ROUND_START|2.00|1|1,2",
+      "ELIM|3.00|1|2|1|2",
+      "ROUND_END|3.00|1|1|WIN",
       "MATCH_END|10.00|TIME",
     ].join("\n");
-    const body = await uploadOk(threePlayers);
-    expect(body.matches[0]).toMatchObject({ status: "rejected", rejection: { code: "too_few_players" } });
+    const body = await uploadOk(oneVsOne);
+    expect(body.matches[0]).toMatchObject({ status: "accepted", rejection: null });
+  });
+
+  it("rejects a match with no rated round", async () => {
+    // Restarted straight away: the next match is in a new file.
+    const restarted = ["GBR|1.00|1|1.3.3R|000000000001", "MATCH_START|1.00|workshop-island-night|Default|0|", "JOIN|1.00|1|Alpha"].join("\n");
+    const body = await uploadOk(restarted);
+    expect(body.matches[0]).toMatchObject({
+      status: "rejected",
+      rejection: { code: "too_few_players", message: "No rated rounds" },
+    });
   });
 
   it("stores a match in an unknown format as rejected, to re-parse later", async () => {

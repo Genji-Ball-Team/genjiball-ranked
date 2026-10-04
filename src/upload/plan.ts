@@ -117,7 +117,8 @@ function judge(
 
   const players = ratedPlayers(match);
   if (players < config.minMatchPlayers) {
-    return reject("too_few_players", `${players} players in rated rounds, the minimum is ${config.minMatchPlayers}`);
+    const message = players === 0 ? "No rated rounds" : `${players} players in rated rounds, the minimum is ${config.minMatchPlayers}`;
+    return reject("too_few_players", message);
   }
 
   const reviewReasons: string[] = [...match.review];

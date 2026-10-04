@@ -27,8 +27,11 @@ export const defaults = {
   maxUploadsPerHour: 60,
   /** Rows per bulk insert statement. Smaller is more statements; bigger risks D1's size limits. */
   insertChunkRows: 2000,
-  /** A match needs this many different players in its rated rounds, or it's rejected (`too_few_players`). */
-  minMatchPlayers: 4,
+  /**
+   * A match needs this many different players in its rated rounds, or it's rejected (`too_few_players`).
+   * 2: a 1v1 counts. A match with no rated round at all (restarted at once, only `NONE` rounds) never does.
+   */
+  minMatchPlayers: 2,
   /** What happens to a match from an untrusted host: `review` (admins accept it) or `reject`. */
   untrustedHostUploads: "review" as "review" | "reject",
 
