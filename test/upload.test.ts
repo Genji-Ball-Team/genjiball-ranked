@@ -99,6 +99,34 @@ describe("upload: auth", () => {
   });
 });
 
+describe("host: check a token", () => {
+  function me(token: string | null, method = "GET") {
+    return SELF.fetch("https://example.com/api/host/me", { method, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  }
+
+  it("answers the token's host", async () => {
+    const res = await me(tokens.untrusted);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ host: { id: 2, name: "untrusted", trust: "untrusted" } });
+  });
+
+  it("answers like an upload for a missing, unknown or revoked token", async () => {
+    expect((await me(null)).status).toBe(401);
+    const unknown = await me("nope");
+    expect(unknown.status).toBe(401);
+    expect(await unknown.json()).toMatchObject({ error: "unauthorized" });
+    const revoked = await me(tokens.revoked);
+    expect(revoked.status).toBe(403);
+    expect(await revoked.json()).toMatchObject({ error: "revoked" });
+  });
+
+  it("only takes GET", async () => {
+    const res = await me(tokens.trusted, "POST");
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("GET");
+  });
+});
+
 describe("upload: a new match", () => {
   it("stores the file, the match, its players, rounds and events", async () => {
     const body = await uploadOk(matchLog(), tokens.trusted, { "X-Log-File": "Log-26-10-03-20-00-00.txt" });

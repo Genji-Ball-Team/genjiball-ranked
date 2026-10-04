@@ -78,6 +78,12 @@ and `status`, the match's status after the upload:
 
 A 5xx or a network error: keep the file and try again later.
 
+## Check a host token: `GET /api/host/me`
+
+The host tool calls this when a host enters their token, before any upload. `Authorization: Bearer <host token>`, as for an upload. Code: `src/upload/handler.ts`.
+
+`200 { "host": { "id": 3, "name": "Kenzo", "trust": "trusted" } }`, `trust` being `trusted` or `untrusted`. The errors are an upload's: `401 unauthorized` (no token or an unknown one), `403 revoked`, `405 method_not_allowed` (not a `GET`).
+
 ## Admin: `/api/admin/*`
 
 For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/`. Every request needs `Authorization: Bearer <admin token>`; without a valid, unrevoked one it's `401 unauthorized`. Every change is written to `admin_actions` (who, what, when, which match or host) in the same transaction.

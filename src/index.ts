@@ -4,7 +4,7 @@ import type { Env } from "./env";
 import { createLogger } from "./log";
 import { updateRatings } from "./rating/update";
 import { handleSite } from "./site/handler";
-import { handleUpload } from "./upload/handler";
+import { handleHostMe, handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
 export default {
@@ -20,6 +20,10 @@ export default {
 
     if (url.pathname === "/api/upload") {
       return handleUpload(request, env.DB, config, log);
+    }
+
+    if (url.pathname === "/api/host/me") {
+      return handleHostMe(request, env.DB);
     }
 
     if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
