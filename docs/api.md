@@ -84,6 +84,12 @@ The host tool calls this when a host enters their token, before any upload. `Aut
 
 `200 { "host": { "id": 3, "name": "Kenzo", "trust": "trusted" } }`, `trust` being `trusted` or `untrusted`. The errors are an upload's: `401 unauthorized` (no token or an unknown one), `403 revoked`, `405 method_not_allowed` (not a `GET`).
 
+## Match status: `GET /api/host/matches?keys=<matchKey>,<matchKey>`
+
+The host tool calls this now and then to show a match's status after an admin accepted, rejected or voided it. `Authorization: Bearer <host token>`, as for an upload; only the token's host's matches are answered. Code: `src/upload/handler.ts`.
+
+`200 { "matches": [{ "matchKey": "482913507226", "status": "accepted", "rejection": null, "reviewReasons": [] }] }`, with `status`, `rejection` and `reviewReasons` as in an upload's answer. A key the host has no match for is left out. The errors are an upload's (`401`, `403`, `405`), and `400 bad_request` for over `hostMatchKeysMax` (50) keys.
+
 ## Admin: `/api/admin/*`
 
 For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/`. Every request needs `Authorization: Bearer <admin token>`; without a valid, unrevoked one it's `401 unauthorized`. Every change is written to `admin_actions` (who, what, when, which match or host) in the same transaction.

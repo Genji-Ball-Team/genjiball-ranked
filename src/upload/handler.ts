@@ -7,7 +7,7 @@ import type { ParsedMatch } from "../parser/types";
 import { rateNewMatches, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
 import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus } from "./plan";
-import { countRecentUploads, findHost, findStoredCopies, findUploadByHash, writeUpload, type Host } from "./store";
+import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUploadByHash, writeUpload, type Host } from "./store";
 
 /**
  * `POST /api/upload`: the host tool sends a Workshop log file (#5).
@@ -92,6 +92,24 @@ export async function handleHostMe(request: Request, db: D1Database): Promise<Re
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
   return Response.json({ host: { id: host.id, name: host.name, trust: host.trust } });
+}
+
+/**
+ * `GET /api/host/matches?keys=<matchKey>,<matchKey>`: the status now of the host's matches, so the
+ * host tool sees an admin's accept, reject or void. `{ matches: [{ matchKey, status, rejection,
+ * reviewReasons }] }`, leaving out keys the host has no match for. At most `hostMatchKeysMax` keys.
+ */
+export async function handleHostMatches(request: Request, db: D1Database, config: Pick<Config, "hostMatchKeysMax">): Promise<Response> {
+  if (request.method !== "GET") {
+    return fail(405, "method_not_allowed", "Use GET", { Allow: "GET" });
+  }
+  const host = await authHost(request, db);
+  if (host instanceof Response) return host;
+  const keys = [...new Set((new URL(request.url).searchParams.get("keys") ?? "").split(",").filter(Boolean))];
+  if (keys.length > config.hostMatchKeysMax) {
+    return fail(400, "bad_request", `At most ${config.hostMatchKeysMax} keys`);
+  }
+  return Response.json({ matches: await findMatchStates(db, host.id, keys) });
 }
 
 /** The host whose token the request carries, or the error: no or unknown token (401), revoked (403). */

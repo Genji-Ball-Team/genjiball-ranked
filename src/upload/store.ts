@@ -46,6 +46,31 @@ export async function findStoredCopies(db: D1Database, hostId: number, matchKeys
   }));
 }
 
+export interface MatchState {
+  matchKey: string;
+  status: MatchStatus;
+  rejection: { code: string; message: string } | null;
+  reviewReasons: string[];
+}
+
+/** The status now of the host's matches with these keys. Unknown keys are left out. */
+export async function findMatchStates(db: D1Database, hostId: number, matchKeys: string[]): Promise<MatchState[]> {
+  if (!matchKeys.length) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT match_key AS matchKey, status, rejection_code AS rejectionCode,
+         rejection_message AS rejectionMessage, review_reasons AS reviewReasons
+       FROM matches WHERE host_id = ?1 AND match_key IN (SELECT value FROM json_each(?2))`,
+    )
+    .bind(hostId, JSON.stringify(matchKeys))
+    .all<{ matchKey: string; status: MatchStatus; rejectionCode: string | null; rejectionMessage: string | null; reviewReasons: string | null }>();
+  return results.map(({ rejectionCode, rejectionMessage, reviewReasons, ...state }) => ({
+    ...state,
+    rejection: rejectionCode === null ? null : { code: rejectionCode, message: rejectionMessage ?? "" },
+    reviewReasons: reviewReasons ? reviewReasons.split(",") : [],
+  }));
+}
+
 export interface UploadWrite {
   hostId: number;
   contentHash: string;
