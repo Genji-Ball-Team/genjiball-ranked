@@ -4,4 +4,5 @@ export interface Env {
   ASSETS: Fetcher;
   LOG_LEVEL?: string;
   TEST_SERVER?: string;
+  RATING_MATCHES_PER_RUN?: string;
 }

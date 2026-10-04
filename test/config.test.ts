@@ -19,6 +19,13 @@ describe("loadConfig", () => {
     expect(loadConfig({ TEST_SERVER: "false" }).testServer).toBe(false);
   });
 
+  it("overrides the matches rated a run from RATING_MATCHES_PER_RUN, ignoring a bad value", () => {
+    expect(loadConfig({ RATING_MATCHES_PER_RUN: "10" }).ratingMatchesPerRun).toBe(10);
+    for (const bad of ["", "0", "-5", "2.5", "many"]) {
+      expect(loadConfig({ RATING_MATCHES_PER_RUN: bad }).ratingMatchesPerRun).toBe(defaults.ratingMatchesPerRun);
+    }
+  });
+
   it("doesn't share state between calls", () => {
     loadConfig({}).acceptedLogFormats.push(99);
     expect(defaults.acceptedLogFormats).toEqual([1]);

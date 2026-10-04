@@ -8,7 +8,8 @@ export default defineConfig({
     cloudflareTest(async () => ({
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {
-        bindings: { TEST_MIGRATIONS: await readD1Migrations("./migrations") },
+        // RATING_MATCHES_PER_RUN: a test can fill more than one run without passing maxUploadsPerHour.
+        bindings: { TEST_MIGRATIONS: await readD1Migrations("./migrations"), RATING_MATCHES_PER_RUN: "10" },
       },
     })),
   ],
