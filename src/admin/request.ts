@@ -2,6 +2,7 @@ import type { Config } from "../config";
 import { fail } from "../http";
 import type { Logger } from "../log";
 import type { UpdateConfig } from "../rating/update";
+import type { ExpiryConfig } from "../tourney/expiry";
 import type { UploadConfig } from "../upload/handler";
 import type { Admin } from "./store";
 
@@ -9,6 +10,7 @@ import type { Admin } from "./store";
 
 export type AdminConfig = UpdateConfig &
   UploadConfig &
+  ExpiryConfig &
   Pick<Config, "hostTokenBytes" | "adminListLimit" | "adminTextMaxLength" | "tourneyNotesMaxLength" | "screenshotMaxBytes">;
 
 export interface Context {

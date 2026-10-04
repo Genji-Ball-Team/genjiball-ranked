@@ -162,6 +162,7 @@
       if (l.matchId) { const a = document.createElement("a"); a.href = `/match?id=${l.matchId}`; a.textContent = `#${l.matchId}`; match.append(a); }
       const shot = cell(tr, "");
       if (l.screenshotKey) { const a = document.createElement("a"); a.href = `/api/screenshots/${l.screenshotKey}`; a.target = "_blank"; a.textContent = "view"; shot.append(a); }
+      else if (l.screenshotExpiredAt) shot.textContent = `expired ${l.screenshotExpiredAt}`;
       cell(tr, l.verifiedAt ? `${l.verifiedBy}, ${l.verifiedAt}` : "no");
       const actions = cell(tr, "");
       button(actions, l.matchId ? "Change match" : "Link match", () => {

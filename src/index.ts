@@ -4,6 +4,7 @@ import type { Env } from "./env";
 import { createLogger } from "./log";
 import { updateRatings } from "./rating/update";
 import { handleSite } from "./site/handler";
+import { expireOld } from "./tourney/expiry";
 import { handleHostMatches, handleHostMe, handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
@@ -45,9 +46,13 @@ export default {
   },
 
   // The cron in wrangler.toml: rates incomplete matches whose grace period has passed, and
-  // recomputes the ratings when they're stale (docs/rating.md).
+  // recomputes the ratings when they're stale (docs/rating.md). Then deletes verify screenshots past
+  // screenshotKeepDays, when that's set (src/tourney/expiry.ts).
   async scheduled(controller, env): Promise<void> {
     const config = loadConfig(env);
-    await updateRatings(env.DB, config, new Date(controller.scheduledTime), createLogger(config.logLevel));
+    const log = createLogger(config.logLevel);
+    const now = new Date(controller.scheduledTime);
+    await updateRatings(env.DB, config, now, log);
+    await expireOld(env.DB, env.PROOFS, config, now, log);
   },
 } satisfies ExportedHandler<Env>;

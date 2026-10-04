@@ -1,7 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
+import { createLogger } from "../src/log";
 import { handleSite } from "../src/site/handler";
+import { expireOld, expireOverCaps } from "../src/tourney/expiry";
 import { imageType, isScreenshotKey, screenshotKey } from "../src/tourney/screenshot";
 import { standings } from "../src/tourney/standings";
 import { sha256 } from "../src/upload/handler";
@@ -238,6 +240,79 @@ describe("admin: tourneys", () => {
     await adminOk(`lobbies/${lobby}`, { method: "DELETE" });
     expect(await env.PROOFS.head(second.lobby.screenshotKey)).toBeNull();
     expect(await db().prepare("SELECT tournament FROM matches WHERE id = ?").bind(id).first("tournament")).toBe(0);
+  });
+});
+
+describe("screenshot expiry", () => {
+  const log = createLogger("error");
+
+  /** A lobby with a stored screenshot of `bytes`, taken at `at`. Returns its key. */
+  async function stored(tourney: number, label: string, at: string, bytes = png.length): Promise<string> {
+    const lobby = await newLobby(tourney, label);
+    const key = screenshotKey(lobby, "image/png");
+    await env.PROOFS.put(key, png);
+    await db().prepare("UPDATE tourney_lobbies SET screenshot_key = ?2, screenshot_at = ?3, screenshot_bytes = ?4 WHERE id = ?1").bind(lobby, key, at, bytes).run();
+    return key;
+  }
+
+  const lobbyOf = (key: string) =>
+    db().prepare("SELECT screenshot_key AS key, screenshot_expired_at AS expiredAt FROM tourney_lobbies WHERE id = ?").bind(Number(key.split("-")[1])).first();
+
+  it("deletes the oldest past screenshotsKept, from R2 and the lobby", async () => {
+    const t = await newTourney();
+    const keys = [await stored(t, "A", "2026-09-01T00:00:00Z"), await stored(t, "B", "2026-09-02T00:00:00Z"), await stored(t, "C", "2026-09-03T00:00:00Z")];
+    const now = new Date("2026-10-01T00:00:00Z");
+    expect(await expireOverCaps(db(), env.PROOFS, { ...defaults, screenshotsKept: 2 }, now, log)).toEqual([keys[0]]);
+    expect(await env.PROOFS.head(keys[0]!)).toBeNull();
+    expect(await env.PROOFS.head(keys[1]!)).not.toBeNull();
+    expect(await lobbyOf(keys[0]!)).toEqual({ key: null, expiredAt: "2026-10-01T00:00:00Z" });
+    expect(await lobbyOf(keys[2]!)).toEqual({ key: keys[2], expiredAt: null });
+  });
+
+  it("deletes the oldest past screenshotStorageMaxBytes, counted from the newest", async () => {
+    const t = await newTourney();
+    const old = await stored(t, "A", "2026-09-01T00:00:00Z", 600);
+    const mid = await stored(t, "B", "2026-09-02T00:00:00Z", 300);
+    const recent = await stored(t, "C", "2026-09-03T00:00:00Z", 600);
+    const config = { ...defaults, screenshotStorageMaxBytes: 1000 };
+    expect(await expireOverCaps(db(), env.PROOFS, config, new Date(), log)).toEqual([old]);
+    expect((await lobbyOf(mid))!.key).toBe(mid);
+    expect((await lobbyOf(recent))!.key).toBe(recent);
+  });
+
+  it("deletes screenshots past screenshotKeepDays on the cron, and nothing when it's 0", async () => {
+    const t = await newTourney();
+    const old = await stored(t, "A", "2026-08-01T00:00:00Z");
+    const recent = await stored(t, "B", "2026-09-25T00:00:00Z");
+    const now = new Date("2026-10-01T00:00:00Z");
+    expect(await expireOld(db(), env.PROOFS, defaults, now, log)).toEqual([]);
+    expect(await expireOld(db(), env.PROOFS, { ...defaults, screenshotKeepDays: 30 }, now, log)).toEqual([old]);
+    expect((await lobbyOf(recent))!.key).toBe(recent);
+  });
+
+  it("keeps the result and verified mark, and the site says the screenshot is gone", async () => {
+    const tourney = await newTourney({ status: "done" });
+    const lobby = await newLobby(tourney);
+    const id = await upload("000000000001", 2);
+    await adminOk(`lobbies/${lobby}`, { body: { matchId: id } });
+    const { lobby: l } = await adminOk<{ lobby: { screenshotKey: string } }>(`lobbies/${lobby}/screenshot`, { method: "PUT", raw: png });
+    await adminOk(`lobbies/${lobby}/verify`, { body: { verified: true } });
+    await expireOverCaps(db(), env.PROOFS, { ...defaults, screenshotsKept: 0 }, new Date(), log);
+
+    const { tourney: t } = await get<{ tourney: Tourney }>(`tourneys/${tourney}`);
+    expect(t.lobbies[0]).toMatchObject({ screenshot: null, screenshotExpired: true, verified: true, matchId: id });
+    expect(t.lobbies[0]!.standings).toHaveLength(4);
+    expect((await SELF.fetch(`https://example.com/api/screenshots/${l.screenshotKey}`)).status).toBe(404);
+  });
+
+  it("applies the caps after an upload", async () => {
+    const t = await newTourney();
+    // More than screenshotStorageMaxBytes on record: the upload pushes it out.
+    const huge = await stored(t, "Old", "2026-01-01T00:00:00Z", defaults.screenshotStorageMaxBytes);
+    const lobby = await newLobby(t, "New");
+    const res = await adminOk<{ expired: number }>(`lobbies/${lobby}/screenshot`, { method: "PUT", raw: png });
+    expect(res.expired).toBe(1);
+    expect((await lobbyOf(huge))!.key).toBeNull();
   });
 });
 

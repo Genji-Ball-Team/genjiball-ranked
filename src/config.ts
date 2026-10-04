@@ -136,6 +136,16 @@ export const defaults = {
    * key, so an image never changes under its URL.
    */
   screenshotCacheSeconds: 365 * 24 * 60 * 60,
+  /**
+   * Storage caps for verify screenshots: past either one, the oldest are deleted after each upload
+   * (the lobby keeps its result and verified mark). R2's free tier holds 10 GB; 8 GB leaves room.
+   */
+  screenshotsKept: 3000,
+  screenshotStorageMaxBytes: 8 * 1024 * 1024 * 1024,
+  /** Screenshots older than this many days are deleted by the cron. 0: kept until a cap is reached. */
+  screenshotKeepDays: 0,
+  /** Most screenshots the cron deletes in one run; the next run goes on. */
+  screenshotExpiryBatch: 100,
 
   /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier

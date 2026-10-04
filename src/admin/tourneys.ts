@@ -2,6 +2,7 @@ import { fail } from "../http";
 import { readState, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
+import { expireOverCaps } from "../tourney/expiry";
 import { imageType, screenshotKey } from "../tourney/screenshot";
 import {
   createLobby,
@@ -177,14 +178,21 @@ async function putScreenshot(ctx: Context, id: number, request: Request): Promis
   const key = screenshotKey(id, type);
   await ctx.proofs.put(key, bytes, { httpMetadata: { contentType: type } });
   try {
-    await setScreenshot(ctx.db, id, key, log(ctx, "lobby_screenshot", { lobby: id, tourney: lobby.tourneyId, bytes: bytes.length, type }));
+    await setScreenshot(ctx.db, id, key, bytes.length, log(ctx, "lobby_screenshot", { lobby: id, tourney: lobby.tourneyId, bytes: bytes.length, type }));
   } catch (error) {
     await ctx.proofs.delete(key);
     throw error;
   }
   if (lobby.screenshotKey) await ctx.proofs.delete(lobby.screenshotKey);
   ctx.log.info("admin: screenshot", { admin: ctx.admin.id, lobby: id, bytes: bytes.length, type });
-  return Response.json({ lobby: await findLobby(ctx.db, id) });
+  let expired: string[] = [];
+  try {
+    expired = await expireOverCaps(ctx.db, ctx.proofs, ctx.config, ctx.now, ctx.log);
+  } catch (error) {
+    // The upload is stored; the next upload tries again.
+    ctx.log.error("screenshot expiry failed", { lobby: id, error: String(error) });
+  }
+  return Response.json({ lobby: await findLobby(ctx.db, id), expired: expired.length });
 }
 
 /** `DELETE /api/admin/lobbies/:id/screenshot`. */
@@ -192,7 +200,7 @@ async function removeScreenshot(ctx: Context, id: number): Promise<Response> {
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
   if (!lobby.screenshotKey) return fail(409, "conflict", "The lobby has no screenshot");
-  await setScreenshot(ctx.db, id, null, log(ctx, "lobby_screenshot_delete", { lobby: id, tourney: lobby.tourneyId }));
+  await setScreenshot(ctx.db, id, null, null, log(ctx, "lobby_screenshot_delete", { lobby: id, tourney: lobby.tourneyId }));
   await ctx.proofs.delete(lobby.screenshotKey);
   ctx.log.info("admin: screenshot deleted", { admin: ctx.admin.id, lobby: id });
   return Response.json({ lobby: await findLobby(ctx.db, id) });

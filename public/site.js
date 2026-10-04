@@ -382,7 +382,9 @@ function lobbySection(t, l) {
     ? `<figure class="proof"><button type="button" class="zoom" data-src="${esc(l.screenshot)}" aria-label="Enlarge the screenshot of ${esc(l.label)}">
         <img src="${esc(l.screenshot)}" alt="Final standings of ${esc(l.label)}, as the host saw them" loading="lazy" decoding="async"></button>
         <figcaption>The host's screenshot of the final standings${l.verified ? ", checked by an admin" : ""}. Click to enlarge.</figcaption></figure>`
-    : "";
+    : l.screenshotExpired
+      ? `<p class="note proof">The screenshot is no longer kept: only the newest ones are.${l.verified ? " An admin checked it against these standings." : ""}</p>`
+      : "";
   const missing = t.status === "cancelled" ? "Didn't take place." : t.status === "done" ? "The result isn't in yet." : "Not played yet.";
   const body = l.standings.length
     ? standingsTable(l) + (l.matchId ? `<p class="note"><a href="/match?id=${l.matchId}">Every round of this lobby</a></p>` : "")

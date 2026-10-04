@@ -31,6 +31,8 @@ export interface LobbyRow {
   matchVoid: boolean;
   screenshotKey: string | null;
   screenshotAt: string | null;
+  /** When the screenshot was deleted to stay inside the storage caps (`./expiry.ts`). */
+  screenshotExpiredAt: string | null;
   verifiedAt: string | null;
   /** The admin who verified it. */
   verifiedBy: string | null;
@@ -67,7 +69,7 @@ export async function findTourney(db: D1Database, id: number): Promise<TourneyRo
 
 const lobbyColumns = `l.id, l.tourney_id AS tourneyId, l.label, l.match_id AS matchId,
   coalesce(m.status IN ('accepted', 'void'), 0) AS matchPublic, coalesce(m.status = 'void', 0) AS matchVoid,
-  l.screenshot_key AS screenshotKey, l.screenshot_at AS screenshotAt, l.verified_at AS verifiedAt, a.name AS verifiedBy`;
+  l.screenshot_key AS screenshotKey, l.screenshot_at AS screenshotAt, l.screenshot_expired_at AS screenshotExpiredAt, l.verified_at AS verifiedAt, a.name AS verifiedBy`;
 const lobbyFrom = `tourney_lobbies l LEFT JOIN matches m ON m.id = l.match_id LEFT JOIN admins a ON a.id = l.verified_by`;
 
 type RawLobby = Omit<LobbyRow, "matchPublic" | "matchVoid"> & { matchPublic: number; matchVoid: number };
@@ -201,12 +203,15 @@ export async function deleteLobby(db: D1Database, id: number, log: ActionLog, ex
   await db.batch([db.prepare("DELETE FROM tourney_lobbies WHERE id = ?").bind(id), ...extra, actionStatement(db, log)]);
 }
 
-/** Sets (or clears) the lobby's screenshot. A new screenshot isn't verified yet. */
-export async function setScreenshot(db: D1Database, id: number, key: string | null, log: ActionLog): Promise<void> {
+/** Sets (or clears) the lobby's screenshot, `bytes` long. A new screenshot isn't verified yet. */
+export async function setScreenshot(db: D1Database, id: number, key: string | null, bytes: number | null, log: ActionLog): Promise<void> {
   await db.batch([
     db
-      .prepare("UPDATE tourney_lobbies SET screenshot_key = ?2, screenshot_at = ?3, verified_by = NULL, verified_at = NULL WHERE id = ?1")
-      .bind(id, key, key === null ? null : log.at),
+      .prepare(
+        `UPDATE tourney_lobbies SET screenshot_key = ?2, screenshot_at = ?3, screenshot_bytes = ?4, screenshot_expired_at = NULL,
+           verified_by = NULL, verified_at = NULL WHERE id = ?1`,
+      )
+      .bind(id, key, key === null ? null : log.at, bytes),
     actionStatement(db, log),
   ]);
 }
@@ -218,6 +223,46 @@ export async function setVerified(db: D1Database, id: number, verified: boolean,
       .bind(id, verified ? log.adminId : null, verified ? log.at : null),
     actionStatement(db, log),
   ]);
+}
+
+/**
+ * Stored screenshots past the caps: beyond the newest `kept`, past `maxBytes` counted from the
+ * newest, or taken before `before` (`""`: no age limit). Reads every stored screenshot's row, so
+ * it runs after an upload, not on the cron.
+ */
+export async function listOverCaps(db: D1Database, kept: number, maxBytes: number, before: string): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT key FROM (
+         SELECT screenshot_key AS key, screenshot_at AS at,
+           ROW_NUMBER() OVER w AS n, SUM(coalesce(screenshot_bytes, 0)) OVER w AS total
+         FROM tourney_lobbies WHERE screenshot_key IS NOT NULL
+         WINDOW w AS (ORDER BY screenshot_at DESC, id DESC ROWS UNBOUNDED PRECEDING))
+       WHERE n > ?1 OR total > ?2 OR at < ?3`,
+    )
+    .bind(kept, maxBytes, before)
+    .all<{ key: string }>();
+  return results.map((r) => r.key);
+}
+
+/** Up to `limit` stored screenshots taken before `before`, oldest first (index `tourney_lobbies_screenshot`). */
+export async function listOlderThan(db: D1Database, before: string, limit: number): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT screenshot_key AS key FROM tourney_lobbies WHERE screenshot_key IS NOT NULL AND screenshot_at < ?1 ORDER BY screenshot_at LIMIT ?2")
+    .bind(before, limit)
+    .all<{ key: string }>();
+  return results.map((r) => r.key);
+}
+
+/** Marks these screenshots expired. By key: a screenshot replaced meanwhile has a new one and stays. */
+export async function expireScreenshots(db: D1Database, keys: readonly string[], at: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE tourney_lobbies SET screenshot_key = NULL, screenshot_bytes = NULL, screenshot_expired_at = ?2
+       WHERE screenshot_key IN (SELECT value FROM json_each(?1))`,
+    )
+    .bind(JSON.stringify(keys), at)
+    .run();
 }
 
 /** Logs an action on the row the statement before it inserted: its id goes in `detail` as `field`. */

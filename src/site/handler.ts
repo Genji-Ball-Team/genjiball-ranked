@@ -205,6 +205,8 @@ async function tourneyViews(db: D1Database, list: TourneyRow[]) {
     matchId: l.matchPublic ? l.matchId : null,
     void: l.matchPublic && l.matchVoid,
     screenshot: screenshotUrl(l.screenshotKey),
+    // Deleted to stay inside the storage caps: the result and verified mark stay.
+    screenshotExpired: l.screenshotKey === null && l.screenshotExpiredAt !== null,
     verified: l.verifiedAt !== null,
     standings: l.matchPublic ? standings.get(l.matchId!)! : [],
   });
