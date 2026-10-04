@@ -24,6 +24,8 @@ npm run dev                # http://localhost:8787
 
 `npm run dev` runs the Worker with a local D1 (stored in `.wrangler/`), so nothing touches the real database.
 
+Rating recomputation processes 100 matches per run by default, intended for the Workers Standard plan. On the free plan, set `RATING_MATCHES_PER_RUN = "10"` under `[vars]` in `wrangler.toml`, and under `[env.test.vars]` if the test deployment uses the free plan too. Environment variables are configured separately for each deployment. See [docs/rating.md](docs/rating.md) for the resource budget.
+
 | Command | Use |
 |---|---|
 | `npm run dev` | Run the Worker and website locally |
