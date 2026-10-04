@@ -16,7 +16,7 @@ The parser builds the finishing order. The engine gets it with player ids (`play
 
 ## Damping
 
-A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu, and shrinks the variance, by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 5, a match of 25 rounds counts about as much as 5 full games.
+A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu, and shrinks the variance, by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 6, a match of 25 rounds counts about as much as 4 full games.
 
 ## Recompute
 

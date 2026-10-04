@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { matchTransition, trustChange } from "../src/admin/plan";
-import { isStale, setMatchState } from "../src/admin/store";
+import { isStale, setMatchState, setTournament } from "../src/admin/store";
 import { defaults } from "../src/config";
 import { createLogger } from "../src/log";
 import { readState } from "../src/rating/store";
@@ -311,6 +311,18 @@ describe("admin: tournaments", () => {
     expect((await admin(`matches/${id}/tournament`, { body: { tournament: false } })).status).toBe(409);
     expect((await admin(`matches/${id}/tournament`)).status).toBe(405);
     expect((await admin("matches/99999/tournament", { body: { tournament: true } })).status).toBe(404);
+  });
+
+  it("refuses when another admin changed the flag first", async () => {
+    await upload(matchLog(), "2026-09-01T20:00:00Z");
+    const id = await matchId("000000000001");
+    expect(await adminOk(`matches/${id}`)).toMatchObject({ match: { tournament: false } });
+    await adminOk(`matches/${id}/tournament`, { body: { tournament: true } });
+    const before = await actions();
+    // The guard: marking it again from a stale read fails the whole batch.
+    const write = setTournament(db(), id, true, { adminId: 1, action: "match_tournament", matchId: id, at: "2026-09-01T00:00:00Z" });
+    await expect(write).rejects.toSatisfy(isStale);
+    expect(await actions()).toEqual(before);
   });
 });
 

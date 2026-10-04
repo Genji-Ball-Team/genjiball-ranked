@@ -17,7 +17,6 @@ import {
   listActions,
   listHosts,
   listMatches,
-  readTournament,
   setHostTrust,
   setMatchState,
   setTournament,
@@ -208,17 +207,23 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
   if (typeof data.tournament !== "boolean") throw new BadRequest("tournament must be true or false");
   const match = await findMatch(ctx.db, matchId);
   if (!match) return fail(404, "not_found", "No such match");
-  const current = await readTournament(ctx.db, matchId);
-  if (current === data.tournament) return fail(409, "conflict", `The match is ${current ? "already" : "not"} a tournament`);
+  if (match.tournament === data.tournament) {
+    return fail(409, "conflict", `The match is ${match.tournament ? "already" : "not"} a tournament`);
+  }
 
   const at = isoSeconds(ctx.now);
-  await setTournament(
-    ctx.db,
-    matchId,
-    data.tournament,
-    { adminId: ctx.admin.id, action: "match_tournament", matchId, hostId: match.hostId, detail: { tournament: data.tournament }, at },
-    [staleFromMatchesStatement(ctx.db, [matchId], at, true)],
-  );
+  try {
+    await setTournament(
+      ctx.db,
+      matchId,
+      data.tournament,
+      { adminId: ctx.admin.id, action: "match_tournament", matchId, hostId: match.hostId, detail: { tournament: data.tournament }, at },
+      [staleFromMatchesStatement(ctx.db, [matchId], at, true)],
+    );
+  } catch (error) {
+    if (isStale(error)) return changedMeanwhile();
+    throw error;
+  }
   ctx.log.info("admin: tournament", { admin: ctx.admin.id, match: matchId, tournament: data.tournament });
 
   let ratingsStale = true;
