@@ -15,10 +15,13 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `rounds` | round | `rated` = a `WIN` round that isn't broken |
 | `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
-| `ratings` | player per leaderboard | `board` is `ranked` now; `tourney` and `global` come with #26 |
+| `ratings` | player | `board` is always `ranked`: there is one leaderboard, tourney matches included (marked `matches.tournament`) |
 | `rating_history` | player per match | The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
 | `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
 | `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |
+| `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC |
+| `tourney_lobbies` | lobby of a tourney | Its match (`match_id`, unique: a match is in one lobby) and verify screenshot (`screenshot_key` in R2, `verified_by`/`verified_at`). Linking a match sets `matches.tournament` |
+| `screenshot_deletions` | screenshot awaiting R2 deletion | Keeps its key and byte count until R2 deletion succeeds; failed deletes remain accounted for and are retried |
 | `rating_state` | leaderboard | Whether the ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)) |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
@@ -39,6 +42,18 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
 
   An upload is about 15 statements whatever the number of matches in the file, plus one per `insertChunkRows` rows of a big table, all in one `db.batch` (a transaction).
 - **BLOBs come back as arrays.** D1 returns a `BLOB` column (`raw_log`) as an array of byte values, not an `ArrayBuffer`: wrap it in `new Uint8Array(...)` before gunzipping.
+
+## Screenshots in R2
+
+Tourney verify screenshots aren't in D1: they're in the R2 bucket bound as `PROOFS` (`genjiball-proofs`, `genjiball-proofs-test` for the test server). R2's free tier holds 10 GB, about 5,000 screenshots of 2 MB. A screenshot's key is random and never reused: replacing one writes a new object and deletes the old. Browsers may cache an image for `screenshotCacheSeconds` (1 h); removal stops origin access immediately, while already cached copies may remain until that time passes.
+
+Screenshots expire so the bucket stays inside the free tier (`src/tourney/expiry.ts`). After each upload, the oldest are deleted past `screenshotsKept` (3000) or `screenshotStorageMaxBytes` (8 GB, counted from the newest), and the cron deletes those older than `screenshotKeepDays` when that's set (0, off, by default). The lobby keeps its result and verified mark, with `screenshot_expired_at` set, and the site says the screenshot is no longer kept.
+
+Removing, replacing or expiring a screenshot queues its R2 deletion in the same D1 transaction that removes the lobby's reference. Pending keys and their bytes still count against the storage caps. Cleanup retries up to `screenshotExpiryBatch` keys after uploads, removals and on every cron, even when age expiry is off. A failed R2 delete stays queued until a later attempt succeeds, and pending images cannot be fetched from the public API.
+
+Uploads reserve their random key and bytes in `screenshot_deletions` before writing to R2. The reservation cannot be cleaned up for `screenshotUploadGraceSeconds` (15 minutes), and attaching it removes that record atomically. Once the grace ends, attachment is rejected so cleanup can never delete a newly attached image. A failed or interrupted upload therefore leaves a key the cron can clean up, even if D1 failed after R2 stored it. When pending or staged keys remain, new uploads cannot reserve space past the storage caps; retry after cleanup succeeds.
+
+`tourney_lobbies.version` increases on edits, screenshot changes, expiry and longer-copy uploads. Admin writes check their snapshot version atomically. Verification also requires the version displayed to the admin, and a longer match log clears verification even when the match id stays the same.
 
 ## Free tier
 

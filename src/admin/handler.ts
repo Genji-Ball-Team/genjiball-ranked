@@ -1,10 +1,9 @@
-import type { Config } from "../config";
 import { fail } from "../http";
 import type { Logger } from "../log";
 import { readState, staleFromMatchesStatement } from "../rating/store";
-import { updateRatings, type UpdateConfig } from "../rating/update";
+import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
-import { readBody, sha256, storeLog, type UploadConfig } from "../upload/handler";
+import { readBody, sha256, storeLog } from "../upload/handler";
 import type { HostTrust, MatchStatus } from "../upload/plan";
 import { matchActions, matchTransition, newToken, trustChange, type MatchAction } from "./plan";
 import {
@@ -20,36 +19,27 @@ import {
   setHostTrust,
   setMatchState,
   setTournament,
-  type Admin,
 } from "./store";
+import { BadRequest, body, changedMeanwhile, notAllowed, text, type AdminConfig, type Context } from "./request";
+import { handleTourneyAdmin } from "./tourneys";
 
 /**
- * `/api/admin/*`: hosts, the review queue, voiding matches, the action log (#7, docs/api.md) and the
- * legacy log import (#13).
+ * `/api/admin/*`: hosts, the review queue, voiding matches, the action log (#7, docs/api.md), the
+ * legacy log import (#13) and tourneys (#24, `./tourneys.ts`).
  * Every request needs `Authorization: Bearer <admin token>`; every change is logged in
  * `admin_actions` in the same transaction.
  */
 
-type AdminConfig = UpdateConfig & UploadConfig & Pick<Config, "hostTokenBytes" | "adminListLimit" | "adminTextMaxLength">;
-
-interface Context {
-  db: D1Database;
-  config: AdminConfig;
-  log: Logger;
-  admin: Admin;
-  now: Date;
-}
-
 const statuses: readonly MatchStatus[] = ["accepted", "review", "rejected", "void"];
 const settableTrust: readonly HostTrust[] = ["trusted", "untrusted"];
 
-export async function handleAdmin(request: Request, db: D1Database, config: AdminConfig, log: Logger): Promise<Response> {
+export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bucket, config: AdminConfig, log: Logger): Promise<Response> {
   const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
   if (!token) return fail(401, "unauthorized", "Send your admin token as Authorization: Bearer <token>");
   const admin = await findAdmin(db, await sha256(token));
   if (!admin) return fail(401, "unauthorized", "Unknown or revoked admin token");
 
-  const ctx: Context = { db, config, log, admin, now: new Date() };
+  const ctx: Context = { db, proofs, config, log, admin, now: new Date() };
   const path = new URL(request.url).pathname.replace(/^\/api\/admin\/?/, "").replace(/\/$/, "").split("/");
   const method = request.method;
   const id = path[1] !== undefined && /^[1-9]\d{0,15}$/.test(path[1]) ? Number(path[1]) : null;
@@ -93,6 +83,10 @@ export async function handleAdmin(request: Request, db: D1Database, config: Admi
     }
     if (path.length === 1 && path[0] === "legacy-import") {
       return method === "POST" ? await importLegacy(ctx, request) : notAllowed("POST");
+    }
+    if (path[0] === "tourneys" || path[0] === "lobbies") {
+      const answer = await handleTourneyAdmin(ctx, request, path);
+      if (answer) return answer;
     }
     if (path.length === 1 && path[0] === "actions") {
       return method === "GET" ? Response.json({ actions: await listActions(db, config.adminListLimit) }) : notAllowed("GET");
@@ -210,6 +204,9 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
   if (match.tournament === data.tournament) {
     return fail(409, "conflict", `The match is ${match.tournament ? "already" : "not"} a tournament`);
   }
+  if (!data.tournament && await ctx.db.prepare("SELECT id FROM tourney_lobbies WHERE match_id = ?").bind(matchId).first()) {
+    return fail(409, "conflict", "Unlink the match from its tourney lobby before removing its tournament flag");
+  }
 
   const at = isoSeconds(ctx.now);
   try {
@@ -218,7 +215,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
       matchId,
       data.tournament,
       { adminId: ctx.admin.id, action: "match_tournament", matchId, hostId: match.hostId, detail: { tournament: data.tournament }, at },
-      [staleFromMatchesStatement(ctx.db, [matchId], at, true)],
+      [staleFromMatchesStatement(ctx.db, [matchId], at, true), ctx.db.prepare("UPDATE rating_state SET version = version + 1")],
     );
   } catch (error) {
     if (isStale(error)) return changedMeanwhile();
@@ -261,37 +258,4 @@ async function importLegacy(ctx: Context, request: Request): Promise<Response> {
       actionStatement(db, { adminId: ctx.admin.id, action: "legacy_import", hostId, detail: { file: fileName }, at: isoSeconds(ctx.now) }),
     ],
   });
-}
-
-class BadRequest extends Error {}
-
-/** The JSON object body, or `{}` when there's none. */
-async function body(request: Request): Promise<Record<string, unknown>> {
-  const raw = await request.text();
-  if (!raw.trim()) return {};
-  let data: unknown;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    throw new BadRequest("The body must be JSON");
-  }
-  if (typeof data !== "object" || data === null || Array.isArray(data)) throw new BadRequest("The body must be a JSON object");
-  return data as Record<string, unknown>;
-}
-
-/** An optional text field, trimmed. `null` when it's missing or blank. */
-function text(value: unknown, config: AdminConfig, field: string): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string") throw new BadRequest(`${field} must be a string`);
-  const trimmed = value.trim();
-  if (trimmed.length > config.adminTextMaxLength) throw new BadRequest(`${field} is longer than ${config.adminTextMaxLength} characters`);
-  return trimmed || null;
-}
-
-function notAllowed(allow: string): Response {
-  return fail(405, "method_not_allowed", `Use ${allow}`, { Allow: allow });
-}
-
-function changedMeanwhile(): Response {
-  return fail(409, "conflict", "Another admin changed it at the same time. Reload and try again");
 }

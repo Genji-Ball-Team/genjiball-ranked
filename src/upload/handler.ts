@@ -258,7 +258,7 @@ function tooLarge(config: Pick<Config, "maxUploadBytes">): Response {
  * The body, or `null` once it passes `limit` bytes. Counts what is read, since a chunked request has
  * no `Content-Length`, and stops reading there.
  */
-async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
+export async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
   if (!request.body) return new Uint8Array();
   const reader = request.body.getReader();
   const parts: Uint8Array[] = [];

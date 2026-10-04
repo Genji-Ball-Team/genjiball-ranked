@@ -11,7 +11,7 @@
 <body class="admin">
   <header class="top">
     <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
-    <nav><a href="/">Leaderboard</a><a href="/admin" aria-current="page">Admin</a></nav>
+    <nav><a href="/">Leaderboard</a><a href="/tourneys">Tourneys</a><a href="/admin" aria-current="page">Admin</a></nav>
   </header>
   <main>
   <h1>Admin</h1>
@@ -41,6 +41,16 @@
       <thead><tr><th>Id</th><th>Played</th><th>Host</th><th>Players</th><th>Why</th><th>Rated</th><th>Actions</th></tr></thead>
       <tbody id="matches"></tbody>
     </table></div>
+
+    <h2>Tourneys</h2>
+    <p class="muted">A lobby's match is a tourney match: it counts more on the leaderboard. Upload the host's screenshot of the final standings, then verify it against the standings on the <a href="/tourneys">Tourneys page</a>.</p>
+    <form class="row" id="tourney-form">
+      <input id="tourney-name" placeholder="Tourney name" required maxlength="200">
+      <label>Starts <input id="tourney-start" type="datetime-local" required></label>
+      <input id="tourney-notes" placeholder="Notes (optional)" maxlength="1000" size="30">
+      <button class="primary">Schedule tourney</button>
+    </form>
+    <div id="tourneys"></div>
 
     <h2>Hosts</h2>
     <form class="row" id="host-form">
@@ -105,7 +115,7 @@
         const tr = body.insertRow();
         cell(tr, m.id); cell(tr, m.playedAt); cell(tr, m.hostName); cell(tr, m.players.join(", "));
         cell(tr, [...m.reviewReasons, m.rejection && `${m.rejection.code}: ${m.rejection.message}`].filter(Boolean).join("; "));
-        cell(tr, m.rated ? "yes" : m.complete ? "no" : "no (incomplete)");
+        cell(tr, (m.rated ? "yes" : m.complete ? "no" : "no (incomplete)") + (m.tournament ? ", tourney" : ""));
         const actions = cell(tr, "");
         if (m.status === "review") { button(actions, "Accept", () => matchAction(m, "accept")); button(actions, "Reject", () => matchAction(m, "reject")); }
         if (m.status === "rejected" && m.rejection?.code === "admin") button(actions, "Accept", () => matchAction(m, "accept"));
@@ -132,6 +142,89 @@
       }
     }
 
+    // Tourneys. Times are entered in the admin's own time zone and sent as UTC.
+    const tourneyStatuses = ["scheduled", "live", "done", "cancelled"];
+    const localInput = (iso) => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+    const post = (path, data) => api(path, { method: "POST", body: JSON.stringify(data) });
+    const staleNote = (res) => (res.ratingsStale ? " Ratings are still being recomputed (every 10 minutes)." : "");
+
+    async function putScreenshot(lobby, file) {
+      const res = await fetch(`/api/admin/lobbies/${lobby.id}/screenshot`, { method: "PUT", body: file, headers: { Authorization: `Bearer ${token}`, "Content-Type": file.type || "application/octet-stream" } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+      return `Screenshot uploaded for ${lobby.label}. Verify it against the standings.`;
+    }
+
+    function lobbyRow(body, t, l) {
+      const tr = body.insertRow();
+      cell(tr, l.label);
+      const match = cell(tr, "");
+      if (l.matchId) { const a = document.createElement("a"); a.href = `/match?id=${l.matchId}`; a.textContent = `#${l.matchId}`; match.append(a); }
+      const shot = cell(tr, "");
+      if (l.screenshotKey) { const a = document.createElement("a"); a.href = `/api/screenshots/${l.screenshotKey}`; a.target = "_blank"; a.textContent = "view"; shot.append(a); }
+      else if (l.screenshotExpiredAt) shot.textContent = `expired ${l.screenshotExpiredAt}`;
+      cell(tr, l.verifiedAt ? `${l.verifiedBy}, ${l.verifiedAt}` : "no");
+      const actions = cell(tr, "");
+      button(actions, l.matchId ? "Change match" : "Link match", () => {
+        const id = prompt(`Match id for ${l.label} (from the match list or /match?id=)`, l.matchId ?? "");
+        if (id === null) return;
+        const digits = id.trim().replace(/^#\s*/, "");
+        const matchId = Number(digits);
+        if (!/^[1-9]\d*$/.test(digits) || !Number.isSafeInteger(matchId)) return say("Enter a positive whole match id, like 123 or #123.", true);
+        act(`link ${l.label}`, async () => `${l.label} is match ${matchId}.` + staleNote(await post(`lobbies/${l.id}`, { matchId })));
+      });
+      if (l.matchId) button(actions, "Unlink", () => act(`unlink ${l.label}`, async () => `${l.label} has no match.` + staleNote(await post(`lobbies/${l.id}`, { matchId: null }))));
+      button(actions, l.screenshotKey ? "Replace screenshot" : "Upload screenshot", () => {
+        const input = document.createElement("input");
+        input.type = "file"; input.accept = "image/png,image/jpeg,image/webp";
+        input.onchange = () => input.files[0] && act(`screenshot ${l.label}`, () => putScreenshot(l, input.files[0]));
+        input.click();
+      });
+      if (l.screenshotKey) button(actions, "Delete screenshot", () => confirm(`Delete ${l.label}'s screenshot?`) && act(`delete screenshot`, () => api(`lobbies/${l.id}/screenshot`, { method: "DELETE" }).then(() => "Screenshot deleted.")));
+      if (l.verifiedAt || (l.matchId && l.screenshotKey)) {
+        button(actions, l.verifiedAt ? "Unverify" : "Verify", () => act(`verify ${l.label}`, () => post(`lobbies/${l.id}/verify`, { verified: !l.verifiedAt, version: l.version }).then(() => (l.verifiedAt ? `${l.label} is unverified.` : `${l.label} is verified.`))));
+      }
+      button(actions, "Rename", () => { const label = prompt("Lobby label", l.label); if (label) act("rename lobby", () => post(`lobbies/${l.id}`, { label }).then(() => `Renamed to ${label}.`)); });
+      button(actions, "Delete", () => confirm(`Delete ${l.label}? Its match stops being a tourney match.`) && act("delete lobby", async () => `${l.label} deleted.` + staleNote(await api(`lobbies/${l.id}`, { method: "DELETE" }))));
+    }
+
+    async function loadTourneys() {
+      const { tourneys } = await api("tourneys");
+      const box = $("tourneys"); box.replaceChildren();
+      if (!tourneys.length) { const p = document.createElement("p"); p.className = "muted"; p.textContent = "No tourneys yet."; box.append(p); }
+      for (const t of tourneys) {
+        const head = document.createElement("div"); head.className = "row";
+        const name = document.createElement("strong"); name.textContent = t.name;
+        const when = document.createElement("span"); when.className = "muted"; when.textContent = new Date(t.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+        const status = document.createElement("select");
+        for (const s of tourneyStatuses) status.add(new Option(s, s, false, s === t.status));
+        status.onchange = () => act(`tourney ${t.id}`, () => post(`tourneys/${t.id}`, { status: status.value }).then(() => `${t.name} is ${status.value}.`));
+        const link = document.createElement("a"); link.href = `/tourney?id=${t.id}`; link.textContent = "page";
+        head.append(name, when, status, link);
+        button(head, "Edit", () => {
+          const newName = prompt("Name", t.name); if (newName === null) return;
+          const start = prompt("Start, in your time zone (YYYY-MM-DDTHH:MM)", localInput(t.startsAt)); if (start === null) return;
+          const notes = prompt("Notes", t.notes ?? ""); if (notes === null) return;
+          const startsAt = new Date(start);
+          if (Number.isNaN(startsAt.getTime())) return say("That start time isn't a date.", true);
+          act(`edit tourney ${t.id}`, () => post(`tourneys/${t.id}`, { name: newName, startsAt: startsAt.toISOString(), notes }).then(() => `${newName} saved.`));
+        });
+        button(head, "Add lobby", () => {
+          const label = prompt("Lobby label", `Lobby ${t.lobbies.length + 1}`);
+          if (label) act("add lobby", () => post(`tourneys/${t.id}/lobbies`, { label }).then(() => `${label} added to ${t.name}.`));
+        });
+        box.append(head);
+        if (t.notes) { const p = document.createElement("p"); p.className = "muted"; p.textContent = t.notes; box.append(p); }
+        if (!t.lobbies.length) continue;
+        const wrap = document.createElement("div"); wrap.className = "scroll";
+        const table = document.createElement("table"); table.className = "data";
+        table.createTHead().innerHTML = "<tr><th>Lobby</th><th>Match</th><th>Screenshot</th><th>Verified</th><th>Actions</th></tr>";
+        const body = table.createTBody();
+        for (const l of t.lobbies) lobbyRow(body, t, l);
+        wrap.append(table); box.append(wrap);
+      }
+    }
+
     async function loadActions() {
       const { actions } = await api("actions");
       const body = $("actions"); body.replaceChildren();
@@ -143,7 +236,7 @@
     }
 
     async function loadAll() {
-      try { await Promise.all([loadMatches(), loadHosts(), loadActions()]); } catch (e) { say(e.message, true); }
+      try { await Promise.all([loadMatches(), loadTourneys(), loadHosts(), loadActions()]); } catch (e) { say(e.message, true); }
     }
 
     async function signIn() {
@@ -168,6 +261,14 @@
         $("new-token-host").textContent = res.host.name; $("new-token-value").textContent = res.token; $("new-token").hidden = false;
         $("host-name").value = "";
         return `Host ${res.host.name} created. Copy the token now: it isn't shown again.`;
+      });
+    };
+    $("tourney-form").onsubmit = (e) => {
+      e.preventDefault();
+      act("schedule tourney", async () => {
+        const res = await post("tourneys", { name: $("tourney-name").value, startsAt: new Date($("tourney-start").value).toISOString(), notes: $("tourney-notes").value });
+        $("tourney-name").value = ""; $("tourney-start").value = ""; $("tourney-notes").value = "";
+        return `${res.tourney.name} is scheduled. Add its lobbies below.`;
       });
     };
     if (token) signIn();

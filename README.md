@@ -40,6 +40,17 @@ Rating recomputation processes 100 matches per run by default, intended for the 
 
 The leaderboard is at `/`, with player (`/player?id=`) and match (`/match?id=`) pages. The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
 
+## Tourney screenshot storage
+
+Tourney screenshots use the `PROOFS` R2 binding. Before deploying, enable R2 in the Cloudflare dashboard and create the production and test buckets:
+
+```sh
+npx wrangler r2 bucket create genjiball-proofs
+npx wrangler r2 bucket create genjiball-proofs-test
+```
+
+`wrangler.toml` binds each deployment to its own bucket. Local development uses local R2 storage. Screenshot limits and expiry defaults live in `src/config.ts` ([api.md](docs/api.md)).
+
 ## Test server
 
 A second deployment for playtests and for trying changes before they reach the real leaderboard: [test.genjiball.us](https://test.genjiball.us). It's the `test` environment in `wrangler.toml`: the same Worker with its own D1 database (`genjiball-ranked-test`), so nothing done there touches the real ratings. Every page shows a "Test server" banner, and it logs at `debug`.

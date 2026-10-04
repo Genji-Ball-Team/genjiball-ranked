@@ -105,3 +105,5 @@ With those settings, 329 players have 3+ rated rounds: 18 are Apprentice, 7 Mast
 ## Tournaments
 
 `POST /api/admin/matches/:id/tournament` marks a match. Its rounds are damped `tournamentWeight` (3) times less, so it counts that many times as much. Afterwards nobody's display rating is more than `tournamentMaxChange` (200) points from where they started it, either way. The cap is the same both ways, so tournaments don't add points to the ladder.
+
+There is one leaderboard. Tourney matches are on it with ranked ones; they only count more. A match is a tournament once an admin links it to a tourney lobby (`POST /api/admin/lobbies/:id`, [api.md](api.md)), or marks it by hand with the route above. Unlinking it, or deleting the lobby, makes it a normal match again. Either way the ratings are recomputed from it.

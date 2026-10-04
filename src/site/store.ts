@@ -9,6 +9,17 @@ import { workshopStringMax } from "./rankTags";
 
 const publicStatuses = "('accepted', 'void')";
 
+/** The tourney lobby a match was played in (#31). */
+export interface TourneyRef {
+  id: number;
+  name: string;
+  lobby: string;
+}
+
+/** `tourney`: a match's `TourneyRef` as JSON, or NULL. Reads through the lobby's unique `match_id`. */
+const tourneyRef = `(SELECT json_object('id', t.id, 'name', t.name, 'lobby', l.label)
+  FROM tourney_lobbies l JOIN tourneys t ON t.id = l.tourney_id WHERE l.match_id = m.id) AS tourney`;
+
 export interface RatingRow {
   playerId: number;
   name: string;
@@ -99,6 +110,10 @@ export interface PlayerMatchRow {
   map: string | null;
   legacy: boolean;
   void: boolean;
+  /** A tournament: counts more on the leaderboard (`tournamentWeight`). */
+  tournament: boolean;
+  /** The tourney it was a lobby of, if an admin linked it. */
+  tourney: TourneyRef | null;
   /** The player's display rating after the match, and before it. Null when the match isn't rated (for them). */
   ratingAfter: number | null;
   ratingBefore: number | null;
@@ -113,7 +128,7 @@ export interface PlayerMatchRow {
 export async function listPlayerMatches(db: D1Database, playerId: number, limit: number): Promise<PlayerMatchRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void,
+      `SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void, m.tournament, ${tourneyRef},
          (SELECT h.display FROM rating_history h
           WHERE h.board = ?1 AND h.player_id = ?2 AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
          (SELECT h.display FROM rating_history h
@@ -124,8 +139,15 @@ export async function listPlayerMatches(db: D1Database, playerId: number, limit:
        GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?3`,
     )
     .bind(board, playerId, limit)
-    .all<Omit<PlayerMatchRow, "legacy" | "void"> & { legacy: number; void: number }>();
-  return results.map((m) => ({ ...m, legacy: m.legacy === 1, void: m.void === 1, ratingBefore: m.ratingAfter === null ? null : m.ratingBefore }));
+    .all<Omit<PlayerMatchRow, "legacy" | "void" | "tournament" | "tourney"> & { legacy: number; void: number; tournament: number; tourney: string | null }>();
+  return results.map((m) => ({
+    ...m,
+    legacy: m.legacy === 1,
+    void: m.void === 1,
+    tournament: m.tournament === 1,
+    tourney: m.tourney === null ? null : (JSON.parse(m.tourney) as TourneyRef),
+    ratingBefore: m.ratingAfter === null ? null : m.ratingBefore,
+  }));
 }
 
 export interface MatchRow {
@@ -137,6 +159,8 @@ export interface MatchRow {
   legacy: boolean;
   void: boolean;
   complete: boolean;
+  tournament: boolean;
+  tourney: TourneyRef | null;
 }
 
 export interface MatchPlayerRow {
@@ -179,8 +203,9 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
   const [match, players, rounds, roundPlayers] = await db.batch([
     db
       .prepare(
-        `SELECT id, played_at AS playedAt, map, preset, game_version AS gameVersion, legacy, status = 'void' AS void, complete
-         FROM matches WHERE id = ?1 AND status IN ${publicStatuses}`,
+        `SELECT m.id, m.played_at AS playedAt, m.map, m.preset, m.game_version AS gameVersion, m.legacy, m.status = 'void' AS void,
+           m.complete, m.tournament, ${tourneyRef}
+         FROM matches m WHERE m.id = ?1 AND m.status IN ${publicStatuses}`,
       )
       .bind(id),
     db
@@ -210,10 +235,19 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       )
       .bind(id),
   ]);
-  const row = match!.results[0] as (Omit<MatchRow, "legacy" | "void" | "complete"> & { legacy: number; void: number; complete: number }) | undefined;
+  type Raw = Omit<MatchRow, "legacy" | "void" | "complete" | "tournament" | "tourney"> &
+    Record<"legacy" | "void" | "complete" | "tournament", number> & { tourney: string | null };
+  const row = match!.results[0] as Raw | undefined;
   if (!row) return null;
   return {
-    match: { ...row, legacy: row.legacy === 1, void: row.void === 1, complete: row.complete === 1 },
+    match: {
+      ...row,
+      legacy: row.legacy === 1,
+      void: row.void === 1,
+      complete: row.complete === 1,
+      tournament: row.tournament === 1,
+      tourney: row.tourney === null ? null : (JSON.parse(row.tourney) as TourneyRef),
+    },
     players: (players!.results as MatchPlayerRow[]).map((p) => ({ ...p, ratingBefore: p.ratingAfter === null ? null : p.ratingBefore })),
     rounds: (rounds!.results as (Omit<RoundRow, "rated"> & { rated: number })[]).map((r) => ({ ...r, rated: r.rated === 1 })),
     roundPlayers: (roundPlayers!.results as (Omit<RoundPlayerRow, "left"> & { left: number })[]).map((rp) => ({ ...rp, left: rp.left === 1 })),

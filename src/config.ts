@@ -126,6 +126,34 @@ export const defaults = {
   tournamentMaxChange: 200,
 
   /**
+   * Tourneys page (#31): past tourneys per page, newest first. Each lobby's standings read its
+   * match's rounds and events (about 600 rows), so a page of 10 two-lobby tourneys is about 12k rows.
+   */
+  tourneysPageSize: 10,
+  /** Longest tourney notes an admin can enter, in characters. */
+  tourneyNotesMaxLength: 1000,
+  /** Largest verify screenshot (#28), in bytes. A 1440p PNG of the standings is about 2 MB. */
+  screenshotMaxBytes: 8 * 1024 * 1024,
+  /**
+   * How long a browser may keep a verify screenshot, in seconds. A replaced screenshot gets a new
+   * key, so an image never changes under its URL. Keep this bounded so removed screenshots age out
+   * of existing browser and shared caches within an hour.
+   */
+  screenshotCacheSeconds: 60 * 60,
+  /**
+   * Storage caps for verify screenshots: past either one, the oldest are deleted after each upload
+   * (the lobby keeps its result and verified mark). R2's free tier holds 10 GB; 8 GB leaves room.
+   */
+  screenshotsKept: 3000,
+  screenshotStorageMaxBytes: 8 * 1024 * 1024 * 1024,
+  /** Screenshots older than this many days are deleted by the cron. 0: kept until a cap is reached. */
+  screenshotKeepDays: 0,
+  /** Most screenshots the cron deletes in one run; the next run goes on. */
+  screenshotExpiryBatch: 100,
+  /** Staged uploads may attach for this long before orphan cleanup can delete their reserved key. */
+  screenshotUploadGraceSeconds: 15 * 60,
+
+  /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier
    * whose threshold their display rating reaches; below the first, no tier. Labels and colours
    * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`.

@@ -151,6 +151,11 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
     ...["rounds", "match_players", "events"].map((table) =>
       db.prepare(`DELETE FROM ${table} WHERE match_id IN (SELECT value FROM json_each(?1))`).bind(json(replacedIds)),
     ),
+    // A longer log changes the standings the screenshot was checked against, at the same match id.
+    db.prepare(
+      `UPDATE tourney_lobbies SET verified_by = NULL, verified_at = NULL, version = version + 1
+       WHERE match_id IN (SELECT value FROM json_each(?))`,
+    ).bind(json(replacedIds)),
     db
       .prepare(
         `UPDATE matches SET upload_id = ${uploadId}, line_count = e.value ->> 'lineCount', format = e.value ->> 'format',

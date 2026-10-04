@@ -188,7 +188,8 @@ export async function setTournament(
   await db.batch([
     // NULL when another admin set it meanwhile: NOT NULL fails the batch (isStale).
     db
-      .prepare("UPDATE matches SET tournament = CASE WHEN tournament = ?3 THEN ?2 END WHERE id = ?1")
+      .prepare(`UPDATE matches SET tournament = CASE WHEN tournament = ?3
+        AND (?2 = 1 OR NOT EXISTS (SELECT 1 FROM tourney_lobbies WHERE match_id = ?1)) THEN ?2 END WHERE id = ?1`)
       .bind(matchId, tournament ? 1 : 0, tournament ? 0 : 1),
     ...extra,
     actionStatement(db, log),
