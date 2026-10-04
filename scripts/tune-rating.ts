@@ -7,7 +7,15 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
-import { displayRating, newRating, rateRound, type RatingConfig, type Ratings } from "../src/rating/engine";
+import {
+  capChange,
+  displayRating,
+  newRating,
+  rateRound,
+  type PlayerRating,
+  type RatingConfig,
+  type Ratings,
+} from "../src/rating/engine";
 
 /** Prediction is scored on the newest share of rounds only, so the ratings have had the older ones to learn from. */
 const scoredShare = 0.4;
@@ -97,11 +105,11 @@ function score(config: RatingConfig) {
   let index = 0;
   const moves: number[] = [];
   for (const rounds of matches) {
-    const before = new Map<number, { display: number; rounds: number }>();
+    const before = new Map<number, PlayerRating>();
     for (const order of rounds) {
       const current = order.map((id) => ratings.get(id) ?? newRating(config));
       order.forEach((id, i) => {
-        if (!before.has(id)) before.set(id, { display: shown(current[i]!, config), rounds: current[i]!.rounds });
+        if (!before.has(id)) before.set(id, { ...current[i]! });
       });
       if (index++ >= totalRounds * (1 - scoredShare) && current.every((r) => r.rounds >= warmRounds)) {
         const c = Math.sqrt(current.reduce((sum, r) => sum + r.sigma ** 2 + config.ratingBeta ** 2, 0));
@@ -115,8 +123,10 @@ function score(config: RatingConfig) {
       }
       rateRound(ratings, order, config);
     }
+    // The per-match cap, as rateMatch applies it (no tournaments in these logs).
+    for (const [id, was] of before) capChange(ratings.get(id)!, was, config.ratingMatchMaxChange, config);
     for (const [id, was] of before) {
-      if (was.rounds >= regularRounds) moves.push(Math.abs(shown(ratings.get(id)!, config) - was.display));
+      if (was.rounds >= regularRounds) moves.push(Math.abs(shown(ratings.get(id)!, config) - shown(was, config)));
     }
   }
   moves.sort((a, b) => a - b);

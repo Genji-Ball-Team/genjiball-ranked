@@ -53,6 +53,9 @@ async function playerId(name: string): Promise<number> {
   return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;
 }
 
+/** Matches it takes to reach minRankedRounds: each has 2 rated rounds. */
+const matchesToRank = Math.ceil(defaults.minRankedRounds / 2);
+
 interface Board {
   page: number;
   hasMore: boolean;
@@ -85,7 +88,7 @@ describe("standing", () => {
 
 describe("leaderboard", () => {
   it("lists players once they have minRankedRounds rated rounds, best first", async () => {
-    await playMatches(defaults.minRankedRounds / 2 - 1);
+    await playMatches(matchesToRank - 1);
     expect((await get<Board>("leaderboard")).players).toEqual([]);
 
     await playMatches(1);
@@ -98,11 +101,11 @@ describe("leaderboard", () => {
     expect(board.players.map((p) => p.name).sort()).toEqual([...players].sort());
     const ratings = board.players.map((p) => p.rating);
     expect(ratings).toEqual([...ratings].sort((a, b) => b - a));
-    expect(board.players.every((p) => p.rounds === defaults.minRankedRounds && p.inactiveSince === null)).toBe(true);
+    expect(board.players.every((p) => p.rounds === 2 * matchesToRank && p.inactiveSince === null)).toBe(true);
   });
 
   it("keeps inactive players on the board, marked", async () => {
-    await playMatches(defaults.minRankedRounds / 2);
+    await playMatches(matchesToRank);
     const alpha = await playerId("Alpha");
     await db().prepare("UPDATE ratings SET last_played_at = '2020-01-01T00:00:00Z' WHERE player_id = ?").bind(alpha).run();
     const board = await get<Board>("leaderboard");
@@ -111,7 +114,7 @@ describe("leaderboard", () => {
   });
 
   it("pages, and ranks across pages", async () => {
-    await playMatches(defaults.minRankedRounds / 2);
+    await playMatches(matchesToRank);
     const config = { ...defaults, leaderboardPageSize: 3 };
     const page = async (n: string | null) => {
       const res = await handleSite(new Request(`https://example.com/api/leaderboard${n ? `?page=${n}` : ""}`), db(), config);
@@ -135,7 +138,7 @@ describe("leaderboard", () => {
 
 describe("player", () => {
   it("has the rating, rank, aliases and recent matches with the rating change", async () => {
-    await playMatches(defaults.minRankedRounds / 2);
+    await playMatches(matchesToRank);
     const alpha = await playerId("Alpha");
     const { player, matches } = await get<{
       player: { id: number; name: string; aliases: string[]; rating: { rank: number; rating: number; rounds: number; wins: number; nextTier: { label: string } | null } };
@@ -143,12 +146,12 @@ describe("player", () => {
     }>(`players/${alpha}`);
 
     expect(player).toMatchObject({ id: alpha, name: "Alpha", aliases: ["Alpha"] });
-    expect(player.rating).toMatchObject({ rounds: defaults.minRankedRounds, wins: defaults.minRankedRounds / 2 });
+    expect(player.rating).toMatchObject({ rounds: 2 * matchesToRank, wins: matchesToRank });
     const board = await get<Board>("leaderboard");
     expect(player.rating.rank).toBe(board.players.find((p) => p.id === alpha)!.rank);
     expect(player.rating.nextTier).toEqual(nextTier(player.rating.rating, defaults.tiers));
 
-    expect(matches).toHaveLength(defaults.minRankedRounds / 2);
+    expect(matches).toHaveLength(matchesToRank);
     expect(matches[0]!.id).toBeGreaterThan(matches[1]!.id);
     expect(matches.at(-1)!.ratingBefore).toBeNull();
     expect(matches[0]!.ratingBefore).toBe(matches[1]!.ratingAfter);

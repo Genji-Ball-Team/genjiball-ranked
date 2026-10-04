@@ -6,8 +6,9 @@ import type { Config, Tier } from "../config";
  *
  * Each rated round is one OpenSkill game, ranked by its finishing order (winner first). Players
  * who left the round are already out of the order (the parser drops them), so they don't change.
- * A round is damped to about 1/`ratingRoundsPerMatch` of a full game, so one round can't swing
- * the leaderboard. See GenjiBall-CE `docs/ranked-log.md`, "How the server rates a round".
+ * A round moves mu about 1/`ratingRoundsPerMatch` as far as a full game, so one round can't swing
+ * the leaderboard, and a match moves no one more than `ratingMatchMaxChange` display points. See
+ * GenjiBall-CE `docs/ranked-log.md`, "How the server rates a round".
  */
 
 export type RatingConfig = Pick<
@@ -21,6 +22,7 @@ export type RatingConfig = Pick<
   | "displayCenter"
   | "displayScale"
   | "displayFloor"
+  | "ratingMatchMaxChange"
   | "tournamentWeight"
   | "tournamentMaxChange"
 >;
@@ -32,7 +34,7 @@ export interface RatingMatch {
   playedAt: string;
   /** The finishing order of each rated round, in round order: winner first, leavers left out. */
   rounds: number[][];
-  /** A tournament counts `tournamentWeight` times a normal match, and nobody moves more than `tournamentMaxChange` either way in it. */
+  /** A tournament counts `tournamentWeight` times a normal match, and nobody moves more than `tournamentMaxChange` (not `ratingMatchMaxChange`) either way in it. */
   tournament?: boolean;
 }
 
@@ -90,11 +92,12 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
   order.forEach((id, i) => {
     const prior = before[i]!;
     const full = after[i]![0]!;
-    // Damping: move 1/n of the way to the full update, in mu and in variance.
-    const variance = prior.sigma ** 2 + (full.sigma ** 2 - prior.sigma ** 2) / n;
+    // Damping: mu moves 1/n of the way to the full update. Sigma takes the full update: damping it
+    // too kept every regular's sigma near 6 however much they played, so the ratings never settled
+    // and a strong player kept gaining a lot from beating far weaker ones (docs/rating.md).
     ratings.set(id, {
       mu: prior.mu + (full.mu - prior.mu) / n,
-      sigma: Math.sqrt(variance),
+      sigma: full.sigma,
       rounds: prior.rounds + 1,
       wins: prior.wins + (i === 0 ? 1 : 0),
       lastPlayedAt: prior.lastPlayedAt,
@@ -107,26 +110,24 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
  * Rates a match's rounds in place, in order, and returns the rating after the match of every
  * player who played a rated round in it.
  *
- * A tournament match damps each round less (`tournamentWeight` times as much movement), and then
- * holds every player's change to `tournamentMaxChange` display points either way: a player who
- * would move further keeps the rating that is exactly that far from where they started the match.
+ * Then it holds every player's change to `ratingMatchMaxChange` display points either way: a
+ * player who would move further keeps the rating that is exactly that far from where they started
+ * the match. A tournament match damps each round less (`tournamentWeight` times as much movement)
+ * and is held to `tournamentMaxChange` instead.
  */
 export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingConfig): HistoryEntry[] {
   const rounding = match.tournament ? tournamentConfig(config) : config;
+  const maxChange = match.tournament ? config.tournamentMaxChange : config.ratingMatchMaxChange;
   const started = new Map<number, PlayerRating>();
-  if (match.tournament) {
-    for (const order of match.rounds) {
-      for (const id of order) if (!started.has(id)) started.set(id, { ...(ratings.get(id) ?? newRating(config)) });
-    }
+  for (const order of match.rounds) {
+    for (const id of order) if (!started.has(id)) started.set(id, { ...(ratings.get(id) ?? newRating(config)) });
   }
 
   const played = new Set<number>();
   for (const order of match.rounds) {
     if (rateRound(ratings, order, rounding)) order.forEach((id) => played.add(id));
   }
-  if (match.tournament) {
-    for (const id of played) capChange(ratings.get(id)!, started.get(id)!, config);
-  }
+  for (const id of played) capChange(ratings.get(id)!, started.get(id)!, maxChange, config);
 
   return [...played].map((playerId) => {
     const rating = ratings.get(playerId)!;
@@ -151,14 +152,13 @@ function tournamentConfig(config: RatingConfig): RatingConfig {
 }
 
 /**
- * If the match moved a player more than `tournamentMaxChange` display points either way, moves
+ * If the match moved a player more than `maxChange` display points either way, moves
  * their mu back toward where they started, as little as it takes to move exactly that many (sigma,
  * rounds and wins stay as the match left them).
  */
-function capChange(rating: PlayerRating, started: PlayerRating, config: RatingConfig): void {
+export function capChange(rating: PlayerRating, started: PlayerRating, maxChange: number, config: RatingConfig): void {
   const from = displayRating(started, config);
-  const within = (r: Pick<PlayerRating, "mu" | "sigma">) =>
-    Math.abs(displayRating(r, config) - from) <= config.tournamentMaxChange;
+  const within = (r: Pick<PlayerRating, "mu" | "sigma">) => Math.abs(displayRating(r, config) - from) <= maxChange;
   if (within(rating)) return;
   // Bisection on how far to move mu from the start toward the match's result. t = 0 moves nothing
   // (always allowed), t = 1 moves too far.

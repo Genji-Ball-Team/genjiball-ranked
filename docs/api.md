@@ -127,7 +127,7 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 
 What the website's pages read (`/`, `/player?id=`, `/match?id=`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
-Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (20) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
+Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (3) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
 
 | Route | Answers |
 |---|---|
