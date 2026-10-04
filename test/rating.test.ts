@@ -67,7 +67,7 @@ describe("rateRound", () => {
     expect(ratings.get(2)!.mu).toBeCloseTo(c.mu, 10);
   });
 
-  it("damps a round to 1/N of a full game", () => {
+  it("damps a round's mu move to 1/N of a full game, and gives sigma the full update", () => {
     const n = 8;
     const full: Ratings = new Map();
     const damped: Ratings = new Map();
@@ -76,9 +76,23 @@ describe("rateRound", () => {
     for (const id of [1, 2, 3]) {
       const fullMove = full.get(id)!.mu - config.ratingMu;
       expect(damped.get(id)!.mu - config.ratingMu).toBeCloseTo(fullMove / n, 10);
-      expect(damped.get(id)!.sigma).toBeGreaterThan(full.get(id)!.sigma);
-      expect(damped.get(id)!.sigma).toBeLessThan(config.ratingSigma);
+      expect(damped.get(id)!.sigma).toBeCloseTo(full.get(id)!.sigma, 10);
     }
+  });
+
+  it("settles: a regular's sigma keeps shrinking, so beating far weaker players earns little", () => {
+    // The strong player wins every round against two weak ones. With sigma damped too, sigma stayed
+    // near 6 and every win kept paying (test.genjiball.us match 198).
+    const ratings: Ratings = new Map([
+      [1, { ...newRating(config), mu: 40 }],
+      [2, { ...newRating(config), mu: 15 }],
+      [3, { ...newRating(config), mu: 15 }],
+    ]);
+    for (let i = 0; i < 300; i++) rateRound(ratings, i % 2 ? [1, 2, 3] : [1, 3, 2], config);
+    expect(ratings.get(1)!.sigma).toBeLessThan(config.ratingSigma / 2);
+    const mu = ratings.get(1)!.mu;
+    rateRound(ratings, [1, 2, 3], config);
+    expect(displayRating(ratings.get(1)!, config) - displayRating({ mu, sigma: 0 }, config)).toBeLessThanOrEqual(2);
   });
 
   it("doesn't rate a round with fewer than two players or a player listed twice", () => {
@@ -287,6 +301,30 @@ describe("tierFor", () => {
     expect(tierFor(tiers[1]!.threshold - 1, tiers)?.label).toBe("Apprentice");
     expect(tierFor(tiers[1]!.threshold, tiers)?.label).toBe("Master");
     expect(tierFor(99999, tiers)?.label).toBe("God");
+  });
+});
+
+describe("the per-match cap", () => {
+  const rounds = Array.from({ length: 40 }, () => [1, 2, 3, 4]);
+
+  it("holds everyone to ratingMatchMaxChange either way in a normal match", () => {
+    const capped = { ...config, ratingMatchMaxChange: 50 };
+    const ratings: Ratings = new Map([1, 2, 3, 4].map((id) => [id, { ...newRating(capped), mu: 40 }]));
+    const start = displayRating(ratings.get(1)!, capped);
+    rateMatch(ratings, match(1, rounds), capped);
+    const moved = (id: number) => displayRating(ratings.get(id)!, capped) - start;
+    expect(moved(1)).toBeGreaterThanOrEqual(capped.ratingMatchMaxChange - 1);
+    expect(moved(1)).toBeLessThanOrEqual(capped.ratingMatchMaxChange);
+    expect(moved(4)).toBeLessThanOrEqual(-capped.ratingMatchMaxChange + 1);
+    expect(moved(4)).toBeGreaterThanOrEqual(-capped.ratingMatchMaxChange);
+  });
+
+  it("leaves a change within the cap alone", () => {
+    const uncapped: Ratings = new Map();
+    const capped: Ratings = new Map();
+    rateMatch(uncapped, match(1, [[1, 2, 3, 4]]), { ...config, ratingMatchMaxChange: Infinity });
+    rateMatch(capped, match(1, [[1, 2, 3, 4]]), config);
+    expect(capped.get(1)!.mu).toBe(uncapped.get(1)!.mu);
   });
 });
 

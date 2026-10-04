@@ -16,7 +16,13 @@ The parser builds the finishing order. The engine gets it with player ids (`play
 
 ## Damping
 
-A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu, and shrinks the variance, by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 6, a match of 25 rounds counts about as much as 4 full games.
+A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 4, a match of 25 rounds moves mu about as much as 6 full games.
+
+Sigma takes each round's full update. It used to be damped too, and then it never settled: a regular with 400 rounds still had a sigma near 6, almost a newcomer's. The engine stayed unsure of everyone, so it kept paying a strong player a lot for beating far weaker ones, and the top of the ladder kept climbing. On test.genjiball.us, match 198 gave a 2331 player +231 for 22 wins against two players at the 900 floor (about 5 points a win; now about 2). Replaying the v1.3.2 logs a second and third time took the top player from 2572 to 3111 and 3283; now it goes from about 2050 to 2440, and slows down.
+
+## Per-match cap
+
+After a match, nobody's display rating is more than `ratingMatchMaxChange` (150) points from where they started it, either way. It's a safety net for a long lobby against much weaker (or much stronger) players, and for a newcomer's lucky first match now that they show on the leaderboard after 3 rounds. On the v1.3.2 logs it changes prediction by less than 0.01. Tournaments have their own cap (below).
 
 ## Recompute
 
@@ -64,7 +70,7 @@ x < 0:  display = displayFloor + (displayCenter − displayFloor) · e^(x / (dis
 
 rounded. A new player shows `displayCenter` (1000). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. `displayZ` is 0: the number follows mu alone, so it doesn't drift up as sigma shrinks. Someone who stops playing keeps their number.
 
-The tiers are Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Champion 2500 and God 2800. A player is provisional, with no tier and not on the leaderboard, until `minRankedRounds` (20) rated rounds. The labels and colours are those of GenjiBall-CE `src/features/rank-tags.opy`, plus Apprentice (bronze), which that file needs a sixth list for.
+The tiers are Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Champion 2500 and God 2800. A player shows on the leaderboard, and gets a tier, from `minRankedRounds` (3) rated rounds: someone who drops into one lobby sees themselves there. The per-match cap keeps a lucky first match from putting them high. The labels and colours are those of GenjiBall-CE `src/features/rank-tags.opy`, plus Apprentice (bronze), which that file needs a sixth list for.
 
 ## Tuning
 
@@ -75,25 +81,24 @@ The tiers are Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Ch
 
 It also prints how many players each tier holds with the config's display scale and with a few others (40 to 100), to pick `displayScale`. `--grid` sweeps `ratingRoundsPerMatch`, `ratingBeta` and `ratingTau` instead.
 
-On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (192 matches, 2,560 rated rounds), movement is in display points (scale 46, the previous one):
+On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (220 matches, 2,728 rated rounds), with sigma undamped, the per-match cap and display scale 70:
 
 | `ratingRoundsPerMatch` | Prediction | Move median | Move p90 |
 |---|---|---|---|
-| 1 | 0.85 | 40 | 153 |
-| 3 | 0.85 | 29 | 114 |
-| 5 | 0.84 | 25 | 91 |
-| 10 | 0.80 | 16 | 61 |
-| 20 | 0.74 | 10 | 36 |
+| 1 | 0.86 | 48 | 150 |
+| 2 | 0.85 | 17 | 109 |
+| 3 | 0.84 | 10 | 74 |
+| 4 | 0.82 | 8 | 55 |
+| 5 | 0.81 | 6 | 44 |
+| 10 | 0.73 | 3 | 22 |
 
-Damping is the setting that matters. Up to 5 predicts about as well as rating every round in full; past it, prediction drops. Higher damping is steadier, but it also makes the ratings slower to learn, so players keep climbing toward their real level for longer, which looks like a rating that rises with play. The default is **6**: prediction 0.84 and, at scale 70, a regular's median move of 15 points and p90 of 97 a match (12 gives 0.79, 9 and 59; the v1.3.2 rating system moved regulars a median of 21 and a p90 of 73). Beta and tau barely change anything (tau 25/100 is a little better than 25/300).
+Damping is the setting that matters: higher is steadier but predicts worse, and makes the ratings slower to learn, so players keep climbing toward their real level for longer. The default is **4**: it predicts as well as the old setup (damping 6 with sigma damped too, 0.83) and moves a regular about 40% less a match (median 8 and p90 55, against 14 and 93; the v1.3.2 rating system moved regulars a median of 21 and a p90 of 73). Beta and tau barely change anything.
 
-`minRankedRounds` (20) hides a newcomer's lucky start. On these logs, of the 25 players with 150+ rounds, after 20 rounds 2 were more than 50 points above where they ended and 18 were more than 50 below: newcomers mostly start under their level and climb, rather than overshoot.
-
-With those settings, 89 players have 20+ rated rounds: 15 are Apprentice, 10 Master, 7 Grandmaster, 2 Ascendant, 1 Champion and none God.
+With those settings, 329 players have 3+ rated rounds: 18 are Apprentice, 7 Master, 2 Grandmaster and none higher. The top two are MauMau (2084) and DrunkenWiz (2043). Scale 80 would add one Ascendant, 100 one Champion; 70 leaves room at the top while the ladder fills with v1.3.3R matches.
 
 - Re-run it when there are a few weeks of v1.3.3R logs, and refit `displayScale` if the tiers fill faster or slower than wanted.
 - The host of these lobbies (Fealthy, in every file) comes last: many of their lines are deaths with no attacker, probably rounds they weren't really playing. Check how hosts show up in v1.3.3R logs.
-- After changing the rating config, add a migration that marks every rating stale (like `migrations/0005_display_curve.sql`), so the cron recomputes them.
+- After changing the rating config, add a migration that marks every rating stale (like `migrations/0007_rating_convergence.sql`), so the cron recomputes them.
 
 ## Tournaments
 

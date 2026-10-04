@@ -70,12 +70,18 @@ export const defaults = {
   /** Uncertainty added per match's worth of rounds, so ratings can still move after many games. */
   ratingTau: 25 / 100,
   /**
-   * Damping: one round moves a rating about 1/N of what a full rated game would. Higher is a
-   * steadier leaderboard but a slower one to learn: a player keeps climbing toward their real level
-   * for longer. 1 rates every round as a full game. On the v1.3.2 logs, 6 predicts rounds nearly as
-   * well as 1 to 5 (docs/rating.md, "Tuning"), and players reach their level sooner than at 10+.
+   * Damping: one round moves mu about 1/N as far as a full rated game would (sigma isn't damped).
+   * Higher is a steadier leaderboard but a slower one to learn: a player keeps climbing toward their
+   * real level for longer. 1 rates every round as a full game. On the v1.3.2 logs, 4 predicts rounds
+   * as well as the old damping of 6 did with sigma damped too (docs/rating.md, "Tuning").
    */
-  ratingRoundsPerMatch: 6,
+  ratingRoundsPerMatch: 4,
+  /**
+   * The most display points anyone can gain or lose in one match (a tournament has its own cap). A
+   * safety net: a long lobby against much weaker players can't lift a rating far in one evening.
+   * On the v1.3.2 logs it barely changes how well rounds are predicted.
+   */
+  ratingMatchMaxChange: 150,
 
   /**
    * A match with no MATCH_END is rated once this many hours have passed since it started: until
@@ -129,11 +135,11 @@ export const defaults = {
   ] as Tier[],
 
   /**
-   * Rated rounds a player needs before they show on the leaderboard and get a tier: until then they
-   * are provisional, so a newcomer's lucky start isn't shown. On the v1.3.2 logs, a player is rarely
-   * above where they end up after 20 rounds (docs/rating.md, "Tuning").
+   * Rated rounds a player needs before they show on the leaderboard and get a tier. Low, so someone
+   * who drops into one lobby sees themselves on it; `ratingMatchMaxChange` keeps a lucky first match
+   * from putting them high.
    */
-  minRankedRounds: 20,
+  minRankedRounds: 3,
   /**
    * A player with no rated round in this many days is inactive: they stay on the leaderboard with
    * an "Inactive since <last played>" mark, and get no rank tag in game.
