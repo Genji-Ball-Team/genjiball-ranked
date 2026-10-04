@@ -45,9 +45,11 @@ A longer copy that replaces a rated match makes the ratings stale from it too, i
 
 **Stale ratings** are recorded in `rating_state`: the first match to re-rate. New matches are still rated on top in the meantime, so the leaderboard keeps moving; the recompute redoes them.
 
-**The recompute** (`recomputeRatings`) re-rates from the first stale match on. It starts each player from their last `rating_history` row before it (a history row holds the whole rating), which gives exactly what a recompute from scratch would, and writes only the history and ratings rows that differ. A match that no longer counts loses its history, and a player left with no rated match loses their ratings row. One run re-rates at most `ratingMatchesPerRun` matches (about 0.5 ms of CPU each; the free plan allows 10 ms an invocation) and moves the stale point past them, so a long recompute continues on the next run.
+**The recompute** (`recomputeRatings`) re-rates from the first stale match on. It starts each player from their last `rating_history` row before it (a history row holds the whole rating), which gives exactly what a recompute from scratch would, and writes only the history and ratings rows that differ. A match that no longer counts loses its history, and a player left with no rated match loses their ratings row. One run re-rates at most `ratingMatchesPerRun` matches (100 by default, about 0.5 ms of CPU each) and moves the stale point past them, so a long recompute continues on the next run.
 
-**The cron** (`[triggers]` in `wrangler.toml`, every 10 minutes) runs `updateRatings`: it rates the matches that became due (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute while the ratings are stale. That's 144 runs and up to 1,440 re-rated matches a day. On the free tier:
+**The cron** (`[triggers]` in `wrangler.toml`, every 10 minutes) runs `updateRatings`: it rates the matches that became due (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute while the ratings are stale. That's 144 runs a day. With the default of 100 matches a run, a full recompute of the v1.3.2 logs (220 matches) takes 3 runs.
+
+The default fits the Workers Standard plan (30 s CPU an invocation; D1 includes 25 billion rows read and 50 million written a month). A day of recomputing at 100 a run reads about 3.6 million rows and writes up to about 230,000, far inside it. That would pass the free tier's 100,000 writes a day, so on the free plan set `RATING_MATCHES_PER_RUN = "10"` in `wrangler.toml`; the table below is for that setting, 1,440 re-rated matches a day. On the free tier:
 
 | Cost | Nothing stale | Recomputing all day |
 |---|---|---|
