@@ -42,6 +42,7 @@ The leaderboard is at `/`, with player (`/player?id=`) and match (`/match?id=`) 
 
 A second deployment for playtests and for trying changes before they reach the real leaderboard: [test.genjiball.us](https://test.genjiball.us). It's the `test` environment in `wrangler.toml`: the same Worker with its own D1 database (`genjiball-ranked-test`), so nothing done there touches the real ratings. Every page shows a "Test server" banner, and it logs at `debug`.
 
+- **Its data never goes to production.** The test database holds playtests, fake results and admin experiments. Never copy, export or restore it into the production database. Production starts empty and gets real matches only from hosts' uploads and from importing the release logs (the v1.3.2 logs, [legacy.md](docs/legacy.md)) into it directly.
 - **Deploy:** `npm run deploy:test` applies the migrations to the test database and deploys.
 - **Admin token:** `npm run admin:token -- <name>`, then run the printed command with `--env test` added.
 - **Host token:** sign in at `/admin` on the test server and add a host. Production tokens don't work there, and the other way round.

@@ -19,7 +19,7 @@ GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- https://test.genjib
 - `<host id>` is the host whose lobbies the files are from (add one at `/admin` first). The import counts as from a trusted host.
 - The script sends the files oldest first, and leaves out a file whose `KILL` lines are the start of another file's: a shorter copy of the same match. Legacy logs have no `matchKey`, so this is the only way to tell copies apart. Each file is its own match, keyed `legacy-<hash of the file>`, and the same file twice is a `duplicate`.
 - The match's start time comes from the file name, read in the time zone of the computer running the script: run it in the host's.
-- Import to the test server first and spot-check the rounds.
+- Import to the test server first and spot-check the rounds. Then import the same files into production with the same command: never copy the test database over, since it also holds test uploads.
 
 ## How the rounds are rebuilt
 
