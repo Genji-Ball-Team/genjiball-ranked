@@ -46,6 +46,8 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
 
 Tourney verify screenshots aren't in D1: they're in the R2 bucket bound as `PROOFS` (`genjiball-proofs`, `genjiball-proofs-test` for the test server). R2's free tier holds 10 GB, about 5,000 screenshots of 2 MB. A screenshot's key is random and never reused: replacing one writes a new object and deletes the old, so the site can let browsers cache an image for good.
 
+Screenshots expire so the bucket stays inside the free tier (`src/tourney/expiry.ts`). After each upload, the oldest are deleted past `screenshotsKept` (3000) or `screenshotStorageMaxBytes` (8 GB, counted from the newest), and the cron deletes those older than `screenshotKeepDays` when that's set (0, off, by default). The lobby keeps its result and verified mark, with `screenshot_expired_at` set, and the site says the screenshot is no longer kept.
+
 ## Free tier
 
 The Workers Free plan limits for D1 (checked 2026-10-03, [limits](https://developers.cloudflare.com/d1/platform/limits/), [pricing](https://developers.cloudflare.com/d1/platform/pricing/)):
