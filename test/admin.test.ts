@@ -283,6 +283,37 @@ describe("admin: void", () => {
   });
 });
 
+describe("admin: tournaments", () => {
+  it("marks a rated match as a tournament and re-rates it, so it counts more", async () => {
+    await upload(matchLog(), "2026-09-01T20:00:00Z");
+    await expectUpToDate();
+    const id = await matchId("000000000001");
+    const moved = async () => (await ratingsTable()).map((r) => Math.abs((r.display as number) - defaults.displayCenter));
+    const normal = await moved();
+
+    const res = await adminOk<{ match: { tournament: boolean }; ratingsStale: boolean }>(`matches/${id}/tournament`, { body: { tournament: true } });
+    expect(res).toMatchObject({ match: { tournament: true }, ratingsStale: false });
+    await expectUpToDate();
+    const tourney = await moved();
+    tourney.forEach((m, i) => expect(m).toBeGreaterThanOrEqual(normal[i]!));
+    expect(Math.max(...tourney)).toBeGreaterThan(Math.max(...normal));
+    expect((await actions()).at(-1)).toMatchObject({ action: "match_tournament", matchId: id, detail: { tournament: true } });
+
+    await adminOk(`matches/${id}/tournament`, { body: { tournament: false } });
+    await expectUpToDate();
+    expect(await moved()).toEqual(normal);
+  });
+
+  it("checks what it's sent", async () => {
+    await upload(matchLog(), "2026-09-01T20:00:00Z");
+    const id = await matchId("000000000001");
+    expect((await admin(`matches/${id}/tournament`, { body: {} })).status).toBe(400);
+    expect((await admin(`matches/${id}/tournament`, { body: { tournament: false } })).status).toBe(409);
+    expect((await admin(`matches/${id}/tournament`)).status).toBe(405);
+    expect((await admin("matches/99999/tournament", { body: { tournament: true } })).status).toBe(404);
+  });
+});
+
 describe("admin: action log", () => {
   it("lists the newest actions first, with the admin's name", async () => {
     await adminOk("hosts/2/trust", { body: { trust: "trusted" } });

@@ -98,6 +98,7 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/matches/:id/void` | `accepted` → `void`. Body `{ "reason": "..." }` optional |
 | `POST /api/admin/matches/:id/unvoid` | `void` → `accepted`, or `rejected` if a longer copy that arrived while it was void was rejected (an `UNRANKED` line, say) |
 | `GET /api/admin/actions` | `{ actions }`: the action log, newest first, at most `adminListLimit` |
+| `POST /api/admin/matches/:id/tournament` | Body: `{"tournament": true}` or `false`. Marks the match as a tournament: it counts `tournamentWeight` times as much and nobody gains or loses more than `tournamentMaxChange` display points in it. A rated match makes the ratings stale from it. `409` if it already is that way |
 | `POST /api/admin/legacy-import?host=<id>` | Body: an old v1.3.2 log file, as with an upload. Stored as the host's legacy match ([legacy.md](legacy.md)), as from a trusted host and with no rate limit. Answers like `POST /api/upload`; `422 not_legacy` for a file without `KILL` lines or with a `GBR` line. `npm run import:legacy` sends a folder of them |
 
 A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
@@ -120,7 +121,7 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 
 What the website's pages read (`/`, `/player?id=`, `/match?id=`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
-Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (10) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
+Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (20) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
 
 | Route | Answers |
 |---|---|
@@ -137,8 +138,8 @@ What the host tool builds the game's `RANKS - generated` rule from (GenjiBall-CE
   "header": "Ranks updated 2026-10-03",
   "updatedAt": "2026-10-03T12:00:00Z",
   "tiers": [
-    { "label": "Master", "color": [255, 215, 0, 255], "guide": "Master - 1300", "names": ["Kenzo"] },
-    { "label": "Grandmaster", "color": [255, 140, 0, 255], "guide": "Grandmaster - 1600", "names": [] }
+    { "label": "Apprentice", "color": [205, 127, 50, 255], "guide": "Apprentice - 1300", "names": ["Kenzo"] },
+    { "label": "Master", "color": [255, 215, 0, 255], "guide": "Master - 1600", "names": [] }
   ]
 }
 ```

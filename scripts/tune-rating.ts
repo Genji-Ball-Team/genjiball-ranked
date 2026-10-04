@@ -7,7 +7,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
-import { newRating, rateRound, type RatingConfig, type Ratings } from "../src/rating/engine";
+import { displayRating, newRating, rateRound, type RatingConfig, type Ratings } from "../src/rating/engine";
 
 /** Prediction is scored on the newest share of rounds only, so the ratings have had the older ones to learn from. */
 const scoredShare = 0.4;
@@ -15,8 +15,8 @@ const scoredShare = 0.4;
 const warmRounds = 20;
 /** Movement is measured for players with at least this many rated rounds before the match. */
 const regularRounds = 50;
-/** Tagged players per tier in v1.3.2 (`rank1_names`... in GenjiBall-CE `original/genjiball-v1.3.2-ranked.txt`). */
-const v132TierCounts: Record<string, number> = { Master: 17, Grandmaster: 4, Ascendant: 3, Champion: 0, God: 0 };
+/** The display scales the report compares, to see how many players each would put in every tier. */
+const scalesToTry = [40, 50, 60, 70, 80, 90, 100];
 
 const [dir, ...flags] = process.argv.slice(2);
 if (!dir) {
@@ -81,9 +81,8 @@ console.log(`${matches.length} matches, ${totalRounds} rated rounds, ${new Set(m
 
 // --- Scoring a config -----------------------------------------------------------------------------
 
-/** The display rating without the floor, so a player still at the floor shows movement too. */
-const rawDisplay = (r: { mu: number; sigma: number }, c: RatingConfig) =>
-  c.displayCenter + c.displayScale * (r.mu - c.displayZ * r.sigma - c.ratingMu);
+/** What the leaderboard shows, so movement is what a player sees (eased near the floor). */
+const shown = (r: { mu: number; sigma: number }, c: RatingConfig) => displayRating(r, c);
 
 /**
  * Replays every match. Before each round is rated, its finishing order is scored with the ratings so
@@ -102,7 +101,7 @@ function score(config: RatingConfig) {
     for (const order of rounds) {
       const current = order.map((id) => ratings.get(id) ?? newRating(config));
       order.forEach((id, i) => {
-        if (!before.has(id)) before.set(id, { display: rawDisplay(current[i]!, config), rounds: current[i]!.rounds });
+        if (!before.has(id)) before.set(id, { display: shown(current[i]!, config), rounds: current[i]!.rounds });
       });
       if (index++ >= totalRounds * (1 - scoredShare) && current.every((r) => r.rounds >= warmRounds)) {
         const c = Math.sqrt(current.reduce((sum, r) => sum + r.sigma ** 2 + config.ratingBeta ** 2, 0));
@@ -117,7 +116,7 @@ function score(config: RatingConfig) {
       rateRound(ratings, order, config);
     }
     for (const [id, was] of before) {
-      if (was.rounds >= regularRounds) moves.push(Math.abs(rawDisplay(ratings.get(id)!, config) - was.display));
+      if (was.rounds >= regularRounds) moves.push(Math.abs(shown(ratings.get(id)!, config) - was.display));
     }
   }
   moves.sort((a, b) => a - b);
@@ -141,7 +140,7 @@ if (flags.includes("--grid")) {
   process.exit(0);
 }
 
-// --- The current config, and a display scale that fits the v1.3.2 tiers -------------------------
+// --- The current config, and how the display scale changes the tiers ---------------------------------
 
 const s = score(defaults);
 console.log(
@@ -151,37 +150,29 @@ console.log(
 
 const ranked = [...s.ratings.entries()]
   .filter(([, r]) => r.rounds >= defaults.minRankedRounds)
-  .map(([id, r]) => ({ name: names[id]!, ...r, conservative: r.mu - defaults.displayZ * r.sigma }))
-  .sort((a, b) => b.conservative - a.conservative);
+  .map(([id, r]) => ({ name: names[id]!, ...r }))
+  .sort((a, b) => displayRating(b, defaults) - displayRating(a, defaults));
 
-/** Players at or above each tier, highest tier first, as v1.3.2 had them. */
+/** Players in each tier (not "at or above"), highest tier first. */
 const tiersHighFirst = [...defaults.tiers].reverse();
-let above = 0;
-const wanted = tiersHighFirst.map((tier) => (above += v132TierCounts[tier.label] ?? 0));
-const counts = (display: (conservative: number) => number) =>
-  tiersHighFirst.map((tier) => ranked.filter((p) => display(p.conservative) >= tier.threshold).length);
-const displayWith = (center: number, scale: number) => (conservative: number) =>
-  Math.max(defaults.displayFloor, Math.round(center + scale * (conservative - defaults.ratingMu)));
-
-let fit = { error: Infinity, center: 0, scale: 0 };
-for (let scale = 5; scale <= 200; scale++)
-  for (let center = 0; center <= 4000; center += 10) {
-    const error = counts(displayWith(center, scale)).reduce((sum, n, i) => sum + (n - wanted[i]!) ** 2, 0);
-    if (error < fit.error) fit = { error, center, scale };
-  }
+const counts = (config: RatingConfig) => {
+  const shownRatings = ranked.map((p) => displayRating(p, config));
+  return tiersHighFirst.map((tier, i) => {
+    const next = tiersHighFirst[i - 1]?.threshold ?? Infinity;
+    return shownRatings.filter((d) => d >= tier.threshold && d < next).length;
+  });
+};
 
 const row = (label: string, n: (number | string)[]) =>
   console.log(`${label.padEnd(36)}${n.map((v, i) => pad(v, tiersHighFirst[i]!.label.length + 2)).join("")}`);
-console.log(`Players with ${defaults.minRankedRounds}+ rated rounds: ${ranked.length}, at or above each tier`);
+console.log(`Players with ${defaults.minRankedRounds}+ rated rounds: ${ranked.length}, in each tier`);
 row("", tiersHighFirst.map((t) => t.label));
-row("v1.3.2 tags", wanted);
-row(`center ${defaults.displayCenter}, scale ${defaults.displayScale} (config)`, counts(displayWith(defaults.displayCenter, defaults.displayScale)));
-row(`center ${fit.center}, scale ${fit.scale} (best fit)`, counts(displayWith(fit.center, fit.scale)));
+row(`scale ${defaults.displayScale} (config)`, counts(defaults));
+for (const displayScale of scalesToTry) row(`scale ${displayScale}`, counts({ ...defaults, displayScale }));
 
 console.log(`\nTop 30 with the config's display rating:`);
 ranked.slice(0, 30).forEach((p, i) => {
-  const display = displayWith(defaults.displayCenter, defaults.displayScale)(p.conservative);
   console.log(
-    `${pad(i + 1, 3)}  ${p.name.padEnd(18)}${pad(display, 6)}   mu ${p.mu.toFixed(1)} ± ${p.sigma.toFixed(1)}, ${p.rounds} rounds, ${Math.round((100 * p.wins) / p.rounds)}% won`,
+    `${pad(i + 1, 3)}  ${p.name.padEnd(18)}${pad(displayRating(p, defaults), 6)}   mu ${p.mu.toFixed(1)} ± ${p.sigma.toFixed(1)}, ${p.rounds} rounds, ${Math.round((100 * p.wins) / p.rounds)}% won`,
   );
 });

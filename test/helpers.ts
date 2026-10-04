@@ -44,10 +44,10 @@ export async function historyTable() {
 /** What a recompute from scratch over the stored matches that count gives. */
 export async function fromScratch() {
   const { results } = await db()
-    .prepare("SELECT id, played_at AS playedAt FROM matches WHERE status = 'accepted' ORDER BY played_at, id")
-    .all<{ id: number; playedAt: string }>();
+    .prepare("SELECT id, played_at AS playedAt, tournament FROM matches WHERE status = 'accepted' ORDER BY played_at, id")
+    .all<{ id: number; playedAt: string; tournament: number }>();
   const rounds = await readRounds(db(), results.map((m) => m.id));
-  const matches: RatingMatch[] = results.map((m) => ({ ...m, rounds: rounds.get(m.id)! }));
+  const matches: RatingMatch[] = results.map((m) => ({ ...m, rounds: rounds.get(m.id)!, tournament: m.tournament === 1 }));
   const { ratings, history } = recompute(matches, defaults);
   return {
     ratings: [...ratings]

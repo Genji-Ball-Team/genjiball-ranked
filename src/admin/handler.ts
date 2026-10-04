@@ -17,8 +17,10 @@ import {
   listActions,
   listHosts,
   listMatches,
+  readTournament,
   setHostTrust,
   setMatchState,
+  setTournament,
   type Admin,
 } from "./store";
 
@@ -80,6 +82,10 @@ export async function handleAdmin(request: Request, db: D1Database, config: Admi
         if (method !== "GET") return notAllowed("GET");
         const match = await findMatch(db, id);
         return match ? Response.json({ match }) : fail(404, "not_found", "No such match");
+      }
+      if (id !== null && path.length === 3 && path[2] === "tournament") {
+        if (method !== "POST") return notAllowed("POST");
+        return await changeTournament(ctx, id, await body(request));
       }
       if (id !== null && path.length === 3 && (matchActions as string[]).includes(path[2]!)) {
         if (method !== "POST") return notAllowed("POST");
@@ -191,6 +197,38 @@ async function changeMatch(ctx: Context, matchId: number, action: MatchAction, d
     ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
   }
   return Response.json({ match: { ...match, ...transition.to }, ratingsStale });
+}
+
+/**
+ * `POST /api/admin/matches/:id/tournament` with `{"tournament": true}` (or `false`): marks a match as a
+ * tournament. It counts `tournamentWeight` times as much and nobody gains or loses more than
+ * `tournamentMaxChange` in it. A rated match makes the ratings stale from it, like a void.
+ */
+async function changeTournament(ctx: Context, matchId: number, data: Record<string, unknown>): Promise<Response> {
+  if (typeof data.tournament !== "boolean") throw new BadRequest("tournament must be true or false");
+  const match = await findMatch(ctx.db, matchId);
+  if (!match) return fail(404, "not_found", "No such match");
+  const current = await readTournament(ctx.db, matchId);
+  if (current === data.tournament) return fail(409, "conflict", `The match is ${current ? "already" : "not"} a tournament`);
+
+  const at = isoSeconds(ctx.now);
+  await setTournament(
+    ctx.db,
+    matchId,
+    data.tournament,
+    { adminId: ctx.admin.id, action: "match_tournament", matchId, hostId: match.hostId, detail: { tournament: data.tournament }, at },
+    [staleFromMatchesStatement(ctx.db, [matchId], at, true)],
+  );
+  ctx.log.info("admin: tournament", { admin: ctx.admin.id, match: matchId, tournament: data.tournament });
+
+  let ratingsStale = true;
+  try {
+    if (match.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log);
+    ratingsStale = (await readState(ctx.db)).staleFrom !== null;
+  } catch (error) {
+    ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
+  }
+  return Response.json({ match: { ...match, tournament: data.tournament }, ratingsStale });
 }
 
 /**

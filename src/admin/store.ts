@@ -171,6 +171,27 @@ export async function setMatchState(
   ]);
 }
 
+/** Whether a match is marked as a tournament, or `null` when there is no such match. */
+export async function readTournament(db: D1Database, matchId: number): Promise<boolean | null> {
+  const row = await db.prepare("SELECT tournament FROM matches WHERE id = ?").bind(matchId).first<{ tournament: number }>();
+  return row ? row.tournament === 1 : null;
+}
+
+/** Marks a match as a tournament (or not). Also runs `extra` (marking the ratings stale) in the same transaction. */
+export async function setTournament(
+  db: D1Database,
+  matchId: number,
+  tournament: boolean,
+  log: ActionLog,
+  extra: D1PreparedStatement[] = [],
+): Promise<void> {
+  await db.batch([
+    db.prepare("UPDATE matches SET tournament = ?2 WHERE id = ?1").bind(matchId, tournament ? 1 : 0),
+    ...extra,
+    actionStatement(db, log),
+  ]);
+}
+
 /** Whether a batch failed because the row changed after the handler read it. */
 export function isStale(error: unknown): boolean {
   return /NOT NULL constraint failed: (hosts\.trust|matches\.status)/.test(String(error));

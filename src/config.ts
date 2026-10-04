@@ -68,10 +68,11 @@ export const defaults = {
   ratingTau: 25 / 100,
   /**
    * Damping: one round moves a rating about 1/N of what a full rated game would. Higher is a
-   * steadier leaderboard; 1 rates every round as a full game. On the v1.3.2 logs, 5 predicts rounds
-   * about as well as 1 with half the movement; 10 and up predict worse (docs/rating.md, "Tuning").
+   * steadier leaderboard but a slower one to learn: a player keeps climbing toward their real level
+   * for longer. 1 rates every round as a full game. On the v1.3.2 logs, 6 predicts rounds nearly as
+   * well as 1 to 5 (docs/rating.md, "Tuning"), and players reach their level sooner than at 10+.
    */
-  ratingRoundsPerMatch: 5,
+  ratingRoundsPerMatch: 6,
 
   /**
    * A match with no MATCH_END is rated once this many hours have passed since it started: until
@@ -86,30 +87,50 @@ export const defaults = {
 
   /**
    * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
-   * rating mu − z·sigma. `displayCenter` is a new player's mu with no uncertainty; each point of
-   * mu is worth `displayScale`. Never shown below `displayFloor`. Center and scale are fitted with
-   * `npm run tune:rating` so the tiers hold about as many players as v1.3.2 tagged.
+   * rating mu − z·sigma. A new player shows `displayCenter`; above it each point of mu is worth
+   * `displayScale`. Below it the number eases toward `displayFloor` and never reaches it: a bad
+   * player settles in the 900s instead of sinking, and climbs again as they improve (the curve has
+   * the same slope on both sides of the center). `displayZ` is 0, so a player's number follows mu
+   * alone and doesn't drift up as sigma shrinks.
    */
-  displayZ: 3,
-  displayCenter: 1780,
-  displayScale: 46,
-  displayFloor: 0,
+  displayZ: 0,
+  displayCenter: 1000,
+  displayScale: 70,
+  displayFloor: 900,
+
+  /**
+   * Tournaments: a match an admin marks as a tournament counts `tournamentWeight` times a normal
+   * one, because each of its rounds is damped to 1/(`ratingRoundsPerMatch` ÷ weight). Tournaments are
+   * rare and meant to matter, so a good one climbs fast.
+   */
+  tournamentWeight: 3,
+  /**
+   * The most display points anyone can gain or lose in one tournament. The cap is the same both
+   * ways, so tournaments don't add points to the ladder: one bad or lucky tournament can't swing a
+   * rating too far, and the rating already expects a weak player to finish behind strong ones.
+   */
+  tournamentMaxChange: 200,
 
   /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier
    * whose threshold their display rating reaches; below the first, no tier. Labels and colours
-   * match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`; thresholds are the v1.3.2 ones.
+   * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`.
    */
   tiers: [
-    { label: "Master", color: [255, 215, 0], threshold: 1300 },
-    { label: "Grandmaster", color: [255, 140, 0], threshold: 1600 },
-    { label: "Ascendant", color: [60, 160, 255], threshold: 1900 },
-    { label: "Champion", color: [150, 0, 0], threshold: 2300 },
-    { label: "God", color: [160, 160, 160], threshold: 2600 },
+    { label: "Apprentice", color: [205, 127, 50], threshold: 1300 },
+    { label: "Master", color: [255, 215, 0], threshold: 1600 },
+    { label: "Grandmaster", color: [255, 140, 0], threshold: 1900 },
+    { label: "Ascendant", color: [60, 160, 255], threshold: 2200 },
+    { label: "Champion", color: [150, 0, 0], threshold: 2500 },
+    { label: "God", color: [160, 160, 160], threshold: 2800 },
   ] as Tier[],
 
-  /** Rated rounds a player needs before they show on the leaderboard and get a tier. */
-  minRankedRounds: 10,
+  /**
+   * Rated rounds a player needs before they show on the leaderboard and get a tier: until then they
+   * are provisional, so a newcomer's lucky start isn't shown. On the v1.3.2 logs, a player is rarely
+   * above where they end up after 20 rounds (docs/rating.md, "Tuning").
+   */
+  minRankedRounds: 20,
   /**
    * A player with no rated round in this many days is inactive: they stay on the leaderboard with
    * an "Inactive since <last played>" mark, and get no rank tag in game.

@@ -55,17 +55,16 @@ Every 5 minutes would double the recompute speed but, during a long recompute on
 
 ## Display rating and tiers
 
-The leaderboard shows an Elo-like number from the conservative rating, mu − `displayZ`·sigma:
+The leaderboard shows an Elo-like number from the conservative rating, mu − `displayZ`·sigma. With `x = displayScale · (mu − displayZ · sigma − ratingMu)`:
 
 ```
-display = displayCenter + displayScale · (mu − displayZ · sigma − ratingMu)
+x ≥ 0:  display = displayCenter + x
+x < 0:  display = displayFloor + (displayCenter − displayFloor) · e^(x / (displayCenter − displayFloor))
 ```
 
-rounded and never below `displayFloor`. A new player has a large sigma, so they start low (about 630) and an average player climbs as the server gets surer of them. Someone who stops playing keeps their number.
+rounded. A new player shows `displayCenter` (1000). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. `displayZ` is 0: the number follows mu alone, so it doesn't drift up as sigma shrinks. Someone who stops playing keeps their number.
 
-The tiers (Master 1300, Grandmaster 1600, Ascendant 1900, Champion 2300, God 2600) are the v1.3.2 ones, with the labels and colours of GenjiBall-CE `src/features/rank-tags.opy`.
-
-The scale is fitted to the v1.3.2 logs (see "Tuning" below).
+The tiers are Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Champion 2500 and God 2800. A player is provisional, with no tier and not on the leaderboard, until `minRankedRounds` (20) rated rounds. The labels and colours are those of GenjiBall-CE `src/features/rank-tags.opy`, plus Apprentice (bronze), which that file needs a sixth list for.
 
 ## Tuning
 
@@ -73,22 +72,29 @@ The scale is fitted to the v1.3.2 logs (see "Tuning" below).
 
 - **Prediction:** before each round is rated, how likely the ratings so far made its finishing order, against a random order (Plackett-Luce log-likelihood, nats per round). Higher is better. Only the newest 40% of rounds count, and only rounds where every player already had 20 rated rounds.
 - **Movement:** how far a regular's (50+ rounds) display rating moves in one match: median and 90th percentile. Lower is a steadier leaderboard.
-- How many players reach each tier, against how many v1.3.2 tagged (`rank1_names`... in GenjiBall-CE `original/genjiball-v1.3.2-ranked.txt`: 17 Master, 4 Grandmaster, 3 Ascendant), and the `displayCenter` and `displayScale` that fit those counts best.
 
-`--grid` sweeps `ratingRoundsPerMatch`, `ratingBeta` and `ratingTau` instead.
+It also prints how many players each tier holds with the config's display scale and with a few others (40 to 100), to pick `displayScale`. `--grid` sweeps `ratingRoundsPerMatch`, `ratingBeta` and `ratingTau` instead.
 
-On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (192 matches, 2,560 rated rounds), with the display scale below (movement is in its points):
+On the 306 v1.3.2 files of Sep 22 to Oct 3, 2026 (192 matches, 2,560 rated rounds), movement is in display points (scale 46, the previous one):
 
 | `ratingRoundsPerMatch` | Prediction | Move median | Move p90 |
 |---|---|---|---|
 | 1 | 0.85 | 40 | 153 |
 | 3 | 0.85 | 29 | 114 |
-| **5** | **0.84** | **25** | **91** |
+| 5 | 0.84 | 25 | 91 |
 | 10 | 0.80 | 16 | 61 |
 | 20 | 0.74 | 10 | 36 |
 
-Damping is the setting that matters: up to 5 predicts about as well as rating every round in full, and moves half as much; past it, prediction drops. Beta and tau barely change anything (tau 25/100 is a little better than 25/300). The fitted display scale is center 1780, scale 46: 24 players at Master or above, 9 at Grandmaster, 2 at Ascendant. The top of the board is the players v1.3.2 tagged.
+Damping is the setting that matters. Up to 5 predicts about as well as rating every round in full; past it, prediction drops. Higher damping is steadier, but it also makes the ratings slower to learn, so players keep climbing toward their real level for longer, which looks like a rating that rises with play. The default is **6**: prediction 0.84 and, at scale 70, a regular's median move of 15 points and p90 of 97 a match (12 gives 0.79, 9 and 59; the v1.3.2 rating system moved regulars a median of 21 and a p90 of 73). Beta and tau barely change anything (tau 25/100 is a little better than 25/300).
 
-- Re-run it when there are a few weeks of v1.3.3R logs. Regulars' sigma is still shrinking after 11 days, so their display rating will rise and the tiers will fill: refit `displayCenter` and `displayScale` then.
+`minRankedRounds` (20) hides a newcomer's lucky start. On these logs, of the 25 players with 150+ rounds, after 20 rounds 2 were more than 50 points above where they ended and 18 were more than 50 below: newcomers mostly start under their level and climb, rather than overshoot.
+
+With those settings, 89 players have 20+ rated rounds: 15 are Apprentice, 10 Master, 7 Grandmaster, 2 Ascendant, 1 Champion and none God.
+
+- Re-run it when there are a few weeks of v1.3.3R logs, and refit `displayScale` if the tiers fill faster or slower than wanted.
 - The host of these lobbies (Fealthy, in every file) comes last: many of their lines are deaths with no attacker, probably rounds they weren't really playing. Check how hosts show up in v1.3.3R logs.
-- After changing the rating config, add a migration that marks every rating stale (like `migrations/0004_rating_tuning.sql`), so the cron recomputes them.
+- After changing the rating config, add a migration that marks every rating stale (like `migrations/0005_display_curve.sql`), so the cron recomputes them.
+
+## Tournaments
+
+`POST /api/admin/matches/:id/tournament` marks a match. Its rounds are damped `tournamentWeight` (3) times less, so it counts that many times as much. Afterwards nobody's display rating is more than `tournamentMaxChange` (200) points from where they started it, either way. The cap is the same both ways, so tournaments don't add points to the ladder.

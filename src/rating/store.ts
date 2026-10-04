@@ -28,6 +28,8 @@ export interface RatingState {
 export interface CandidateMatch extends MatchRef {
   complete: boolean;
   rated: boolean;
+  /** An admin marked it as a tournament: it counts more, and nobody loses much in it. */
+  tournament: boolean;
 }
 
 export function compareRefs(a: MatchRef, b: MatchRef): number {
@@ -50,11 +52,17 @@ export async function readState(db: D1Database): Promise<RatingState> {
 export async function readUnrated(db: D1Database): Promise<CandidateMatch[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, played_at AS playedAt, complete FROM matches
+      `SELECT id, played_at AS playedAt, complete, tournament FROM matches
        WHERE status = 'accepted' AND rated_at IS NULL ORDER BY played_at, id`,
     )
-    .all<{ id: number; playedAt: string; complete: number }>();
-  return results.map((m) => ({ id: m.id, playedAt: m.playedAt, complete: m.complete === 1, rated: false }));
+    .all<{ id: number; playedAt: string; complete: number; tournament: number }>();
+  return results.map((m) => ({
+    id: m.id,
+    playedAt: m.playedAt,
+    complete: m.complete === 1,
+    rated: false,
+    tournament: m.tournament === 1,
+  }));
 }
 
 /** The newest rated match (index `matches_rated`). */
@@ -68,12 +76,18 @@ export async function readNewestRated(db: D1Database): Promise<MatchRef | null> 
 export async function readAcceptedFrom(db: D1Database, from: MatchRef, limit: number): Promise<CandidateMatch[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated FROM matches
+      `SELECT id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated, tournament FROM matches
        WHERE status = 'accepted' AND (played_at, id) >= (?1, ?2) ORDER BY played_at, id LIMIT ?3`,
     )
     .bind(from.playedAt, from.id, limit)
-    .all<{ id: number; playedAt: string; complete: number; rated: number }>();
-  return results.map((m) => ({ id: m.id, playedAt: m.playedAt, complete: m.complete === 1, rated: m.rated === 1 }));
+    .all<{ id: number; playedAt: string; complete: number; rated: number; tournament: number }>();
+  return results.map((m) => ({
+    id: m.id,
+    playedAt: m.playedAt,
+    complete: m.complete === 1,
+    rated: m.rated === 1,
+    tournament: m.tournament === 1,
+  }));
 }
 
 /** Rated matches that aren't accepted any more (voided, or replaced by a copy that isn't), from `from` up to `until`. */

@@ -65,15 +65,15 @@ describe("standing", () => {
 
   it("gives the tier only from minRankedRounds rated rounds", () => {
     expect(standing({ display: 1700, rounds: 9, lastPlayedAt: null }, config, now).tier).toBeNull();
-    expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Grandmaster", color: [255, 140, 0], threshold: 1600 });
+    expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Master", color: [255, 215, 0], threshold: 1600 });
     expect(standing({ display: 1299, rounds: 10, lastPlayedAt: null }, config, now).tier).toBeNull();
   });
 
   it("gives the next tier up, none at the top", () => {
-    expect(nextTier(0, config.tiers)).toEqual({ label: "Master", color: [255, 215, 0], threshold: 1300 });
-    expect(nextTier(1600, config.tiers)?.label).toBe("Ascendant");
-    expect(nextTier(1599, config.tiers)?.label).toBe("Grandmaster");
-    expect(nextTier(2600, config.tiers)).toBeNull();
+    expect(nextTier(0, config.tiers)).toEqual({ label: "Apprentice", color: [205, 127, 50], threshold: 1300 });
+    expect(nextTier(1600, config.tiers)?.label).toBe("Grandmaster");
+    expect(nextTier(1599, config.tiers)?.label).toBe("Master");
+    expect(nextTier(2800, config.tiers)).toBeNull();
   });
 
   it("marks a player inactive after inactiveAfterDays, since their last match", () => {
