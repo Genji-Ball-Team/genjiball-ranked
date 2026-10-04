@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#090b10">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tourneys – Genji Ball Ranked</title>
+  <meta name="description" content="Upcoming Genji Ball tourneys, and the results of every past one.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body data-page="tourneys">
+  <header class="top">
+    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
+    <nav><a href="/">Leaderboard</a><a href="/tourneys" aria-current="page">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
+  </header>
+  <main>
+    <h1>Tourneys</h1>
+    <p class="lede">Tourney matches count on the same <a href="/">leaderboard</a> as ranked ones, and more than a normal match. Sign up and ask about the next one on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</p>
+    <section id="upcoming-section" hidden>
+      <h2>Coming up</h2>
+      <ol id="upcoming" class="events"></ol>
+    </section>
+    <h2 id="results-title">Results</h2>
+    <ol id="past" class="events" aria-busy="true" data-loading>
+      <li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li>
+    </ol>
+    <nav class="pager"><a id="prev" hidden>Newer tourneys</a><span></span><a id="next" hidden>Older tourneys</a></nav>
+  </main>
+  <footer>Genji Ball is an Overwatch custom game. Play ranked on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</footer>
+  <script src="/banner.js"></script>
+  <script src="/site.js"></script>
+</body>
+</html>

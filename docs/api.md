@@ -111,13 +111,22 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/matches/:id/unvoid` | `void` → `accepted`, or `rejected` if a longer copy that arrived while it was void was rejected (an `UNRANKED` line, say) |
 | `GET /api/admin/actions` | `{ actions }`: the action log, newest first, at most `adminListLimit` |
 | `POST /api/admin/matches/:id/tournament` | Body: `{"tournament": true}` or `false`. Marks the match as a tournament: it counts `tournamentWeight` times as much and nobody gains or loses more than `tournamentMaxChange` display points in it. A rated match makes the ratings stale from it. `409` if it already is that way |
+| `GET /api/admin/tourneys` | `{ tourneys }`: latest start first, at most `adminListLimit`, each with `lobbies` (`id, label, matchId, screenshotKey, screenshotAt, verifiedAt, verifiedBy`) |
+| `POST /api/admin/tourneys` | Body `{ "name", "startsAt", "notes"?, "status"? }`. `startsAt` is ISO 8601 with a time zone. `status`: `scheduled` (default), `live`, `done`, `cancelled`. `201 { tourney }` |
+| `POST /api/admin/tourneys/:id` | Same fields, all optional: changes the ones sent |
+| `POST /api/admin/tourneys/:id/lobbies` | Body `{ "label": "Lobby 1/2" }`. `201 { lobby }` |
+| `POST /api/admin/lobbies/:id` | Body `{ "label"?, "matchId"? }`. `matchId` links the lobby's match (`null` unlinks it): the match becomes a tournament ([rating.md](rating.md)), and a new match clears the verification. `409` if the match is another lobby's. `{ lobby, ratingsStale }` |
+| `DELETE /api/admin/lobbies/:id` | Deletes the lobby and its screenshot; its match is no longer a tournament. `{ ratingsStale }` |
+| `PUT /api/admin/lobbies/:id/screenshot` | Body: the image, PNG, JPEG or WebP (told apart by its first bytes, so any tool's image works), at most `screenshotMaxBytes` (8 MB). Replaces the old one, which needs verifying again. `413 too_large`, `415 unsupported_type` |
+| `DELETE /api/admin/lobbies/:id/screenshot` | Deletes the screenshot |
+| `POST /api/admin/lobbies/:id/verify` | Body `{ "verified": true }` (or `false`): an admin checked the screenshot against the standings. Needs a match and a screenshot (`409` otherwise) |
 | `POST /api/admin/legacy-import?host=<id>` | Body: an old v1.3.2 log file, as with an upload. Stored as the host's legacy match ([legacy.md](legacy.md)), as from a trusted host and with no rate limit. Answers like `POST /api/upload`; `422 not_legacy` for a file without `KILL` lines or with a `GBR` line. `npm run import:legacy` sends a folder of them |
 
 A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
 
 **Decisions that last.** A longer copy of a match keeps an admin's void or rejection. An accept doesn't: a longer copy is judged again, and goes back to review if it still has a reason to (its new rounds haven't been looked at).
 
-`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, and the `file` of an import.
+`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action.
 
 ### Errors
 
@@ -129,17 +138,20 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 | 405 | `method_not_allowed` | Wrong method. `Allow` says which |
 | 409 | `conflict` | The action doesn't fit the status (voiding a match in review, un-revoking a host), or another admin changed it at the same time |
 
-## Site: `/api/leaderboard`, `/api/players/:id`, `/api/matches/:id`
+## Site: `/api/leaderboard`, `/api/players/:id`, `/api/matches/:id`, `/api/tourneys`
 
-What the website's pages read (`/`, `/player?id=`, `/match?id=`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
+What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
 Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (3) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
 
 | Route | Answers |
 |---|---|
 | `GET /api/leaderboard?page=1` | `{ page, pageSize, hasMore, players }`. Players with at least `minRankedRounds` rated rounds, best first, `leaderboardPageSize` (50) a page. Each: `rank, id, name, rating, rounds, wins, lastPlayedAt, tier, inactiveSince` |
-| `GET /api/players/:id` | `{ player, matches }`. `player`: `id, name, aliases` (newest first) and `rating` (as on the leaderboard, `rank` `null` below `minRankedRounds`, plus `nextTier`: the next tier up from their rating, like `tier`, `null` at the top; `null` with no rated round). `matches`: the newest `playerRecentMatches` (20), newest uploaded first: `id, playedAt, map, legacy, void, ratingBefore, ratingAfter` (`null` when the match didn't rate them; `ratingBefore` `null` for their first) |
-| `GET /api/matches/:id` | `{ match }`: `id, playedAt, map, preset, gameVersion, legacy, void, complete`, `players` (`id, name, rounds, wins` in the match's rated rounds, `ratingBefore, ratingAfter`) and `rounds` (`number, result, rated, broken, winner`, and `placements`: `playerId, name, position, left`, in finishing order, leavers last) |
+| `GET /api/players/:id` | `{ player, matches }`. `player`: `id, name, aliases` (newest first) and `rating` (as on the leaderboard, `rank` `null` below `minRankedRounds`, plus `nextTier`: the next tier up from their rating, like `tier`, `null` at the top; `null` with no rated round). `matches`: the newest `playerRecentMatches` (20), newest uploaded first: `id, playedAt, map, legacy, void, tournament, tourney, ratingBefore, ratingAfter` (`null` when the match didn't rate them; `ratingBefore` `null` for their first) |
+| `GET /api/matches/:id` | `{ match }`: `id, playedAt, map, preset, gameVersion, legacy, void, complete, tournament, tourney` (`{ id, name, lobby }` of the tourney lobby it was played in, or `null`), `players` (`id, name, rounds, wins` in the match's rated rounds, `ratingBefore, ratingAfter`) and `rounds` (`number, result, rated, broken, winner`, and `placements`: `playerId, name, position, left`, in finishing order, leavers last) |
+| `GET /api/tourneys?page=1` | `{ page, pageSize, hasMore, upcoming, past }`. `upcoming`: every `scheduled` or `live` tourney, soonest first (page 1 only). `past`: `done` and `cancelled` ones, newest first, `tourneysPageSize` (10) a page. Each tourney: `id, name, startsAt, status, notes, lobbies`. Each lobby: `id, label, matchId` (`null` until its match is linked and public), `void, screenshot` (its URL or `null`), `verified`, and `standings`: `place, id, name, wins, kills, ratingBefore, ratingAfter`, most rounds won first, ties broken by kills, the same wins and kills sharing a place. Wins count every `WIN` round, rated or not; kills every `KILL` that isn't a player killing themselves |
+| `GET /api/tourneys/:id` | `{ tourney }`, as in the list |
+| `GET /api/screenshots/:key` | A verify screenshot (the `screenshot` URL of a lobby), cached for `screenshotCacheSeconds` (a year): a key is never reused |
 
 ## Rank tags: `GET /api/rank-tags`
 

@@ -123,6 +123,21 @@ export const defaults = {
   tournamentMaxChange: 200,
 
   /**
+   * Tourneys page (#31): past tourneys per page, newest first. Each lobby's standings read its
+   * match's rounds and events (about 600 rows), so a page of 10 two-lobby tourneys is about 12k rows.
+   */
+  tourneysPageSize: 10,
+  /** Longest tourney notes an admin can enter, in characters. */
+  tourneyNotesMaxLength: 1000,
+  /** Largest verify screenshot (#28), in bytes. A 1440p PNG of the standings is about 2 MB. */
+  screenshotMaxBytes: 8 * 1024 * 1024,
+  /**
+   * How long a browser may keep a verify screenshot, in seconds. A replaced screenshot gets a new
+   * key, so an image never changes under its URL.
+   */
+  screenshotCacheSeconds: 365 * 24 * 60 * 60,
+
+  /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier
    * whose threshold their display rating reaches; below the first, no tier. Labels and colours
    * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`.

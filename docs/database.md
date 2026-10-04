@@ -15,10 +15,12 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `rounds` | round | `rated` = a `WIN` round that isn't broken |
 | `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
-| `ratings` | player per leaderboard | `board` is `ranked` now; `tourney` and `global` come with #26 |
+| `ratings` | player | `board` is always `ranked`: there is one leaderboard, tourney matches included (marked `matches.tournament`) |
 | `rating_history` | player per match | The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
 | `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
 | `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |
+| `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC |
+| `tourney_lobbies` | lobby of a tourney | Its match (`match_id`, unique: a match is in one lobby) and verify screenshot (`screenshot_key` in R2, `verified_by`/`verified_at`). Linking a match sets `matches.tournament` |
 | `rating_state` | leaderboard | Whether the ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)) |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
@@ -39,6 +41,10 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
 
   An upload is about 15 statements whatever the number of matches in the file, plus one per `insertChunkRows` rows of a big table, all in one `db.batch` (a transaction).
 - **BLOBs come back as arrays.** D1 returns a `BLOB` column (`raw_log`) as an array of byte values, not an `ArrayBuffer`: wrap it in `new Uint8Array(...)` before gunzipping.
+
+## Screenshots in R2
+
+Tourney verify screenshots aren't in D1: they're in the R2 bucket bound as `PROOFS` (`genjiball-proofs`, `genjiball-proofs-test` for the test server). R2's free tier holds 10 GB, about 5,000 screenshots of 2 MB. A screenshot's key is random and never reused: replacing one writes a new object and deletes the old, so the site can let browsers cache an image for good.
 
 ## Free tier
 

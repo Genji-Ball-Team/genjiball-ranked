@@ -31,11 +31,11 @@ export default {
     }
 
     if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
-      return handleAdmin(request, env.DB, config, log);
+      return handleAdmin(request, env.DB, env.PROOFS, config, log);
     }
 
     if (url.pathname.startsWith("/api/")) {
-      const site = await handleSite(request, env.DB, config);
+      const site = await handleSite(request, env.DB, config, new Date(), env.PROOFS);
       if (site) return site;
       return Response.json({ error: "not_found" }, { status: 404 });
     }

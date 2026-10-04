@@ -7,7 +7,7 @@ import type { RatingWrites, StoredRating } from "./plan";
  * nothing is written (`isConflict`).
  */
 
-/** The leaderboard. `tourney` and `global` come with #26. */
+/** The leaderboard. There is one: tourney matches are on it too, marked `tournament` (docs/rating.md). */
 export const board = "ranked";
 
 /** A match's place in play order. */

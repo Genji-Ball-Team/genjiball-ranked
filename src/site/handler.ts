@@ -1,6 +1,8 @@
 import type { Config } from "../config";
 import { fail } from "../http";
 import { isoSeconds } from "../time";
+import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
+import { findTourney, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
@@ -20,14 +22,24 @@ import {
  * `/api/players/:id` and `/api/matches/:id`. No token; browsers may cache an answer for
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
- * (#37), for the banner on every page.
+ * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
+ * and the verify screenshots, `/api/screenshots/:key`.
  */
 
 export type SiteConfig = RankTagsConfig &
-  Pick<Config, "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer">;
+  Pick<
+    Config,
+    "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer" | "tourneysPageSize" | "screenshotCacheSeconds"
+  >;
 
 /** Answers a site route, or returns null when the path isn't one. */
-export async function handleSite(request: Request, db: D1Database, config: SiteConfig, now = new Date()): Promise<Response | null> {
+export async function handleSite(
+  request: Request,
+  db: D1Database,
+  config: SiteConfig,
+  now = new Date(),
+  proofs?: R2Bucket,
+): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
@@ -43,11 +55,20 @@ export async function handleSite(request: Request, db: D1Database, config: SiteC
     if (!isRead(request)) return notAllowed();
     return cached(await tags(db, config, now), config.rankTagsCacheSeconds);
   }
-  if (path.length === 2 && (route === "players" || route === "matches")) {
+  if (path.length === 1 && route === "tourneys") {
+    if (!isRead(request)) return notAllowed();
+    return cached(await tourneys(db, config, url.searchParams.get("page")), config.publicCacheSeconds);
+  }
+  if (path.length === 2 && route === "screenshots") {
+    if (!isRead(request)) return notAllowed();
+    return screenshot(proofs, path[1]!, config);
+  }
+  if (path.length === 2 && (route === "players" || route === "matches" || route === "tourneys")) {
     if (!isRead(request)) return notAllowed();
     const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
-    const body = id === null ? null : route === "players" ? await player(db, config, id, now) : await match(db, id);
-    if (!body) return fail(404, "not_found", route === "players" ? "No such player" : "No such match");
+    const read = { players: () => player(db, config, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, id!) }[route];
+    const body = id === null ? null : await read();
+    if (!body) return fail(404, "not_found", { players: "No such player", matches: "No such match", tourneys: "No such tourney" }[route]);
     return cached(body, config.publicCacheSeconds);
   }
   return null;
@@ -144,6 +165,64 @@ export function matchView({ match, players, rounds, roundPlayers }: MatchDetail)
     .filter((p) => !seen.has(p.playerId) && seen.add(p.playerId))
     .map((p) => ({ id: p.playerId, name: p.name, ...perPlayer.get(p.playerId)!, ratingBefore: p.ratingBefore, ratingAfter: p.ratingAfter }));
   return { ...match, players: playersView, rounds: roundsView };
+}
+
+/**
+ * The Tourneys page: every tourney still to come, soonest first, and a page of past ones, newest
+ * first, each lobby with its standings.
+ */
+async function tourneys(db: D1Database, config: SiteConfig, pageParam: string | null) {
+  const page = pageParam && /^[1-9]\d{0,5}$/.test(pageParam) ? Number(pageParam) : 1;
+  const size = config.tourneysPageSize;
+  // One more than a page, to know if there's a next one.
+  const [upcoming, past] = await Promise.all([page === 1 ? listUpcoming(db) : [], listPast(db, size + 1, (page - 1) * size)]);
+  const shown = [...upcoming, ...past.slice(0, size)];
+  const views = await tourneyViews(db, shown);
+  return { page, pageSize: size, hasMore: past.length > size, upcoming: views.slice(0, upcoming.length), past: views.slice(upcoming.length) };
+}
+
+async function tourney(db: D1Database, id: number) {
+  const found = await findTourney(db, id);
+  if (!found) return null;
+  const [view] = await tourneyViews(db, [found]);
+  return { tourney: view };
+}
+
+/** Tourneys with their lobbies, and each public match's standings. */
+async function tourneyViews(db: D1Database, list: TourneyRow[]) {
+  const lobbies = await listLobbies(
+    db,
+    list.map((t) => t.id),
+  );
+  const standings = await readStandings(
+    db,
+    lobbies.filter((l) => l.matchPublic).map((l) => l.matchId!),
+  );
+  const lobbyView = (l: LobbyRow) => ({
+    id: l.id,
+    label: l.label,
+    // A match in review or rejected isn't public (docs/api.md, "Site"): the lobby shows no result yet.
+    matchId: l.matchPublic ? l.matchId : null,
+    void: l.matchPublic && l.matchVoid,
+    screenshot: screenshotUrl(l.screenshotKey),
+    verified: l.verifiedAt !== null,
+    standings: l.matchPublic ? standings.get(l.matchId!)! : [],
+  });
+  return list.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id).map(lobbyView) }));
+}
+
+/** A verify screenshot from R2. Keys are never reused, so the browser may keep it for good. */
+async function screenshot(proofs: R2Bucket | undefined, key: string, config: SiteConfig): Promise<Response> {
+  const object = proofs && isScreenshotKey(key) ? await proofs.get(key) : null;
+  if (!object) return fail(404, "not_found", "No such screenshot");
+  return new Response(object.body, {
+    headers: {
+      "Content-Type": object.httpMetadata?.contentType ?? "application/octet-stream",
+      "Cache-Control": `public, max-age=${config.screenshotCacheSeconds}, immutable`,
+      "X-Content-Type-Options": "nosniff",
+      ETag: object.httpEtag,
+    },
+  });
 }
 
 function isRead(request: Request): boolean {
