@@ -15,17 +15,18 @@ function player(name: string, display: number, extra: Partial<RatingRow> = {}): 
 
 describe("rankTags", () => {
   it("lists every tier, lowest first, with its colour, guide line and names", () => {
-    const tags = rankTags([player("Zeus", 2700), player("Kenzo", 1650), player("Momo", 1610), player("Low", 900)], defaults, now);
+    const tags = rankTags([player("Zeus", 2850), player("Kenzo", 1950), player("Momo", 1910), player("Low", 900)], defaults, now);
     expect(tags.header).toBe("Ranks updated 2026-10-03");
     expect(tags.updatedAt).toBe("2026-10-03T12:00:00Z");
     expect(tags.tiers.map((t) => [t.label, t.guide, t.names])).toEqual([
-      ["Master", "Master - 1300", []],
-      ["Grandmaster", "Grandmaster - 1600", ["Kenzo", "Momo"]],
-      ["Ascendant", "Ascendant - 1900", []],
-      ["Champion", "Champion - 2300", []],
-      ["God", "God - 2600", ["Zeus"]],
+      ["Apprentice", "Apprentice - 1300", []],
+      ["Master", "Master - 1600", []],
+      ["Grandmaster", "Grandmaster - 1900", ["Kenzo", "Momo"]],
+      ["Ascendant", "Ascendant - 2200", []],
+      ["Champion", "Champion - 2500", []],
+      ["God", "God - 2800", ["Zeus"]],
     ]);
-    expect(tags.tiers[0]!.color).toEqual([255, 215, 0, 255]);
+    expect(tags.tiers[0]!.color).toEqual([205, 127, 50, 255]);
   });
 
   it("leaves out inactive players, players with too few rounds, and names the Workshop can't hold", () => {
@@ -80,13 +81,13 @@ describe("GET /api/rank-tags", () => {
     await db().prepare("INSERT INTO players (id, name) VALUES (6, 'Second')").run();
     await db().prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('ranked', 6, 25, 1, 1300, ?, ?)").bind(defaults.minRankedRounds, active).run();
     const capped = await handleSite(new Request("https://example.com/api/rank-tags"), db(), { ...defaults, rankTagsMaxNames: 2 });
-    expect(((await capped!.json()) as RankTags).tiers.map((t) => t.names)).toEqual([["Second"], ["Kenzo"], [], [], []]);
+    expect(((await capped!.json()) as RankTags).tiers.map((t) => t.names)).toEqual([["Second"], ["Kenzo"], [], [], [], []]);
     await db().prepare("DELETE FROM ratings WHERE player_id = 6").run();
 
     const res = await SELF.fetch("https://example.com/api/rank-tags");
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe(`public, max-age=${defaults.rankTagsCacheSeconds}`);
     const tags = (await res.json()) as RankTags;
-    expect(tags.tiers.map((t) => t.names)).toEqual([[], ["Kenzo"], [], [], []]);
+    expect(tags.tiers.map((t) => t.names)).toEqual([[], ["Kenzo"], [], [], [], []]);
   });
 });

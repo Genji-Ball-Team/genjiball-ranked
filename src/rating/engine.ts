@@ -21,6 +21,8 @@ export type RatingConfig = Pick<
   | "displayCenter"
   | "displayScale"
   | "displayFloor"
+  | "tournamentWeight"
+  | "tournamentMaxChange"
 >;
 
 /** A match as the engine needs it. Player ids are `players.id`, not per-match log ids. */
@@ -30,6 +32,8 @@ export interface RatingMatch {
   playedAt: string;
   /** The finishing order of each rated round, in round order: winner first, leavers left out. */
   rounds: number[][];
+  /** A tournament counts `tournamentWeight` times a normal match, and nobody moves more than `tournamentMaxChange` either way in it. */
+  tournament?: boolean;
 }
 
 export interface PlayerRating {
@@ -102,12 +106,28 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
 /**
  * Rates a match's rounds in place, in order, and returns the rating after the match of every
  * player who played a rated round in it.
+ *
+ * A tournament match damps each round less (`tournamentWeight` times as much movement), and then
+ * holds every player's change to `tournamentMaxChange` display points either way: a player who
+ * would move further keeps the rating that is exactly that far from where they started the match.
  */
 export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingConfig): HistoryEntry[] {
+  const rounding = match.tournament ? tournamentConfig(config) : config;
+  const started = new Map<number, PlayerRating>();
+  if (match.tournament) {
+    for (const order of match.rounds) {
+      for (const id of order) if (!started.has(id)) started.set(id, { ...(ratings.get(id) ?? newRating(config)) });
+    }
+  }
+
   const played = new Set<number>();
   for (const order of match.rounds) {
-    if (rateRound(ratings, order, config)) order.forEach((id) => played.add(id));
+    if (rateRound(ratings, order, rounding)) order.forEach((id) => played.add(id));
   }
+  if (match.tournament) {
+    for (const id of played) capChange(ratings.get(id)!, started.get(id)!, config);
+  }
+
   return [...played].map((playerId) => {
     const rating = ratings.get(playerId)!;
     rating.lastPlayedAt = match.playedAt;
@@ -122,6 +142,35 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
       wins: rating.wins,
     };
   });
+}
+
+/** The config a tournament's rounds are rated with: damped 1/`tournamentWeight` as much. */
+function tournamentConfig(config: RatingConfig): RatingConfig {
+  // Never below 1, which rates every round as a full game.
+  return { ...config, ratingRoundsPerMatch: Math.max(1, config.ratingRoundsPerMatch / config.tournamentWeight) };
+}
+
+/**
+ * If the match moved a player more than `tournamentMaxChange` display points either way, moves
+ * their mu back toward where they started, as little as it takes to move exactly that many (sigma,
+ * rounds and wins stay as the match left them).
+ */
+function capChange(rating: PlayerRating, started: PlayerRating, config: RatingConfig): void {
+  const from = displayRating(started, config);
+  const within = (r: Pick<PlayerRating, "mu" | "sigma">) =>
+    Math.abs(displayRating(r, config) - from) <= config.tournamentMaxChange;
+  if (within(rating)) return;
+  // Bisection on how far to move mu from the start toward the match's result. t = 0 moves nothing
+  // (always allowed), t = 1 moves too far.
+  const end = rating.mu;
+  let allowed = 0;
+  let tooFar = 1;
+  for (let step = 0; step < 50; step++) {
+    const t = (allowed + tooFar) / 2;
+    if (within({ mu: started.mu + t * (end - started.mu), sigma: rating.sigma })) allowed = t;
+    else tooFar = t;
+  }
+  rating.mu = started.mu + allowed * (end - started.mu);
 }
 
 /** Play order: by `playedAt`, then by id, so the same matches always rate the same way. */
@@ -147,11 +196,18 @@ export function recompute(matches: readonly RatingMatch[], config: RatingConfig)
   return { ratings, history };
 }
 
-/** The leaderboard number: the conservative rating mu − z·sigma on an Elo-like scale. */
+/**
+ * The leaderboard number: the conservative rating mu − z·sigma on an Elo-like scale. A new player
+ * is `displayCenter`. Above it the number rises `displayScale` per point of rating. Below it the
+ * curve eases toward `displayFloor` and never reaches it, with the same slope at the center, so
+ * weak players pile up in the 900s instead of falling without end.
+ */
 export function displayRating(rating: Pick<PlayerRating, "mu" | "sigma">, config: RatingConfig): number {
   const conservative = rating.mu - config.displayZ * rating.sigma;
-  const display = config.displayCenter + config.displayScale * (conservative - config.ratingMu);
-  return Math.max(config.displayFloor, Math.round(display));
+  const x = config.displayScale * (conservative - config.ratingMu);
+  if (x >= 0) return Math.round(config.displayCenter + x);
+  const room = config.displayCenter - config.displayFloor;
+  return Math.max(config.displayFloor, Math.round(config.displayFloor + room * Math.exp(x / room)));
 }
 
 /** The highest tier the display rating reaches, or null below the first. `tiers` is lowest first. */

@@ -94,7 +94,7 @@ export async function rateNewMatches(
     const writes = planRerate(
       {
         start: ratings,
-        matches: fresh.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)! })),
+        matches: fresh.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)!, tournament: m.tournament })),
         history: [],
         ratings,
       },
@@ -144,7 +144,12 @@ export async function recomputeRatings(
   const players = [...new Set([...[...rounds.values()].flat(2), ...history.map((entry) => entry.playerId)])];
   const [start, ratings] = await Promise.all([readRatingsBefore(db, players, from), readRatings(db, players)]);
   const writes = planRerate(
-    { start, matches: counted.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)! })), history, ratings },
+    {
+      start,
+      matches: counted.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)!, tournament: m.tournament })),
+      history,
+      ratings,
+    },
     config,
   );
 

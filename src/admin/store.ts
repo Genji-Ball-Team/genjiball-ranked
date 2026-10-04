@@ -32,6 +32,7 @@ export interface MatchRow extends MatchState {
   playedAt: string;
   complete: boolean;
   rated: boolean;
+  tournament: boolean;
   players: string[];
 }
 
@@ -97,7 +98,7 @@ export async function setHostTrust(db: D1Database, hostId: number, from: HostTru
 
 const matchColumns = `m.id, m.match_key AS matchKey, m.host_id AS hostId, h.name AS hostName, m.line_count AS lineCount,
   m.status, m.rejection_code AS rejectionCode, m.rejection_message AS rejectionMessage, m.review_reasons AS reviewReasons,
-  m.map, m.preset, m.played_at AS playedAt, m.complete, m.rated_at IS NOT NULL AS rated,
+  m.map, m.preset, m.played_at AS playedAt, m.complete, m.rated_at IS NOT NULL AS rated, m.tournament,
   (SELECT json_group_array(mp.name) FROM match_players mp WHERE mp.match_id = m.id) AS players`;
 
 interface RawMatch {
@@ -115,16 +116,18 @@ interface RawMatch {
   playedAt: string;
   complete: number;
   rated: number;
+  tournament: number;
   players: string;
 }
 
-function toMatch({ rejectionCode, rejectionMessage, reviewReasons, complete, rated, players, ...m }: RawMatch): MatchRow {
+function toMatch({ rejectionCode, rejectionMessage, reviewReasons, complete, rated, tournament, players, ...m }: RawMatch): MatchRow {
   return {
     ...m,
     rejection: rejectionCode === null ? null : { code: rejectionCode, message: rejectionMessage ?? "" },
     reviewReasons: reviewReasons ? reviewReasons.split(",") : [],
     complete: complete === 1,
     rated: rated === 1,
+    tournament: tournament === 1,
     players: JSON.parse(players) as string[],
   };
 }
@@ -171,9 +174,30 @@ export async function setMatchState(
   ]);
 }
 
+/**
+ * Marks a match as a tournament (or not), if it still isn't. Also runs `extra` (marking the ratings
+ * stale) in the same transaction.
+ */
+export async function setTournament(
+  db: D1Database,
+  matchId: number,
+  tournament: boolean,
+  log: ActionLog,
+  extra: D1PreparedStatement[] = [],
+): Promise<void> {
+  await db.batch([
+    // NULL when another admin set it meanwhile: NOT NULL fails the batch (isStale).
+    db
+      .prepare("UPDATE matches SET tournament = CASE WHEN tournament = ?3 THEN ?2 END WHERE id = ?1")
+      .bind(matchId, tournament ? 1 : 0, tournament ? 0 : 1),
+    ...extra,
+    actionStatement(db, log),
+  ]);
+}
+
 /** Whether a batch failed because the row changed after the handler read it. */
 export function isStale(error: unknown): boolean {
-  return /NOT NULL constraint failed: (hosts\.trust|matches\.status)/.test(String(error));
+  return /NOT NULL constraint failed: (hosts\.trust|matches\.status|matches\.tournament)/.test(String(error));
 }
 
 export function actionStatement(db: D1Database, log: ActionLog): D1PreparedStatement {

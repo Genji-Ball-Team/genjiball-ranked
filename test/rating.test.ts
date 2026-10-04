@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import {
   displayRating,
+  newRating,
   rateMatch,
   rateRound,
   recompute,
@@ -116,8 +117,8 @@ describe("stability", () => {
     rateRound(ratings, [2, 3, 4, 5, 6, 7, 8, 1], config);
     const afterLoss = displayRating(ratings.get(1)!, config);
     expect(before - afterLoss).toBeGreaterThan(0);
-    // Under 7% of the gap between two tiers.
-    expect(before - afterLoss).toBeLessThan(20);
+    // Under 10% of the gap between two tiers.
+    expect(before - afterLoss).toBeLessThan(30);
   });
 
   it("keeps players of the same skill near the start over many rounds", () => {
@@ -222,35 +223,108 @@ describe("recompute", () => {
 });
 
 describe("displayRating", () => {
-  it("is displayCenter for a new player's mu with no uncertainty, displayScale per point of mu", () => {
-    expect(displayRating({ mu: config.ratingMu, sigma: 0 }, config)).toBe(config.displayCenter);
-    expect(displayRating({ mu: config.ratingMu + 2, sigma: 0 }, config)).toBe(
-      config.displayCenter + 2 * config.displayScale,
+  it("is displayCenter for a new player and displayScale per point of mu above it", () => {
+    expect(displayRating({ mu: config.ratingMu, sigma: config.ratingSigma }, config)).toBe(config.displayCenter);
+    expect(displayRating({ mu: config.ratingMu + 2, sigma: 0 }, config)).toBe(config.displayCenter + 2 * config.displayScale);
+  });
+
+  it("uses the conservative rating mu − z·sigma when displayZ is set, rounded", () => {
+    const withZ = { ...config, displayZ: 3 };
+    expect(displayRating({ mu: 40, sigma: 2.01 }, withZ)).toBe(
+      Math.round(withZ.displayCenter + withZ.displayScale * (40 - withZ.displayZ * 2.01 - withZ.ratingMu)),
     );
   });
 
-  it("uses the conservative rating, rounded", () => {
-    expect(displayRating({ mu: 40, sigma: 2.01 }, config)).toBe(
-      Math.round(config.displayCenter + config.displayScale * (40 - config.displayZ * 2.01 - config.ratingMu)),
-    );
+  it("follows mu alone with the default displayZ of 0, so a shrinking sigma doesn't lift anyone", () => {
+    expect(config.displayZ).toBe(0);
+    expect(displayRating({ mu: 30, sigma: 8 }, config)).toBe(displayRating({ mu: 30, sigma: 2 }, config));
   });
 
-  it("never goes below displayFloor", () => {
-    expect(displayRating({ mu: 0, sigma: config.ratingSigma }, config)).toBe(config.displayFloor);
+  it("eases toward displayFloor below the center instead of falling in a straight line", () => {
+    const at = (mu: number) => displayRating({ mu, sigma: 0 }, config);
+    const room = config.displayCenter - config.displayFloor;
+    // Just below the center it falls as fast as it rises above it...
+    expect(config.displayCenter - at(config.ratingMu - 0.1)).toBeCloseTo(0.1 * config.displayScale, -1);
+    // ...but it flattens out: further down, a whole point of mu costs a small fraction of that.
+    expect(at(config.ratingMu - 4) - at(config.ratingMu - 5)).toBeLessThan(config.displayScale / 5);
+    expect(at(config.ratingMu - 3)).toBeGreaterThan(config.displayFloor);
+    expect(at(config.ratingMu - 3)).toBeLessThan(config.displayFloor + room / 2);
+  });
+
+  it("only goes up as mu goes up, and never below displayFloor", () => {
+    let last = -Infinity;
+    for (let mu = -20; mu <= 60; mu += 0.5) {
+      const shown = displayRating({ mu, sigma: 0 }, config);
+      expect(shown).toBeGreaterThanOrEqual(last);
+      expect(shown).toBeGreaterThanOrEqual(config.displayFloor);
+      last = shown;
+    }
+    expect(displayRating({ mu: -1000, sigma: config.ratingSigma }, config)).toBe(config.displayFloor);
   });
 });
 
 describe("tierFor", () => {
   const tiers = config.tiers;
 
+  it("has six tiers, lowest first, each higher than the last", () => {
+    expect(tiers.map((t) => [t.label, t.threshold])).toEqual([
+      ["Apprentice", 1300],
+      ["Master", 1600],
+      ["Grandmaster", 1900],
+      ["Ascendant", 2200],
+      ["Champion", 2500],
+      ["God", 2800],
+    ]);
+  });
+
   it("is null below the first tier", () => {
     expect(tierFor(tiers[0]!.threshold - 1, tiers)).toBeNull();
+    expect(tierFor(config.displayCenter, tiers)).toBeNull();
   });
 
   it("is the highest tier reached, from its threshold on", () => {
-    expect(tierFor(tiers[0]!.threshold, tiers)?.label).toBe("Master");
-    expect(tierFor(tiers[1]!.threshold - 1, tiers)?.label).toBe("Master");
-    expect(tierFor(tiers[1]!.threshold, tiers)?.label).toBe("Grandmaster");
+    expect(tierFor(tiers[0]!.threshold, tiers)?.label).toBe("Apprentice");
+    expect(tierFor(tiers[1]!.threshold - 1, tiers)?.label).toBe("Apprentice");
+    expect(tierFor(tiers[1]!.threshold, tiers)?.label).toBe("Master");
     expect(tierFor(99999, tiers)?.label).toBe("God");
+  });
+});
+
+describe("tournaments", () => {
+  const rounds = Array.from({ length: 20 }, () => [1, 2, 3, 4]);
+
+  it("count more than a normal match", () => {
+    const uncapped = { ...config, tournamentMaxChange: Infinity };
+    const normal: Ratings = new Map();
+    const tourney: Ratings = new Map();
+    rateMatch(normal, match(1, rounds), uncapped);
+    rateMatch(tourney, { ...match(1, rounds), tournament: true }, uncapped);
+    expect(displayRating(tourney.get(1)!, uncapped)).toBeGreaterThan(displayRating(normal.get(1)!, uncapped));
+  });
+
+  it("never move anyone more than tournamentMaxChange either way", () => {
+    const capped = { ...config, tournamentMaxChange: 50 };
+    const ratings: Ratings = new Map();
+    rateMatch(ratings, { ...match(1, rounds), tournament: true }, capped);
+    const moved = (id: number) => displayRating(ratings.get(id)!, capped) - capped.displayCenter;
+    // The winner of every round would gain far more, and is held to the cap (to within rounding).
+    expect(moved(1)).toBeGreaterThanOrEqual(capped.tournamentMaxChange - 1);
+    expect(moved(1)).toBeLessThanOrEqual(capped.tournamentMaxChange);
+    for (const id of [2, 3, 4]) expect(Math.abs(moved(id))).toBeLessThanOrEqual(capped.tournamentMaxChange);
+    // The loser is held the other way: below the center the curve is flatter, so test from above it.
+    const strong: Ratings = new Map([1, 2, 3, 4].map((id) => [id, { ...newRating(capped), mu: 40 }]));
+    const start = displayRating(strong.get(4)!, capped);
+    rateMatch(strong, { ...match(1, rounds), tournament: true }, capped);
+    expect(start - displayRating(strong.get(4)!, capped)).toBeGreaterThanOrEqual(capped.tournamentMaxChange - 1);
+    expect(start - displayRating(strong.get(4)!, capped)).toBeLessThanOrEqual(capped.tournamentMaxChange);
+  });
+
+  it("leave a change within the cap alone", () => {
+    const uncapped: Ratings = new Map();
+    const capped: Ratings = new Map();
+    const short = { ...match(1, [[1, 2, 3, 4]]), tournament: true };
+    rateMatch(uncapped, short, { ...config, tournamentMaxChange: Infinity });
+    rateMatch(capped, short, config);
+    expect(capped.get(1)!.mu).toBe(uncapped.get(1)!.mu);
   });
 });
