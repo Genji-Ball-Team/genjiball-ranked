@@ -88,7 +88,7 @@ The host tool calls this when a host enters their token, before any upload. `Aut
 
 The host tool calls this now and then to show a match's status after an admin accepted, rejected or voided it. `Authorization: Bearer <host token>`, as for an upload; only the token's host's matches are answered. Code: `src/upload/handler.ts`.
 
-`200 { "matches": [{ "matchKey": "482913507226", "status": "accepted", "rejection": null, "reviewReasons": [] }] }`, with `status`, `rejection` and `reviewReasons` as in an upload's answer. A key the host has no match for is left out. The errors are an upload's (`401`, `403`, `405`), and `400 bad_request` for over `hostMatchKeysMax` (50) keys.
+`200 { "matches": [{ "matchKey": "482913507226", "matchId": 812, "status": "accepted", "rejection": null, "reviewReasons": [] }] }`, with `status`, `rejection` and `reviewReasons` as in an upload's answer. `matchId` is the match's id on the site (`/match?id=812`, `/api/matches/:id`), which a longer copy keeps; only `accepted` and `void` matches are public there. A key the host has no match for is left out. The errors are an upload's (`401`, `403`, `405`), and `400 bad_request` for over `hostMatchKeysMax` (50) keys.
 
 ## Admin: `/api/admin/*`
 

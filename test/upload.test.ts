@@ -140,8 +140,9 @@ describe("host: match status", () => {
     await uploadOk(matchLog({ key: "000000000002" }), tokens.trusted);
     const before = await matches(tokens.untrusted, "000000000001,000000000002,999");
     expect(before.status).toBe(200);
+    const stored = await db().prepare("SELECT id FROM matches WHERE match_key = '000000000001'").first<{ id: number }>();
     expect(await before.json()).toEqual({
-      matches: [{ matchKey: "000000000001", status: "review", rejection: null, reviewReasons: ["untrusted_host"] }],
+      matches: [{ matchKey: "000000000001", matchId: stored?.id, status: "review", rejection: null, reviewReasons: ["untrusted_host"] }],
     });
 
     // An admin accepts it on the site.
