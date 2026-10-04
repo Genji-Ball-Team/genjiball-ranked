@@ -34,6 +34,8 @@ export const defaults = {
   minMatchPlayers: 2,
   /** What happens to a match from an untrusted host: `review` (admins accept it) or `reject`. */
   untrustedHostUploads: "review" as "review" | "reject",
+  /** Most match keys the host tool can ask the status of in one `GET /api/host/matches`. */
+  hostMatchKeysMax: 50,
 
   /**
    * Legacy v1.3.2 logs (#4, docs/legacy.md). A round one of these AI bots played in isn't rated: new

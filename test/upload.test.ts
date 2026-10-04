@@ -127,6 +127,48 @@ describe("host: check a token", () => {
   });
 });
 
+describe("host: match status", () => {
+  function matches(token: string | null, keys: string, method = "GET") {
+    return SELF.fetch(`https://example.com/api/host/matches?keys=${keys}`, {
+      method,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  }
+
+  it("answers the status now of the host's own matches", async () => {
+    await uploadOk(matchLog(), tokens.untrusted);
+    await uploadOk(matchLog({ key: "000000000002" }), tokens.trusted);
+    const before = await matches(tokens.untrusted, "000000000001,000000000002,999");
+    expect(before.status).toBe(200);
+    expect(await before.json()).toEqual({
+      matches: [{ matchKey: "000000000001", status: "review", rejection: null, reviewReasons: ["untrusted_host"] }],
+    });
+
+    // An admin accepts it on the site.
+    await db().prepare("UPDATE matches SET status = 'accepted' WHERE match_key = '000000000001'").run();
+    expect(await (await matches(tokens.untrusted, "000000000001")).json()).toMatchObject({
+      matches: [{ matchKey: "000000000001", status: "accepted" }],
+    });
+  });
+
+  it("answers no matches for no keys", async () => {
+    expect(await (await matches(tokens.trusted, "")).json()).toEqual({ matches: [] });
+  });
+
+  it("takes at most hostMatchKeysMax keys", async () => {
+    const keys = Array.from({ length: defaults.hostMatchKeysMax + 1 }, (_, i) => String(i)).join(",");
+    const res = await matches(tokens.trusted, keys);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "bad_request" });
+  });
+
+  it("answers like an upload for a bad token, and only takes GET", async () => {
+    expect((await matches(null, "1")).status).toBe(401);
+    expect((await matches(tokens.revoked, "1")).status).toBe(403);
+    expect((await matches(tokens.trusted, "1", "POST")).status).toBe(405);
+  });
+});
+
 describe("upload: a new match", () => {
   it("stores the file, the match, its players, rounds and events", async () => {
     const body = await uploadOk(matchLog(), tokens.trusted, { "X-Log-File": "Log-26-10-03-20-00-00.txt" });
