@@ -125,6 +125,7 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/matches/:id/reject` | `review` → `rejected`, `rejection.code` `admin`. Body `{ "reason": "..." }` optional |
 | `POST /api/admin/matches/:id/void` | `accepted` → `void`. Body `{ "reason": "..." }` optional |
 | `POST /api/admin/matches/:id/unvoid` | `void` → `accepted`, or `rejected` if a longer copy that arrived while it was void was rejected (an `UNRANKED` line, say) |
+| `POST /api/admin/matches/:id/region` | Body `{ "region": "na" }`: moves a match hosted in another region than it was stored in (a host uploaded under the wrong one). Its ratings leave the old region's leaderboard (stale from it, recomputed) and it's rated in the new one like a late upload. `409` for its own region, or while a tourney lobby links it (unlink it first). `{ match, ratingsStale }` |
 | `GET /api/admin/actions` | `{ actions }`: the action log, newest first, at most `adminListLimit` |
 | `POST /api/admin/matches/:id/tournament` | Body: `{"tournament": true}` or `false`. Marks the match as a tournament: it counts `tournamentWeight` times as much and nobody gains or loses more than `tournamentMaxChange` display points in it. A rated match makes the ratings stale from it. `409` if it already is that way or clearing the flag while a tourney lobby still links the match; unlink it first |
 | `GET /api/admin/tourneys` | `{ tourneys }`: latest start first, at most `adminListLimit`, each with `lobbies` (`id, version, label, matchId, screenshotKey, screenshotAt, verifiedAt, verifiedBy`) |
@@ -144,7 +145,7 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 
 Lobby mutations return `409 conflict` if another edit, replacement, expiry or longer log changed their snapshot before the write. A longer log also clears its lobby's verification. Screenshot removal is immediate at the public API; R2 failures leave durable cleanup records for later uploads or the cron to retry.
 
-`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action.
+`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action.
 
 ### Errors
 

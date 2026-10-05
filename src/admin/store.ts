@@ -1,3 +1,4 @@
+import { leaveBoardStatements, staleFromMatchesStatement } from "../rating/store";
 import type { HostTrust, MatchStatus } from "../upload/plan";
 import type { MatchState } from "./plan";
 
@@ -189,6 +190,28 @@ export async function setMatchState(
       .prepare("UPDATE matches SET status = CASE WHEN status = ?2 THEN ?3 END, rejection_code = ?4, rejection_message = ?5 WHERE id = ?1")
       .bind(matchId, from, to.status, to.rejection?.code ?? null, to.rejection?.message ?? null),
     ...extra,
+    actionStatement(db, log),
+  ]);
+}
+
+/**
+ * Moves a match to another region, if it's still in `from` (#47): a host uploaded under the wrong
+ * one. In one transaction: the old region's ratings go stale from the match (if it was rated) and
+ * lose it (`leaveBoardStatements`), the match becomes unrated in `to`, where it's rated like a late
+ * upload, and both regions' rating versions move on so a rating run that read the old state fails.
+ */
+export async function moveMatch(db: D1Database, matchId: number, from: string, to: string, log: ActionLog): Promise<void> {
+  await db.batch([
+    staleFromMatchesStatement(db, [matchId], log.at, true),
+    // NULL when the region isn't `from` any more, or a lobby linked it meanwhile: NOT NULL fails the batch (isStale).
+    db
+      .prepare(
+        `UPDATE matches SET status = CASE WHEN region = ?2 AND NOT EXISTS (SELECT 1 FROM tourney_lobbies WHERE match_id = ?1)
+           THEN status END, region = ?3, rated_at = NULL WHERE id = ?1`,
+      )
+      .bind(matchId, from, to),
+    ...leaveBoardStatements(db, from, matchId),
+    db.prepare("UPDATE rating_state SET version = version + 1 WHERE board IN (?1, ?2)").bind(from, to),
     actionStatement(db, log),
   ]);
 }

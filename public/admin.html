@@ -137,6 +137,10 @@
         if (m.status === "rejected" && m.rejection?.code === "admin") button(actions, "Accept", () => matchAction(m, "accept"));
         if (m.status === "accepted") button(actions, "Void", () => matchAction(m, "void"));
         if (m.status === "void") button(actions, "Un-void", () => matchAction(m, "unvoid"));
+        for (const r of regions.filter((r) => r.id !== m.region)) {
+          button(actions, `Move to ${r.label}`, () => confirm(`Move match ${m.id} to ${r.label}? Its ratings leave ${regionLabel(m.region)} and it's rated in ${r.label}.`) &&
+            act(`move match ${m.id}`, async () => `Match ${m.id} is in ${r.label}.` + staleNote(await post(`matches/${m.id}/region`, { region: r.id }))));
+        }
       }
     }
 
