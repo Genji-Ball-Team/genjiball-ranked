@@ -1,8 +1,9 @@
 import { handleAdmin } from "./admin/handler";
-import { loadConfig } from "./config";
+import { loadConfig, type Config } from "./config";
 import type { Env } from "./env";
 import { clearStaleLobbies, handleHostLobby } from "./lobby/handler";
-import { createLogger } from "./log";
+import { createLogger, type Logger } from "./log";
+import { isPrivate, isPublicRead, preflight, withPrivateHeaders, withPublicHeaders } from "./public";
 import { updateRatings } from "./rating/update";
 import { handleSite } from "./site/handler";
 import { expireOld } from "./tourney/expiry";
@@ -16,47 +17,14 @@ export default {
     const log = createLogger(config.logLevel);
     const url = new URL(request.url);
 
-    if (url.pathname === "/api/health") {
-      const db = await env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>();
-      return Response.json({ ok: db?.ok === 1 });
+    // Every public read route gets CORS and caching headers here, not in its handler (src/public.ts).
+    if (isPublicRead(url.pathname)) {
+      if (request.method === "OPTIONS") return preflight(config);
+      return withPublicHeaders(request, await route(request, env, config, log, url), config);
     }
-
-    if (url.pathname === "/api/upload") {
-      return handleUpload(request, env.DB, config, log);
-    }
-
-    if (url.pathname === "/api/host/me") {
-      return handleHostMe(request, env.DB);
-    }
-
-    if (url.pathname === "/api/host/matches") {
-      return handleHostMatches(request, env.DB, config);
-    }
-
-    if (url.pathname === "/api/host/lobby") {
-      return handleHostLobby(request, env.DB, config, log);
-    }
-
-    if (url.pathname === "/api/host/tourneys") {
-      return handleHostTourneys(request, env.DB, config, new Date());
-    }
-
-    if (url.pathname.startsWith("/api/host/lobbies/")) {
-      return handleHostTourneyLobby(request, env.DB, env.PROOFS, config, log);
-    }
-
-    if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
-      return handleAdmin(request, env.DB, env.PROOFS, config, log);
-    }
-
-    if (url.pathname.startsWith("/api/")) {
-      const site = await handleSite(request, env.DB, config, new Date(), env.PROOFS);
-      if (site) return site;
-      return Response.json({ error: "not_found" }, { status: 404 });
-    }
-
-    log.debug("no asset or route", { path: url.pathname });
-    return env.ASSETS.fetch(request);
+    // Routes behind a token: never kept by a browser or a shared cache.
+    if (isPrivate(url.pathname)) return withPrivateHeaders(await route(request, env, config, log, url));
+    return route(request, env, config, log, url);
   },
 
   // The cron in wrangler.toml: rates incomplete matches whose grace period has passed, and
@@ -81,3 +49,47 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+async function route(request: Request, env: Env, config: Config, log: Logger, url: URL): Promise<Response> {
+  if (url.pathname === "/api/health") {
+    const db = await env.DB.prepare("SELECT 1 AS ok").first<{ ok: number }>();
+    return Response.json({ ok: db?.ok === 1 }, { headers: { "Cache-Control": "no-store" } });
+  }
+
+  if (url.pathname === "/api/upload") {
+    return handleUpload(request, env.DB, config, log);
+  }
+
+  if (url.pathname === "/api/host/me") {
+    return handleHostMe(request, env.DB);
+  }
+
+  if (url.pathname === "/api/host/matches") {
+    return handleHostMatches(request, env.DB, config);
+  }
+
+  if (url.pathname === "/api/host/lobby") {
+    return handleHostLobby(request, env.DB, config, log);
+  }
+
+  if (url.pathname === "/api/host/tourneys") {
+    return handleHostTourneys(request, env.DB, config, new Date());
+  }
+
+  if (url.pathname.startsWith("/api/host/lobbies/")) {
+    return handleHostTourneyLobby(request, env.DB, env.PROOFS, config, log);
+  }
+
+  if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
+    return handleAdmin(request, env.DB, env.PROOFS, config, log);
+  }
+
+  if (url.pathname.startsWith("/api/")) {
+    const site = await handleSite(request, env.DB, config, new Date(), env.PROOFS);
+    if (site) return site;
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
+  log.debug("no asset or route", { path: url.pathname });
+  return env.ASSETS.fetch(request);
+}

@@ -231,7 +231,10 @@ export const defaults = {
   playerSearchMinLength: 2,
   /** Most matches one read of the match feed (`/api/matches?after=`) answers. */
   matchFeedLimit: 20,
-  /** How long a browser may keep a public read (leaderboard, player, match), in seconds. */
+  /**
+   * How long a browser may keep a public read (leaderboard, player, match), in seconds. Also the
+   * default for every public GET route that doesn't set its own (`src/public.ts`).
+   */
   publicCacheSeconds: 60,
 
   /**
@@ -257,6 +260,11 @@ export const defaults = {
   lobbyBodyMaxBytes: 1024,
   /** How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. */
   lobbiesCacheSeconds: 15,
+  /**
+   * How long a browser may keep a CORS preflight answer for the public routes, in seconds
+   * (`Access-Control-Max-Age`). Chrome caps it at 2 hours, Firefox at 24.
+   */
+  corsMaxAgeSeconds: 2 * 60 * 60,
 };
 
 export type Config = typeof defaults;

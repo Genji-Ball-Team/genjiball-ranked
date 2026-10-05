@@ -31,6 +31,10 @@ Read [docs/database.md](docs/database.md) before writing to D1: the tables, how 
 - Keep the raw log of every match. Ratings and stats must be rebuildable from the stored logs alone, so a parser or rating fix can be re-run over everything. (The only raw log that may go is a shorter copy of a match whose longer copy is stored: the longer one starts with it.)
 - Stay inside the D1 free tier: index what pages query, and never write rows one query at a time (50 queries per invocation): insert a table's rows in one statement from a JSON parameter, in one `db.batch`.
 
+## Public read API
+
+CORS and caching for every public `GET` route are added in one place, `src/public.ts`, not by handlers ([docs/api.md](docs/api.md), "Public API"). A new public route under a new first path segment (`/api/<segment>`) adds that segment to `publicReadRoutes`; routes behind a token (`admin`, `host`, `upload`) never get CORS and are always `Cache-Control: no-store`. Public answers show only `accepted` and `void` matches.
+
 ## The log format is a contract
 
 The format the game writes is defined in GenjiBall-CE's [`docs/ranked-log.md`](https://github.com/Genji-Ball-Team/GenjiBall-CE/blob/v1.3.3R/docs/ranked-log.md) on the `v1.3.3R` branch. The parser follows that page and never guesses past it. If the parser needs a format change, change the spec there first, in its own PR. Test the parser with the spec's example log.
