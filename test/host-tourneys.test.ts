@@ -4,7 +4,7 @@ import { handleAdmin } from "../src/admin/handler";
 import { defaults, loadConfig } from "../src/config";
 import { createLogger } from "../src/log";
 import { codeFrom, newLobbyKey, roundLimitOf, tourneyCode, type CodeLobby } from "../src/tourney/code";
-import { handleHostLobby } from "../src/tourney/host";
+import { handleHostTourneyLobby } from "../src/tourney/host";
 import { findLobby, isLobbyChanged, setScreenshot } from "../src/tourney/store";
 import { sha256 } from "../src/upload/handler";
 import { matchId, matchLog } from "./helpers";
@@ -434,7 +434,7 @@ describe("host screenshot: changes during the R2 upload", () => {
       body: png,
       headers: { Authorization: `Bearer ${hostToken}`, ...headers },
     });
-    return handleHostLobby(request, db(), racingProofs(during), loadConfig({}), log);
+    return handleHostTourneyLobby(request, db(), racingProofs(during), loadConfig({}), log);
   }
 
   /** The race lost: 409, nothing attached or logged, and the uploaded object deleted from R2. */
@@ -492,7 +492,7 @@ describe("host screenshot: changes during the R2 upload", () => {
       body: png,
       headers: { Authorization: `Bearer ${hostToken}` },
     });
-    const res = await handleHostLobby(request, db(), proofs, loadConfig({}), log);
+    const res = await handleHostTourneyLobby(request, db(), proofs, loadConfig({}), log);
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(JSON.parse(body)).toEqual({ lobby: null });
