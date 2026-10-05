@@ -1,5 +1,6 @@
 import { staleFromPlayersStatement } from "../rating/store";
 import { queueRecountStatement, recordsUrgentStatement } from "../records/store";
+import { matchPairsInsert } from "../upload/pairs";
 
 /**
  * The D1 queries for merging and naming players (#8, docs/database.md, "Merging players"). Like the
@@ -24,10 +25,15 @@ import { queueRecountStatement, recordsUrgentStatement } from "../records/store"
  *   recompute writes the merged player's; an undo makes them stale from the same match again. A
  *   table of totals that the rating recompute doesn't rebuild (head-to-head totals, records) needs
  *   its own rebuild of both players, in the same batch.
+ * - `pairs`: head-to-head (`match_pairs`, and `pair_stats`, its totals kept by triggers). A pair row
+ *   holds two player ids and sums a match's rounds, so it can't just be moved: two rows may become
+ *   one, or a pair of a player with themselves. A merge and an undo re-derive the pairs of the
+ *   matches whose rows moved from their rounds and events (`src/upload/pairs.ts`); deleting the old
+ *   rows takes them out of the totals and inserting the new adds them, so `pair_stats` follows.
  * - `merge`: the merges' own bookkeeping, which a merge doesn't move.
  */
 export type PlayerIdColumn =
-  | { table: string; column: string; kind: "aliases" | "matchPlayers" | "derived" | "merge" }
+  | { table: string; column: string; kind: "aliases" | "matchPlayers" | "derived" | "pairs" | "merge" }
   | { table: string; column: string; kind: "perMatch"; matchOf: string; logOf: string };
 
 export const playerIdColumns: readonly PlayerIdColumn[] = [
@@ -42,6 +48,10 @@ export const playerIdColumns: readonly PlayerIdColumn[] = [
   },
   { table: "ratings", column: "player_id", kind: "derived" },
   { table: "rating_history", column: "player_id", kind: "derived" },
+  { table: "match_pairs", column: "player_id", kind: "pairs" },
+  { table: "match_pairs", column: "opponent_id", kind: "pairs" },
+  { table: "pair_stats", column: "player_id", kind: "pairs" },
+  { table: "pair_stats", column: "opponent_id", kind: "pairs" },
   { table: "players", column: "merged_into", kind: "merge" },
   { table: "player_merges", column: "from_id", kind: "merge" },
   { table: "player_merges", column: "into_id", kind: "merge" },
@@ -243,7 +253,7 @@ export interface MergeWrite {
 
 /**
  * Merges `from` into `into` in one transaction, if neither was merged meanwhile. Returns the merge's
- * id. About 11 statements, whatever the number of matches (docs/database.md, "Merging players").
+ * id. About 13 statements, whatever the number of matches (docs/database.md, "Merging players").
  */
 export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number> {
   const statements: D1PreparedStatement[] = [
@@ -271,6 +281,8 @@ export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number>
     // Before the rows move: the records recount `from`'s matches, which now count them with `into`.
     queueRecountStatement(db, w.from),
     recordsUrgentStatement(db),
+    // Head-to-head (`pairs`), before the rows move: the pairs of `from`'s matches go, out of the totals.
+    db.prepare(pairsOfMatchesDelete).bind(w.from),
   ];
   for (const c of playerIdColumns) {
     if (c.kind === "aliases" || c.kind === "matchPlayers" || c.kind === "perMatch") {
@@ -280,6 +292,14 @@ export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number>
     }
   }
   statements.push(
+    // ...and come back from the moved rows: `into`'s matches left without pairs.
+    db
+      .prepare(
+        matchPairsInsert(
+          "SELECT mp.match_id FROM match_players mp WHERE mp.player_id = ?1 AND NOT EXISTS (SELECT 1 FROM match_pairs p WHERE p.match_id = mp.match_id)",
+        ),
+      )
+      .bind(w.into),
     db.prepare(`UPDATE players SET name = coalesce(${latestAlias("?1")}, name) WHERE id = ?1 AND name_fixed = 0`).bind(w.into),
     mergeActionStatement(db, w.adminId, "player_merge", w.detail, w.at, "(SELECT max(id) FROM player_merges)"),
   );
@@ -298,7 +318,7 @@ export interface UndoWrite {
 /**
  * Undoes a merge in one transaction, if it's still in place: its names, and the match rows played
  * under them, go back to the merged player, and the ratings are stale from their first rated match
- * in each region. About 10 statements.
+ * in each region. About 12 statements.
  */
 export async function writeUndo(db: D1Database, w: UndoWrite): Promise<void> {
   const { id, from, into } = w.merge;
@@ -338,6 +358,12 @@ export async function writeUndo(db: D1Database, w: UndoWrite): Promise<void> {
         .bind(from.id, into.id),
     );
   }
+  // Head-to-head (`pairs`), after the rows moved back: the pairs of the matches that went back to
+  // `from` are re-derived, and the triggers move the totals.
+  statements.push(
+    db.prepare(pairsOfMatchesDelete).bind(from.id),
+    db.prepare(matchPairsInsert("SELECT match_id FROM match_players WHERE player_id = ?1")).bind(from.id),
+  );
   statements.push(
     // After the rows moved back: the first rated match `from` played in each region.
     staleFromPlayersStatement(db, [from.id], w.at),
@@ -353,6 +379,9 @@ export async function writeUndo(db: D1Database, w: UndoWrite): Promise<void> {
   );
   await db.batch(statements);
 }
+
+/** Deletes the head-to-head pairs of every match player `?1` is in (the triggers take them out of the totals). */
+const pairsOfMatchesDelete = "DELETE FROM match_pairs WHERE match_id IN (SELECT match_id FROM match_players WHERE player_id = ?1)";
 
 /** `admin_actions` row of a player action; `mergeIdSql` (SQL) is added to the detail as `merge`. */
 function mergeActionStatement(

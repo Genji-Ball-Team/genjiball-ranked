@@ -67,3 +67,32 @@ export async function expectUpToDate() {
   expect((await readState(db(), "eu")).staleFrom).toBeNull();
 }
 
+
+/**
+ * A D1 binding that counts queries the way D1 does for the per-invocation limit: one per `first`,
+ * `all`, `run` or `raw`, and one per statement of a batch.
+ */
+export function countingDb(real: D1Database): { db: D1Database; queries: () => number } {
+  let n = 0;
+  const unwrap = new WeakMap<object, D1PreparedStatement>();
+  const wrap = (stmt: D1PreparedStatement): D1PreparedStatement => {
+    const wrapped = {
+      bind: (...values: unknown[]) => wrap(stmt.bind(...values)),
+      first: (...a: [string?]) => (n++, stmt.first(...(a as []))),
+      all: () => (n++, stmt.all()),
+      run: () => (n++, stmt.run()),
+      raw: (...a: unknown[]) => (n++, (stmt.raw as (...x: unknown[]) => unknown)(...a)),
+    } as unknown as D1PreparedStatement;
+    unwrap.set(wrapped, stmt);
+    return wrapped;
+  };
+  const db = {
+    prepare: (sql: string) => wrap(real.prepare(sql)),
+    batch: (statements: D1PreparedStatement[]) => {
+      n += statements.length;
+      return real.batch(statements.map((s) => unwrap.get(s) ?? s));
+    },
+    exec: (sql: string) => (n++, real.exec(sql)),
+  } as unknown as D1Database;
+  return { db, queries: () => n };
+}

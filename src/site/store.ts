@@ -239,6 +239,8 @@ export interface MatchPlayerRow {
   logId: number;
   playerId: number;
   name: string;
+  /** `KILL` lines with them as attacker, not a self-kill, in the whole match (between rounds too). */
+  kills: number;
   ratingAfter: number | null;
   ratingBefore: number | null;
 }
@@ -258,6 +260,12 @@ export interface RoundPlayerRow {
   position: number | null;
   place: number | null;
   left: boolean;
+  /** Log id of the player whose deflect eliminated them (`ELIM` killer). */
+  killerId: number | null;
+  /** `KILL` lines in the round with them as attacker, not a self-kill. */
+  kills: number;
+  /** `DEFLECT` lines in the round. Null for legacy matches: their logs have none. */
+  deflects: number | null;
 }
 
 export interface MatchDetail {
@@ -282,7 +290,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       .bind(id),
     db
       .prepare(
-        `SELECT mp.log_id AS logId, mp.player_id AS playerId, mp.name,
+        `SELECT mp.log_id AS logId, mp.player_id AS playerId, mp.name, mp.kills,
            (SELECT h.display FROM rating_history h
             WHERE h.board = m.region AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
            (SELECT h.display FROM rating_history h
@@ -301,7 +309,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       .bind(id),
     db
       .prepare(
-        `SELECT rp.round_id AS roundId, rp.log_id AS logId, rp.position, rp.place, rp.left_round AS "left"
+        `SELECT rp.round_id AS roundId, rp.log_id AS logId, rp.position, rp.place, rp.left_round AS "left", rp.killer_id AS killerId, rp.kills, rp.deflects
          FROM matches m JOIN rounds r ON r.match_id = m.id JOIN round_players rp ON rp.round_id = r.id
          WHERE m.id = ? AND m.status IN ${publicStatuses}`,
       )
@@ -473,4 +481,64 @@ export async function listFormRounds(db: D1Database, board: string, playerId: nu
     .bind(board, playerId, limit)
     .all<FormRound>();
   return results;
+}
+
+export interface RivalRow {
+  id: number;
+  name: string;
+  /** `KILL` lines of one on the other, in the direction asked for. */
+  kills: number;
+  /** Rated rounds both finished. */
+  rounds: number;
+}
+
+/**
+ * A player's most eliminated opponents (`mostEliminated`) and the opponents who eliminated them
+ * most (`mostEliminatedBy`) in the region, at most `limit` each, most first. Reads the player's
+ * `pair_stats` rows once (one per opponent, through the primary key), and the names of the shown ones.
+ */
+export async function listRivals(
+  db: D1Database,
+  board: string,
+  playerId: number,
+  limit: number,
+): Promise<{ mostEliminated: RivalRow[]; mostEliminatedBy: RivalRow[] }> {
+  const { results } = await db
+    .prepare(
+      `SELECT s.opponent_id AS id, p.name, s.kills, s.deaths, s.rounds, s.byKills, s.byDeaths
+       FROM (
+         SELECT opponent_id, kills, deaths, rounds,
+           ROW_NUMBER() OVER (ORDER BY kills DESC, opponent_id) AS byKills,
+           ROW_NUMBER() OVER (ORDER BY deaths DESC, opponent_id) AS byDeaths
+         FROM pair_stats WHERE region = ?1 AND player_id = ?2 AND (kills > 0 OR deaths > 0)
+       ) s JOIN players p ON p.id = s.opponent_id
+       WHERE (s.byKills <= ?3 AND s.kills > 0) OR (s.byDeaths <= ?3 AND s.deaths > 0)`,
+    )
+    .bind(board, playerId, limit)
+    .all<{ id: number; name: string; kills: number; deaths: number; rounds: number; byKills: number; byDeaths: number }>();
+  const pick = (count: "kills" | "deaths", rank: "byKills" | "byDeaths") =>
+    results
+      .filter((r) => r[count] > 0 && r[rank] <= limit)
+      .sort((a, b) => a[rank] - b[rank])
+      .map((r) => ({ id: r.id, name: r.name, kills: r[count], rounds: r.rounds }));
+  return { mostEliminated: pick("kills", "byKills"), mostEliminatedBy: pick("deaths", "byDeaths") };
+}
+
+export interface HeadToHeadRow {
+  /** Rated rounds both finished. */
+  rounds: number;
+  /** Rounds `a` finished above `b`. */
+  ahead: number;
+  /** `KILL` lines of `a` on `b` and of `b` on `a`, anywhere in the matches. */
+  kills: number;
+  deaths: number;
+}
+
+/** Two players' record against each other in the region: one `pair_stats` row. Zeros if they never met. */
+export async function findHeadToHead(db: D1Database, board: string, a: number, b: number): Promise<HeadToHeadRow> {
+  const row = await db
+    .prepare("SELECT rounds, ahead, kills, deaths FROM pair_stats WHERE region = ?1 AND player_id = ?2 AND opponent_id = ?3")
+    .bind(board, a, b)
+    .first<HeadToHeadRow>();
+  return row ?? { rounds: 0, ahead: 0, kills: 0, deaths: 0 };
 }

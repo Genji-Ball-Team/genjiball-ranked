@@ -83,6 +83,14 @@ export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, con
   return Date.parse(match.playedAt) <= now.getTime() - config.ratingIncompleteGraceHours * hourMs;
 }
 
+/**
+ * The most queries `rateNewMatches` makes: the state (up to 3, when the region's row is new), the
+ * unrated and newest rated matches, their rounds and ratings (5 reads so far: 7), then one batch of
+ * the lock, the stale mark, up to 4 rating writes and the rated stamp (7). Not a setting: it follows
+ * the code, and a test checks it. An upload rates only when this much of `queriesPerRequest` is left.
+ */
+export const rateNewMatchesMaxQueries = 14;
+
 export async function rateNewMatches(
   db: D1Database,
   config: UpdateConfig,

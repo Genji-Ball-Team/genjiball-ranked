@@ -351,6 +351,8 @@ async function importLegacy(ctx: Context, request: Request): Promise<Response> {
     request,
     now: ctx.now,
     legacy: true,
+    // Two queries so far: the admin and the host.
+    queriesBefore: 2,
     extra: (db) => [
       actionStatement(db, { adminId: ctx.admin.id, action: "legacy_import", hostId, detail: { file: fileName }, at: isoSeconds(ctx.now) }),
     ],

@@ -440,7 +440,7 @@ describe("upload: bad files and limits", () => {
       body: matchLog({ extra }),
       headers: { Authorization: `Bearer ${tokens.trusted}` },
     });
-    const res = await handleUpload(request, db(), { ...defaults, insertChunkRows: 4 }, createLogger("error"));
+    const res = await handleUpload(request, db(), { ...defaults, insertChunkBytes: 300 }, createLogger("error"));
     expect(res.status).toBe(200);
     expect(await count("events")).toBe(32);
     expect(await count("round_players")).toBe(8);

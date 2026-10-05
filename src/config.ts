@@ -36,8 +36,19 @@ export const defaults = {
   maxUploadBytes: 512 * 1024,
   /** Stored uploads per host token per hour. Past it, uploads get 429 until the hour has passed. */
   maxUploadsPerHour: 60,
-  /** Rows per bulk insert statement. Smaller is more statements; bigger risks D1's size limits. */
-  insertChunkRows: 2000,
+  /**
+   * Most UTF-8 bytes of JSON one bulk insert statement binds (docs/database.md, "Rules for code that
+   * writes"). D1 takes a string of up to 2 MB, so keep this under it; bigger chunks are fewer statements, which counts
+   * against `queriesPerRequest`. 1 MB keeps the densest 512 KB log (rounds of 10 players and nothing
+   * else, about 17 MB of rows) at about 20 statements.
+   */
+  insertChunkBytes: 1_000_000,
+  /**
+   * Queries one Worker invocation may make: D1's 50 on the Free plan, a batch counting one per
+   * statement. An upload counts its reads and writes, and leaves rating to the cron when what's left
+   * can't hold `rateNewMatches`'s queries.
+   */
+  queriesPerRequest: 50,
   /**
    * A match needs this many different players in its rated rounds, or it's rejected (`too_few_players`).
    * 2: a 1v1 counts. A match with no rated round at all (restarted at once, only `NONE` rounds) never does.
@@ -230,6 +241,11 @@ export const defaults = {
    * use an index), so one letter isn't allowed to match half the players.
    */
   playerSearchMinLength: 2,
+  /**
+   * Most opponents a player page lists under "most eliminated" and "most eliminated by" (#18). Costs
+   * nothing to raise: the page reads every opponent's row once either way (docs/database.md).
+   */
+  playerRivalsLimit: 5,
   /** Most matches one read of the match feed (`/api/matches?after=`) answers. */
   matchFeedLimit: 20,
   /**

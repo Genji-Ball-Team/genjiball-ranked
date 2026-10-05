@@ -11,6 +11,7 @@
     "upload": "node scripts/upload.mjs",
     "admin:token": "node scripts/admin-token.mjs",
     "import:legacy": "node scripts/import-legacy.mjs",
+    "rebuild:head-to-head": "esbuild scripts/rebuild-head-to-head.ts --bundle --platform=node --format=esm --log-level=warning --outfile=.wrangler/rebuild-head-to-head.mjs && node .wrangler/rebuild-head-to-head.mjs",
     "tune:rating": "esbuild scripts/tune-rating.ts --bundle --platform=node --format=esm --log-level=warning --outfile=.wrangler/tune-rating.mjs && node .wrangler/tune-rating.mjs",
     "ratings:dry-run": "esbuild scripts/ratings-dry-run.ts --bundle --platform=node --format=esm --log-level=warning --outfile=.wrangler/ratings-dry-run.mjs && node .wrangler/ratings-dry-run.mjs",
     "cf-typegen": "wrangler types --include-runtime false",

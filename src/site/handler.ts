@@ -13,6 +13,7 @@ import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
   canonicalPlayerId,
+  findHeadToHead,
   findMatchDetail,
   findPlayer,
   findRating,
@@ -23,6 +24,7 @@ import {
   listLeaderboard,
   listPlayerMatches,
   listRatedRegions,
+  listRivals,
   listTagCandidates,
   rankOf,
   searchPlayers,
@@ -32,7 +34,8 @@ import {
 
 /**
  * The public read API behind the site's pages (#14, docs/api.md "Site"): `/api/leaderboard`,
- * `/api/players/:id`, `/api/players?search=` and `/api/matches/:id`, and the match feed `/api/matches?after=` (#59). No token; browsers may cache an answer for
+ * `/api/players/:id`, `/api/players?search=` and `/api/matches/:id`, and the match feed `/api/matches?after=` (#59),
+ * and head-to-head records (#18): `/api/head-to-head?a=&b=`. No token; browsers may cache an answer for
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
@@ -40,8 +43,9 @@ import {
  * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, and
  * the records page (#19), `/api/records`.
  *
- * Regions (#47): the leaderboard, a player's rating, matches and history, the records, the rank tags,
- * the Tourneys page and the live lobbies show one region's, `?region=`, the first of `regions` without one.
+ * Regions (#47): the leaderboard, a player's rating, matches, rivals and history, head-to-head, the
+ * records, the rank tags, the Tourneys page and the live lobbies show one region's, `?region=`, the
+ * first of `regions` without one.
  */
 
 export type SiteConfig = RankTagsConfig &
@@ -52,6 +56,7 @@ export type SiteConfig = RankTagsConfig &
     | "leaderboardPageSize"
     | "matchFeedLimit"
     | "playerRecentMatches"
+    | "playerRivalsLimit"
     | "playerSearchLimit"
     | "playerSearchMinLength"
     | "publicCacheSeconds"
@@ -75,7 +80,7 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies", "records"].includes(route ?? "");
+  const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head"].includes(route ?? "");
   const region = regional ? regionParam(url, config) : null;
   if (region instanceof Response) return region;
   if (path.length === 1 && route === "leaderboard") {
@@ -122,6 +127,16 @@ export async function handleSite(
     if (!body) return fail(404, "not_found", "No such player");
     return cached(body, config.publicCacheSeconds);
   }
+  if (path.length === 1 && route === "head-to-head") {
+    if (!isRead(request)) return notAllowed();
+    const a = playerIdParam(url.searchParams.get("a"));
+    const b = playerIdParam(url.searchParams.get("b"));
+    if (a === null || b === null || a === b) return fail(400, "bad_request", "a and b must be two different player ids");
+    const body = await headToHead(db, region!, a, b);
+    if (body === "same") return fail(400, "bad_request", "a and b are one player (merged)");
+    if (!body) return fail(404, "not_found", "No such player");
+    return cached(body, config.publicCacheSeconds);
+  }
   if (path.length === 1 && route === "tourneys") {
     if (!isRead(request)) return notAllowed();
     return cached(await tourneys(db, config, region!, url.searchParams.get("page")), config.publicCacheSeconds);
@@ -132,13 +147,18 @@ export async function handleSite(
   }
   if (path.length === 2 && (route === "players" || route === "matches" || route === "tourneys")) {
     if (!isRead(request)) return notAllowed();
-    const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
+    const id = playerIdParam(path[1]!);
     const read = { players: () => player(db, config, region!, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, id!) }[route];
     const body = id === null ? null : await read();
     if (!body) return fail(404, "not_found", { players: "No such player", matches: "No such match", tourneys: "No such tourney" }[route]);
     return cached(body, config.publicCacheSeconds);
   }
   return null;
+}
+
+/** A positive id from the path or a parameter, or null. */
+function playerIdParam(param: string | null): number | null {
+  return param !== null && /^[1-9]\d{0,15}$/.test(param) ? Number(param) : null;
 }
 
 /** `?region=`: one of `regions`, the first without it, or the 400 for one that isn't a region. */
@@ -194,17 +214,18 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
 }
 
 /**
- * A player in one region: their rating and matches there, and the regions they have a rating in.
- * A player an admin merged into another (#8) answers as that one, so old links keep working.
+ * A player in one region: their rating, matches and rivals there, and the regions they have a rating
+ * in. A player an admin merged into another (#8) answers as that one, so old links keep working.
  */
 async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
   const canonical = await canonicalPlayerId(db, id);
   if (canonical === null) return null;
-  const [found, rating, matches, rated] = await Promise.all([
+  const [found, rating, matches, rated, rivals] = await Promise.all([
     findPlayer(db, canonical),
     findRating(db, region.id, canonical),
     listPlayerMatches(db, region.id, canonical, config.playerRecentMatches),
     listRatedRegions(db, canonical),
+    listRivals(db, region.id, canonical, config.playerRivalsLimit),
   ]);
   if (!found) return null;
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
@@ -222,6 +243,25 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
       },
     },
     matches,
+    ...rivals,
+  };
+}
+
+/**
+ * Two players' record against each other in one region (#18). A player an admin merged into another
+ * (#8) counts as that one; `"same"` when both are one player. Null when either isn't a player.
+ */
+async function headToHead(db: D1Database, region: Region, aId: number, bId: number) {
+  const [a, b] = await Promise.all([canonicalPlayerId(db, aId), canonicalPlayerId(db, bId)]);
+  if (a === null || b === null) return null;
+  if (a === b) return "same" as const;
+  const [first, second, record] = await Promise.all([findPlayer(db, a), findPlayer(db, b), findHeadToHead(db, region.id, a, b)]);
+  if (!first || !second) return null;
+  return {
+    region: region.id,
+    rounds: record.rounds,
+    a: { id: first.id, name: first.name, ahead: record.ahead, kills: record.kills },
+    b: { id: second.id, name: second.name, ahead: record.rounds - record.ahead, kills: record.deaths },
   };
 }
 
@@ -303,12 +343,36 @@ async function match(db: D1Database, id: number) {
   return detail && { match: matchView(detail) };
 }
 
-/** The match page's data: log ids become player ids, and each round lists its finishing order. */
+/**
+ * The match page's data: log ids become player ids, and each round lists its finishing order. Stats
+ * (#15), counted at upload: `kills` (`KILL` lines with them as attacker, not a self-kill: per round
+ * those in it, for the match every one, between rounds too), `deflects`, `touches` (deflects plus
+ * times a ball someone sent eliminated them; a hit before anyone deflected can't be told from a
+ * fall). For the match: `roundWins` (every `WIN` round, rated or not), `longestStreak` (most of them
+ * in a row) and `place`. Legacy logs have no deflects: those are null.
+ */
 export function matchView({ match, players, rounds, roundPlayers }: MatchDetail) {
   const byLogId = new Map(players.map((p) => [p.logId, p]));
-  const perPlayer = new Map(players.map((p) => [p.playerId, { rounds: 0, wins: 0 }]));
+  const perPlayer = new Map(
+    players.map((p) => [
+      p.playerId,
+      { rounds: 0, wins: 0, roundWins: 0, kills: 0, deflects: match.legacy ? null : 0, touches: match.legacy ? null : 0, longestStreak: 0 },
+    ]),
+  );
+  // A player who rejoined has a log id per stay: their kills add up.
+  for (const p of players) perPlayer.get(p.playerId)!.kills += p.kills;
+  // The current run of round wins, per player.
+  const streaks = new Map<number, number>();
+  const add = (a: number | null, b: number | null) => (a === null || b === null ? null : a + b);
+  // Each round's players, in one pass: a long match has thousands of rounds.
+  const byRound = new Map<number, typeof roundPlayers>();
+  for (const rp of roundPlayers) {
+    const list = byRound.get(rp.roundId);
+    if (list) list.push(rp);
+    else byRound.set(rp.roundId, [rp]);
+  }
   const roundsView = rounds.map((round) => {
-    const entries = roundPlayers.filter((rp) => rp.roundId === round.id);
+    const entries = byRound.get(round.id) ?? [];
     // Rated rounds have the rated order; other rounds the winner, then the logged ELIM places.
     const order = (rp: (typeof entries)[number]) =>
       rp.position ?? (rp.logId === round.winnerId ? 1 : (rp.place ?? Number.MAX_SAFE_INTEGER));
@@ -316,12 +380,26 @@ export function matchView({ match, players, rounds, roundPlayers }: MatchDetail)
       .sort((a, b) => Number(a.left) - Number(b.left) || order(a) - order(b) || a.logId - b.logId)
       .map((rp) => {
         const p = byLogId.get(rp.logId);
-        if (round.rated && rp.position !== null && p) {
-          const totals = perPlayer.get(p.playerId)!;
-          totals.rounds += 1;
-          if (rp.position === 1) totals.wins += 1;
+        const deflects = match.legacy ? null : rp.deflects;
+        const touches = add(deflects, rp.killerId === null ? 0 : 1);
+        const totals = p && perPlayer.get(p.playerId)!;
+        if (p && totals) {
+          if (round.rated && rp.position !== null) {
+            totals.rounds += 1;
+            if (rp.position === 1) totals.wins += 1;
+          }
+          totals.deflects = add(totals.deflects, deflects);
+          totals.touches = add(totals.touches, touches);
+          // A streak runs over the WIN rounds they played to the end; other rounds don't break it.
+          if (round.result === "WIN" && !rp.left) {
+            const won = rp.logId === round.winnerId;
+            if (won) totals.roundWins += 1;
+            const streak = won ? (streaks.get(p.playerId) ?? 0) + 1 : 0;
+            streaks.set(p.playerId, streak);
+            totals.longestStreak = Math.max(totals.longestStreak, streak);
+          }
         }
-        return { playerId: p?.playerId ?? null, name: p?.name ?? null, position: rp.position, left: rp.left };
+        return { playerId: p?.playerId ?? null, name: p?.name ?? null, position: rp.position, left: rp.left, kills: rp.kills, deflects, touches };
       });
     const winner = round.winnerId === null ? undefined : byLogId.get(round.winnerId);
     return { number: round.number, result: round.result, rated: round.rated, broken: round.broken, winner: winner?.playerId ?? null, placements };
@@ -332,7 +410,11 @@ export function matchView({ match, players, rounds, roundPlayers }: MatchDetail)
   const playersView = players
     .filter((p) => !seen.has(p.playerId) && seen.add(p.playerId))
     .map((p) => ({ id: p.playerId, name: p.name, ...perPlayer.get(p.playerId)!, ratingBefore: p.ratingBefore, ratingAfter: p.ratingAfter }));
-  return { ...match, players: playersView, rounds: roundsView };
+  // Overall, as the tourney standings: most rounds won (every WIN round), ties broken by kills; the
+  // same wins and kills share a place.
+  const placeOf = (p: (typeof playersView)[number]) =>
+    1 + playersView.filter((o) => o.roundWins > p.roundWins || (o.roundWins === p.roundWins && o.kills > p.kills)).length;
+  return { ...match, players: playersView.map((p) => ({ ...p, place: placeOf(p) })), rounds: roundsView };
 }
 
 /**
