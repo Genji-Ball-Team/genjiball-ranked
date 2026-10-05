@@ -8,6 +8,7 @@ import {
   fromStart,
   isConflict,
   lockStatement,
+  ratingMatches,
   ratedAtStatement,
   readAcceptedFrom,
   readHistory,
@@ -98,7 +99,7 @@ export async function rateNewMatches(
     const writes = planRerate(
       {
         start: ratings,
-        matches: fresh.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)!, tournament: m.tournament })),
+        matches: ratingMatches(fresh, rounds),
         history: [],
         ratings,
       },
@@ -151,7 +152,7 @@ export async function recomputeRatings(
   const writes = planRerate(
     {
       start,
-      matches: counted.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)!, tournament: m.tournament })),
+      matches: ratingMatches(counted, rounds),
       history,
       ratings,
     },

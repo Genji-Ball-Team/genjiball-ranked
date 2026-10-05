@@ -24,7 +24,7 @@ npm run dev                # http://localhost:8787
 
 `npm run dev` runs the Worker with a local D1 (stored in `.wrangler/`), so nothing touches the real database.
 
-Rating recomputation processes 100 matches per run by default, intended for the Workers Standard plan. On the free plan, set `RATING_MATCHES_PER_RUN = "10"` under `[vars]` in `wrangler.toml`, and under `[env.test.vars]` if the test deployment uses the free plan too. Environment variables are configured separately for each deployment. See [docs/rating.md](docs/rating.md) for the resource budget. The admin's dry-run recompute rates up to 2000 matches in one request; on the free plan also set `RATING_DRY_RUN_MAX_MATCHES` low (say `"20"`, [docs/api.md](docs/api.md), "Debug tools").
+Rating recomputation processes 100 matches per run by default, intended for the Workers Standard plan. On the free plan, set `RATING_MATCHES_PER_RUN = "10"` under `[vars]` in `wrangler.toml`, and under `[env.test.vars]` if the test deployment uses the free plan too. Environment variables are configured separately for each deployment. See [docs/rating.md](docs/rating.md) for the resource budget. To see what recomputing a region would change without writing anything, run `npm run ratings:dry-run -- --region eu --remote` on your computer ([docs/api.md](docs/api.md), "Debug tools").
 
 | Command | Use |
 |---|---|

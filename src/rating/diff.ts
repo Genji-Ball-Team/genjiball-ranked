@@ -2,8 +2,8 @@ import type { StoredRating } from "./plan";
 
 /**
  * What a recompute would change on a leaderboard (#33): the stored ratings against the recomputed
- * ones, per player. Pure, like the engine: the admin dry run (`POST /api/admin/ratings/recompute
- * ?dryRun=1`) reads both and asks here.
+ * ones, per player. Pure, like the engine: the dry-run recompute (`npm run ratings:dry-run`,
+ * `./dryRun.ts`) reads both and asks here.
  */
 
 /** A player's place on one side of the diff. */

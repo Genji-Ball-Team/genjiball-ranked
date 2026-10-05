@@ -79,15 +79,26 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   if (region instanceof Response) return region;
 
   const now = new Date();
-  const recent = await countRecentUploads(db, host.id, isoSeconds(new Date(now.getTime() - hourMs)));
-  if (recent >= config.maxUploadsPerHour) {
-    log.info("upload rate limited", { host: host.id, recent });
-    return fail(429, "rate_limited", `At most ${config.maxUploadsPerHour} uploads an hour`, { "Retry-After": "3600" });
-  }
+  const limited = await rateLimit(db, host.id, now, config, log);
+  if (limited) return limited;
 
   const bytes = await readBody(request, config);
   if (bytes instanceof Response) return bytes;
   return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false });
+}
+
+/** The `429 rate_limited` for a host past `maxUploadsPerHour` stored uploads in the last hour, else null. */
+export async function rateLimit(
+  db: D1Database,
+  hostId: number,
+  now: Date,
+  config: Pick<Config, "maxUploadsPerHour">,
+  log?: Logger,
+): Promise<Response | null> {
+  const recent = await countRecentUploads(db, hostId, isoSeconds(new Date(now.getTime() - hourMs)));
+  if (recent < config.maxUploadsPerHour) return null;
+  log?.info("upload rate limited", { host: hostId, recent });
+  return fail(429, "rate_limited", `At most ${config.maxUploadsPerHour} uploads an hour`, { "Retry-After": "3600" });
 }
 
 /**

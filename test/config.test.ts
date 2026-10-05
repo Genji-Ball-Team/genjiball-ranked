@@ -26,13 +26,6 @@ describe("loadConfig", () => {
     }
   });
 
-  it("overrides the dry-run recompute cap from RATING_DRY_RUN_MAX_MATCHES, ignoring a bad value", () => {
-    expect(loadConfig({ RATING_DRY_RUN_MAX_MATCHES: "20" }).ratingDryRunMaxMatches).toBe(20);
-    for (const bad of ["", "0", "-5", "2.5", "many"]) {
-      expect(loadConfig({ RATING_DRY_RUN_MAX_MATCHES: bad }).ratingDryRunMaxMatches).toBe(defaults.ratingDryRunMaxMatches);
-    }
-  });
-
   it("doesn't share state between calls", () => {
     loadConfig({}).acceptedLogFormats.push(99);
     expect(defaults.acceptedLogFormats).toEqual([1]);

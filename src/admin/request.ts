@@ -22,10 +22,6 @@ export type AdminConfig = UpdateConfig &
     | "tourneyRoundLimitMax"
     | "tourneyLobbyKeyDigits"
     | "tourneyLobbyKeyAttempts"
-    | "minRankedRounds"
-    | "ratingDryRunMaxMatches"
-    | "ratingDryRunReadChunk"
-    | "ratingDryRunListLimit"
   >;
 
 export interface Context {

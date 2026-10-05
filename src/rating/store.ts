@@ -1,4 +1,4 @@
-import type { HistoryEntry, PlayerRating } from "./engine";
+import type { HistoryEntry, PlayerRating, RatingMatch } from "./engine";
 import type { RatingWrites, StoredRating } from "./plan";
 
 /**
@@ -88,22 +88,34 @@ export async function readNewestRated(db: D1Database, board: string): Promise<Ma
     .first<MatchRef>();
 }
 
+/**
+ * The columns of a `CandidateMatch` (read with `toCandidate`): the recompute and the dry-run
+ * recompute script (`src/rating/dryRun.ts`) read matches the same way.
+ */
+export const candidateColumns = "id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated, tournament";
+
+export interface CandidateRow {
+  id: number;
+  playedAt: string;
+  complete: number;
+  rated: number;
+  tournament: number;
+}
+
+export function toCandidate(m: CandidateRow): CandidateMatch {
+  return { id: m.id, playedAt: m.playedAt, complete: m.complete === 1, rated: m.rated === 1, tournament: m.tournament === 1 };
+}
+
 /** The region's accepted matches from `from` on, in play order, at most `limit` (index `matches_region_status_played`). */
 export async function readAcceptedFrom(db: D1Database, board: string, from: MatchRef, limit: number): Promise<CandidateMatch[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated, tournament FROM matches
+      `SELECT ${candidateColumns} FROM matches
        WHERE region = ?4 AND status = 'accepted' AND (played_at, id) >= (?1, ?2) ORDER BY played_at, id LIMIT ?3`,
     )
     .bind(from.playedAt, from.id, limit, board)
-    .all<{ id: number; playedAt: string; complete: number; rated: number; tournament: number }>();
-  return results.map((m) => ({
-    id: m.id,
-    playedAt: m.playedAt,
-    complete: m.complete === 1,
-    rated: m.rated === 1,
-    tournament: m.tournament === 1,
-  }));
+    .all<CandidateRow>();
+  return results.map(toCandidate);
 }
 
 /** The region's rated matches that aren't accepted any more (voided, or replaced by a copy that isn't), from `from` up to `until`. */
@@ -118,27 +130,47 @@ export async function readNoLongerAccepted(db: D1Database, board: string, from: 
   return results.map((m) => m.id);
 }
 
-/** The finishing order of each rated round of these matches, by player id, in round order. */
-export async function readRounds(db: D1Database, matchIds: readonly number[]): Promise<Map<number, number[][]>> {
-  const byMatch = new Map<number, number[][]>(matchIds.map((id) => [id, []]));
-  if (!matchIds.length) return byMatch;
-  const { results } = await db
-    .prepare(
-      `SELECT r.match_id AS matchId, r.number, rp.player_id AS playerId
+/**
+ * The query for the rated finishing orders of the matches `ids` selects (a subquery yielding match
+ * ids), one row per placed player, for `groupRounds`. Shared with the dry-run recompute script.
+ */
+export function roundsSql(ids: string): string {
+  return `SELECT r.match_id AS matchId, r.number, rp.player_id AS playerId
        FROM rounds r JOIN round_players rp ON rp.round_id = r.id
-       WHERE r.match_id IN (SELECT value FROM json_each(?1)) AND r.rated = 1 AND rp.position IS NOT NULL
-       ORDER BY r.match_id, r.number, rp.position`,
-    )
-    .bind(json(matchIds))
-    .all<{ matchId: number; number: number; playerId: number }>();
-  let last: { matchId: number; number: number } | null = null;
-  for (const row of results) {
-    const rounds = byMatch.get(row.matchId)!;
+       WHERE r.match_id IN (${ids}) AND r.rated = 1 AND rp.position IS NOT NULL
+       ORDER BY r.match_id, r.number, rp.position`;
+}
+
+export interface RoundRow {
+  matchId: number;
+  number: number;
+  playerId: number;
+}
+
+/** `roundsSql`'s rows as each match's finishing orders, in round order. Every match in `matchIds` gets an entry. */
+export function groupRounds(matchIds: readonly number[], rows: readonly RoundRow[]): Map<number, number[][]> {
+  const byMatch = new Map<number, number[][]>(matchIds.map((id) => [id, []]));
+  let last: RoundRow | null = null;
+  for (const row of rows) {
+    const rounds = byMatch.get(row.matchId);
+    if (!rounds) continue;
     if (last?.matchId !== row.matchId || last.number !== row.number) rounds.push([]);
     rounds[rounds.length - 1]!.push(row.playerId);
     last = row;
   }
   return byMatch;
+}
+
+/** The finishing order of each rated round of these matches, by player id, in round order. */
+export async function readRounds(db: D1Database, matchIds: readonly number[]): Promise<Map<number, number[][]>> {
+  if (!matchIds.length) return groupRounds(matchIds, []);
+  const { results } = await db.prepare(roundsSql("SELECT value FROM json_each(?1)")).bind(json(matchIds)).all<RoundRow>();
+  return groupRounds(matchIds, results);
+}
+
+/** The matches as the engine rates them: tournament flag and rounds included. */
+export function ratingMatches(matches: readonly CandidateMatch[], rounds: ReadonlyMap<number, number[][]>): RatingMatch[] {
+  return matches.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id) ?? [], tournament: m.tournament }));
 }
 
 export async function readRatings(db: D1Database, board: string, playerIds: readonly number[]): Promise<Map<number, StoredRating>> {
@@ -185,42 +217,6 @@ export async function readRatingsBefore(
     )
     .bind(board, json(playerIds), from.playedAt, from.id)
     .all<PlayerRating & { playerId: number }>();
-  return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
-}
-
-/** Where the region's ratings are stale from, without making its `rating_state` row: for reads that write nothing. */
-export async function peekStaleFrom(db: D1Database, board: string): Promise<MatchRef | null> {
-  const row = await db
-    .prepare("SELECT stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = ?")
-    .bind(board)
-    .first<{ playedAt: string | null; id: number | null }>();
-  return row?.playedAt == null ? null : { playedAt: row.playedAt, id: row.id ?? 0 };
-}
-
-/** Every `ratings` row of the region's leaderboard. */
-export async function readBoard(db: D1Database, board: string): Promise<Map<number, StoredRating>> {
-  const { results } = await db
-    .prepare(
-      `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, last_played_at AS lastPlayedAt
-       FROM ratings WHERE board = ?`,
-    )
-    .bind(board)
-    .all<StoredRating & { playerId: number }>();
-  return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
-}
-
-/** The region's leaderboard as it stood just before `before`: each player's last history row before it. */
-export async function readBoardBefore(db: D1Database, board: string, before: MatchRef): Promise<Map<number, StoredRating>> {
-  const { results } = await db
-    .prepare(
-      `SELECT playerId, mu, sigma, display, rounds, wins, lastPlayedAt FROM (
-         SELECT player_id AS playerId, mu, sigma, display, rounds, wins, played_at AS lastPlayedAt,
-           ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY played_at DESC, match_id DESC) AS nth
-         FROM rating_history WHERE board = ?1 AND (played_at, match_id) < (?2, ?3))
-       WHERE nth = 1`,
-    )
-    .bind(board, before.playedAt, before.id)
-    .all<StoredRating & { playerId: number }>();
   return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
 }
 
