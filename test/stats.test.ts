@@ -297,6 +297,20 @@ describe("head-to-head (#18)", () => {
     expect(na).toMatchObject({ region: "na", mostEliminated: [], mostEliminatedBy: [] });
   });
 
+  it("totals a player's rated rounds for compare (#16): kills, deflects, touches and average place", async () => {
+    await upload(statsLog("000000000001"), 2);
+    const { Alpha, Bravo } = await ids();
+    type Stats = { player: { id: number }; stats: Record<string, number | null> };
+    expect((await get<Stats>(`players/${Alpha}/stats`)).stats).toEqual({ rounds: 4, kills: 5, deflectRounds: 4, deflects: 3, touches: 3, averagePosition: 1.5 });
+    // Bravo's kill between rounds isn't in a round. Touches: 2 deflects, eliminated by Alpha's ball 3 times.
+    expect((await get<Stats>(`players/${Bravo}/stats`)).stats).toEqual({ rounds: 4, kills: 2, deflectRounds: 4, deflects: 2, touches: 5, averagePosition: 2 });
+    expect((await get<Stats>(`players/${Alpha}/stats?region=na`)).stats).toEqual({ rounds: 0, kills: 0, deflectRounds: 0, deflects: 0, touches: 0, averagePosition: null });
+    expect(await get("players/99999/stats", 404)).toMatchObject({ error: "not_found" });
+    // A void match doesn't count, as in the head-to-head.
+    expect((await admin(`matches/${await matchId("000000000001")}/void`)).status).toBe(200);
+    expect((await get<Stats>(`players/${Alpha}/stats`)).stats).toMatchObject({ rounds: 0, averagePosition: null });
+  });
+
   it("keeps the regions apart, follows a match moved to the other region, a void and a longer copy", async () => {
     await upload(statsLog("000000000001"), 3);
     await upload(statsLog("000000000002"), 2, "na");
