@@ -30,6 +30,13 @@ export interface LobbyRow {
   version: number;
   tourneyId: number;
   label: string;
+  /** The assigned host (#25), who gets the code values and uploads the screenshot. */
+  hostId: number | null;
+  hostName: string | null;
+  /** The lobby's own round limit; null: `tourneyRoundLimit` (`roundLimitOf`). */
+  roundLimit: number | null;
+  /** The server's id for the lobby in the game's tourney rule and log. */
+  lobbyKey: string | null;
   matchId: number | null;
   /** The match is public (accepted or void): the site shows it and its standings. */
   matchPublic: boolean;
@@ -76,10 +83,12 @@ export async function findTourney(db: D1Database, id: number): Promise<TourneyRo
   return db.prepare(`SELECT ${tourneyColumns} FROM tourneys WHERE id = ?`).bind(id).first<TourneyRow>();
 }
 
-const lobbyColumns = `l.id, l.version, l.tourney_id AS tourneyId, l.label, l.match_id AS matchId,
+const lobbyColumns = `l.id, l.version, l.tourney_id AS tourneyId, l.label, l.host_id AS hostId, h.name AS hostName,
+  l.round_limit AS roundLimit, l.lobby_key AS lobbyKey, l.match_id AS matchId,
   coalesce(m.status IN ('accepted', 'void'), 0) AS matchPublic, coalesce(m.status = 'void', 0) AS matchVoid,
   l.screenshot_key AS screenshotKey, l.screenshot_at AS screenshotAt, l.screenshot_expired_at AS screenshotExpiredAt, l.verified_at AS verifiedAt, a.name AS verifiedBy`;
-const lobbyFrom = `tourney_lobbies l LEFT JOIN matches m ON m.id = l.match_id LEFT JOIN admins a ON a.id = l.verified_by`;
+const lobbyFrom = `tourney_lobbies l LEFT JOIN matches m ON m.id = l.match_id LEFT JOIN admins a ON a.id = l.verified_by
+  LEFT JOIN hosts h ON h.id = l.host_id`;
 
 type RawLobby = Omit<LobbyRow, "matchPublic" | "matchVoid"> & { matchPublic: number; matchVoid: number };
 const toLobby = ({ matchPublic, matchVoid, ...l }: RawLobby): LobbyRow => ({ ...l, matchPublic: matchPublic === 1, matchVoid: matchVoid === 1 });
@@ -97,6 +106,46 @@ export async function listLobbies(db: D1Database, tourneyIds: readonly number[])
 export async function findLobby(db: D1Database, id: number): Promise<LobbyRow | null> {
   const row = await db.prepare(`SELECT ${lobbyColumns} FROM ${lobbyFrom} WHERE l.id = ?`).bind(id).first<RawLobby>();
   return row && toLobby(row);
+}
+
+/** A lobby with its tourney, as the host API shows it (#25). `region` is the tourney's. */
+export interface HostLobbyRow extends LobbyRow {
+  region: string;
+  tourneyName: string;
+  tourneyStartsAt: string;
+  tourneyStatus: TourneyStatus;
+}
+
+const hostLobbyColumns = `${lobbyColumns}, t.region, t.name AS tourneyName, t.starts_at AS tourneyStartsAt, t.status AS tourneyStatus`;
+const hostLobbyFrom = `${lobbyFrom} JOIN tourneys t ON t.id = l.tourney_id`;
+type RawHostLobby = RawLobby & Pick<HostLobbyRow, "region" | "tourneyName" | "tourneyStartsAt" | "tourneyStatus">;
+const toHostLobby = (row: RawHostLobby): HostLobbyRow => ({ ...row, ...toLobby(row) });
+
+/**
+ * The host's lobbies in scheduled and live tourneys, and in done ones while their screenshot isn't
+ * verified (the host still has to upload it), soonest first, in `region` (every region when null).
+ * Through the index `tourney_lobbies_host`.
+ */
+export async function listHostLobbies(db: D1Database, hostId: number, region: string | null): Promise<HostLobbyRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${hostLobbyColumns} FROM ${hostLobbyFrom}
+       WHERE l.host_id = ?1 AND (t.status IN ${upcomingStatuses} OR (t.status = 'done' AND l.verified_at IS NULL))
+         AND (?2 IS NULL OR t.region = ?2)
+       ORDER BY t.starts_at, t.id, l.id`,
+    )
+    .bind(hostId, region)
+    .all<RawHostLobby>();
+  return results.map(toHostLobby);
+}
+
+/** The lobby with its tourney. With `hostId`, only while it's assigned to that host and their token isn't revoked. */
+export async function findHostLobby(db: D1Database, id: number, hostId: number | null = null): Promise<HostLobbyRow | null> {
+  const row = await db
+    .prepare(`SELECT ${hostLobbyColumns} FROM ${hostLobbyFrom} WHERE l.id = ?1 AND (?2 IS NULL OR (l.host_id = ?2 AND h.trust <> 'revoked'))`)
+    .bind(id, hostId)
+    .first<RawHostLobby>();
+  return row && toHostLobby(row);
 }
 
 /**
@@ -179,24 +228,33 @@ export async function updateTourney(db: D1Database, id: number, t: TourneyFields
   ]);
 }
 
-export async function createLobby(db: D1Database, tourneyId: number, label: string, log: ActionLog): Promise<number> {
+/** What an admin sets on a lobby. */
+export interface LobbyFields {
+  label: string;
+  hostId: number | null;
+  /** Null: `tourneyRoundLimit`. */
+  roundLimit: number | null;
+}
+
+export async function createLobby(db: D1Database, tourneyId: number, fields: LobbyFields, lobbyKey: string, log: ActionLog): Promise<number> {
   const [inserted] = await db.batch<{ id: number }>([
-    db.prepare("INSERT INTO tourney_lobbies (tourney_id, label) VALUES (?1, ?2) RETURNING id").bind(tourneyId, label),
+    db
+      .prepare("INSERT INTO tourney_lobbies (tourney_id, label, host_id, round_limit, lobby_key) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id")
+      .bind(tourneyId, fields.label, fields.hostId, fields.roundLimit, lobbyKey),
     newRowActionStatement(db, log, "lobby"),
   ]);
   return inserted!.results[0]!.id;
 }
 
 /**
- * Renames a lobby and sets its match. A new match clears the verification: the screenshot was
- * checked against the old one. `extra` (the tournament flags and marking the ratings stale) runs in
- * the same transaction.
+ * Sets a lobby's label, host, round limit and match. A new match clears the verification: the
+ * screenshot was checked against the old one. `extra` (the tournament flags and marking the ratings
+ * stale) runs in the same transaction.
  */
 export async function updateLobby(
   db: D1Database,
   lobby: LobbyRow,
-  label: string,
-  matchId: number | null,
+  fields: LobbyFields & { matchId: number | null },
   log: ActionLog,
   extra: D1PreparedStatement[],
 ): Promise<void> {
@@ -204,11 +262,11 @@ export async function updateLobby(
     lobbyActionStatement(db, lobby, log),
     db
       .prepare(
-        `UPDATE tourney_lobbies SET label = ?2, match_id = ?3, version = version + 1,
+        `UPDATE tourney_lobbies SET label = ?2, match_id = ?3, host_id = ?4, round_limit = ?5, version = version + 1,
            verified_by = CASE WHEN match_id IS ?3 THEN verified_by END, verified_at = CASE WHEN match_id IS ?3 THEN verified_at END
          WHERE id = ?1`,
       )
-      .bind(lobby.id, label, matchId),
+      .bind(lobby.id, fields.label, fields.matchId, fields.hostId, fields.roundLimit),
     ...extra,
   ]);
 }
@@ -222,8 +280,8 @@ export async function deleteLobby(db: D1Database, lobby: LobbyRow, log: ActionLo
   ]);
 }
 
-/** Sets (or clears) the lobby's screenshot, `bytes` long. A new screenshot isn't verified yet. */
-export async function setScreenshot(db: D1Database, lobby: LobbyRow, key: string | null, bytes: number | null, log: ActionLog): Promise<void> {
+/** Sets (or clears) the lobby's screenshot, `bytes` long, for an admin or the assigned host. A new screenshot isn't verified yet. */
+export async function setScreenshot(db: D1Database, lobby: LobbyRow, key: string | null, bytes: number | null, log: LobbyLog): Promise<void> {
   await db.batch([
     // A cleanup run may already have selected an expired upload reservation. Such a key cannot attach.
     lobbyActionStatement(db, lobby, log, key),
@@ -247,9 +305,37 @@ export async function setVerified(db: D1Database, lobby: LobbyRow, verified: boo
   ]);
 }
 
+/** What a host did through the host API (#28), written to `host_actions`. */
+export interface HostActionLog {
+  hostId: number;
+  action: string;
+  /** The lobby's region the host's request was checked against: a tourney moved meanwhile fails the write. */
+  region: string;
+  detail?: unknown;
+  at: string;
+}
+
+/** A lobby change is an admin's (`admin_actions`) or its assigned host's (`host_actions`). */
+export type LobbyLog = ActionLog | HostActionLog;
+
 /** Logs the action only when the lobby still has the version the caller checked. A failed
- * NOT NULL on `action` rolls back the batch, including all dependent match and screenshot writes. */
-function lobbyActionStatement(db: D1Database, lobby: LobbyRow, log: ActionLog, attachingKey: string | null = null): D1PreparedStatement {
+ * NOT NULL on `action` rolls back the batch, including all dependent match and screenshot writes.
+ * A host's action also needs, at the moment of the write: the lobby still theirs and unverified,
+ * their token not revoked, and the tourney not cancelled and still in the region they were checked
+ * against (tourney edits don't change the lobby's version). */
+function lobbyActionStatement(db: D1Database, lobby: LobbyRow, log: LobbyLog, attachingKey: string | null = null): D1PreparedStatement {
+  if (!("adminId" in log)) {
+    return db.prepare(
+      `INSERT INTO host_actions (host_id, action, lobby_id, detail, at)
+       VALUES (?1, CASE WHEN EXISTS (
+           SELECT 1 FROM tourney_lobbies l JOIN tourneys t ON t.id = l.tourney_id JOIN hosts h ON h.id = l.host_id
+           WHERE l.id = ?3 AND l.version = ?6 AND l.host_id = ?1 AND l.verified_at IS NULL
+             AND h.trust <> 'revoked' AND t.status <> 'cancelled' AND t.region = ?8)
+         AND (?7 IS NULL OR EXISTS (SELECT 1 FROM screenshot_deletions WHERE key = ?7
+           AND delete_after > strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))) THEN ?2 END,
+         ?3, ?4, ?5)`,
+    ).bind(log.hostId, log.action, lobby.id, JSON.stringify(log.detail ?? null), log.at, lobby.version, attachingKey, log.region);
+  }
   return db.prepare(
     `INSERT INTO admin_actions (admin_id, action, match_id, host_id, detail, at)
      VALUES (?1, CASE WHEN EXISTS (SELECT 1 FROM tourney_lobbies WHERE id = ?7 AND version = ?8)
@@ -261,7 +347,7 @@ function lobbyActionStatement(db: D1Database, lobby: LobbyRow, log: ActionLog, a
 
 /** Whether a lobby mutation lost a race with another edit, replacement, expiry or deletion. */
 export function isLobbyChanged(error: unknown): boolean {
-  return String(error).includes("NOT NULL constraint failed: admin_actions.action");
+  return /NOT NULL constraint failed: (admin|host)_actions\.action/.test(String(error));
 }
 
 /** Queue current screenshots before removing their references, in the same transaction. */
@@ -361,8 +447,8 @@ export async function expireScreenshots(db: D1Database, keys: readonly string[],
 /** Logs an action on the row the statement before it inserted: its id goes in `detail` as `field`. */
 function newRowActionStatement(db: D1Database, log: ActionLog, field: string): D1PreparedStatement {
   return db
-    .prepare("INSERT INTO admin_actions (admin_id, action, detail, at) VALUES (?1, ?2, json_set(?3, '$.' || ?4, last_insert_rowid()), ?5)")
-    .bind(log.adminId, log.action, JSON.stringify(log.detail ?? {}), field, log.at);
+    .prepare("INSERT INTO admin_actions (admin_id, action, host_id, detail, at) VALUES (?1, ?2, ?6, json_set(?3, '$.' || ?4, last_insert_rowid()), ?5)")
+    .bind(log.adminId, log.action, JSON.stringify(log.detail ?? {}), field, log.at, log.hostId ?? null);
 }
 
 /** Sets `matches.tournament` on these matches: a lobby's match is a tournament. */
@@ -370,6 +456,11 @@ export function tournamentStatement(db: D1Database, matchIds: readonly number[],
   return db
     .prepare("UPDATE matches SET tournament = ?2 WHERE id IN (SELECT value FROM json_each(?1))")
     .bind(JSON.stringify(matchIds), tournament ? 1 : 0);
+}
+
+/** Whether a new lobby's random `lobby_key` was already taken. */
+export function isLobbyKeyTaken(error: unknown): boolean {
+  return /UNIQUE constraint failed: tourney_lobbies\.lobby_key/.test(String(error));
 }
 
 /** Whether a write failed because the match is already another lobby's. */

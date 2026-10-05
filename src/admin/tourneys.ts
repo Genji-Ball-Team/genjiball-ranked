@@ -2,8 +2,8 @@ import { fail } from "../http";
 import { anyStale, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
-import { expireOverCaps, flushScreenshotDeletions } from "../tourney/expiry";
-import { imageType, screenshotKey } from "../tourney/screenshot";
+import { newLobbyKey, roundLimitOf } from "../tourney/code";
+import { flushScreenshotDeletions } from "../tourney/expiry";
 import {
   createLobby,
   createTourney,
@@ -12,23 +12,22 @@ import {
   findTourney,
   isLinkedElsewhere,
   isLobbyChanged,
+  isLobbyKeyTaken,
   listAllTourneys,
   listLobbies,
-  queueScreenshot,
-  setScreenshot,
   setVerified,
-  stageScreenshot,
   tournamentStatement,
   tourneyStatuses,
   updateLobby,
   updateTourney,
+  type LobbyFields,
   type LobbyRow,
   type TourneyFields,
   type TourneyStatus,
 } from "../tourney/store";
-import { readLimited } from "../upload/handler";
+import { deleteScreenshot, storeScreenshot } from "../tourney/upload";
 import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type Context } from "./request";
-import { findMatch, type ActionLog } from "./store";
+import { findHostById, findMatch, type ActionLog } from "./store";
 
 /**
  * `/api/admin/tourneys` and `/api/admin/lobbies/:id` (#24, #28, docs/api.md "Admin"): schedule
@@ -79,7 +78,7 @@ async function listTourneys(ctx: Context): Promise<Response> {
     ctx.db,
     tourneys.map((t) => t.id),
   );
-  return Response.json({ tourneys: tourneys.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id) })) });
+  return Response.json({ tourneys: tourneys.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id).map((l) => lobbyView(ctx, l)) })) });
 }
 
 /** `POST /api/admin/tourneys` with `{ name, region, startsAt, notes?, status? }`. */
@@ -104,28 +103,51 @@ async function editTourney(ctx: Context, id: number, data: Record<string, unknow
   }
   await updateTourney(ctx.db, id, fields, log(ctx, "tourney_edit", { tourney: id, ...changes(tourney, fields) }));
   ctx.log.info("admin: tourney edited", { admin: ctx.admin.id, tourney: id });
-  return Response.json({ tourney: { ...tourney, ...fields, lobbies: await listLobbies(ctx.db, [id]) } });
+  return Response.json({ tourney: { ...tourney, ...fields, lobbies: (await listLobbies(ctx.db, [id])).map((l) => lobbyView(ctx, l)) } });
 }
 
-/** `POST /api/admin/tourneys/:id/lobbies` with `{ label }`. Link its match with `POST /api/admin/lobbies/:id`. */
+/**
+ * `POST /api/admin/tourneys/:id/lobbies` with `{ label, hostId?, roundLimit? }`. The lobby gets a new
+ * random `lobbyKey`. Link its match with `POST /api/admin/lobbies/:id`.
+ */
 async function addLobby(ctx: Context, tourneyId: number, data: Record<string, unknown>): Promise<Response> {
   const label = text(data.label, ctx.config, "label");
   if (!label) throw new BadRequest("label is required");
   if (!(await findTourney(ctx.db, tourneyId))) return fail(404, "not_found", "No such tourney");
-  const id = await createLobby(ctx.db, tourneyId, label, log(ctx, "lobby_create", { tourney: tourneyId, label }));
+  const fields = await lobbyFields(ctx, data, { label, hostId: null, roundLimit: null });
+  if (fields instanceof Response) return fields;
+  let id: number | null = null;
+  for (let attempt = 1; id === null; attempt++) {
+    try {
+      id = await createLobby(
+        ctx.db,
+        tourneyId,
+        fields,
+        newLobbyKey(ctx.config.tourneyLobbyKeyDigits),
+        { ...log(ctx, "lobby_create", { tourney: tourneyId, ...fields }), hostId: fields.hostId },
+      );
+    } catch (error) {
+      // A random key already taken: nothing was written, try another.
+      if (!isLobbyKeyTaken(error) || attempt >= ctx.config.tourneyLobbyKeyAttempts) throw error;
+      ctx.log.info("admin: lobby key taken, retrying", { tourney: tourneyId, attempt });
+    }
+  }
   ctx.log.info("admin: lobby created", { admin: ctx.admin.id, tourney: tourneyId, lobby: id });
-  return Response.json({ lobby: await findLobby(ctx.db, id) }, { status: 201 });
+  return Response.json({ lobby: await lobbyJson(ctx, id) }, { status: 201 });
 }
 
 /**
- * `POST /api/admin/lobbies/:id` with `{ label?, matchId? }`: renames the lobby, or links its match
- * (`matchId` a match id, `null` to unlink). A new match clears the verification.
+ * `POST /api/admin/lobbies/:id` with `{ label?, hostId?, roundLimit?, matchId? }`: renames the lobby,
+ * assigns its host (`null`: none), sets its round limit (`null`: `tourneyRoundLimit`), or links its
+ * match (`matchId` a match id, `null` to unlink). A new match clears the verification.
  */
 async function editLobby(ctx: Context, id: number, data: Record<string, unknown>): Promise<Response> {
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
   const label = data.label === undefined ? lobby.label : text(data.label, ctx.config, "label");
   if (!label) throw new BadRequest("label can't be blank");
+  const fields = await lobbyFields(ctx, data, { label, hostId: lobby.hostId, roundLimit: lobby.roundLimit });
+  if (fields instanceof Response) return fields;
   let matchId = lobby.matchId;
   if (data.matchId !== undefined) {
     if (data.matchId !== null && !(typeof data.matchId === "number" && Number.isSafeInteger(data.matchId) && data.matchId > 0)) {
@@ -142,9 +164,8 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
     await updateLobby(
       ctx.db,
       lobby,
-      label,
-      matchId,
-      { ...log(ctx, "lobby_edit", { lobby: id, tourney: lobby.tourneyId, label, matchId }), matchId },
+      { ...fields, matchId },
+      { ...log(ctx, "lobby_edit", { lobby: id, tourney: lobby.tourneyId, ...fields, matchId }), matchId, hostId: fields.hostId },
       relink.statements,
     );
   } catch (error) {
@@ -152,8 +173,8 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
     if (isLinkedElsewhere(error)) return fail(409, "conflict", `Match ${matchId} is already another lobby's`);
     throw error;
   }
-  ctx.log.info("admin: lobby edited", { admin: ctx.admin.id, lobby: id, match: matchId });
-  return Response.json({ lobby: await findLobby(ctx.db, id), ratingsStale: await rerate(ctx, relink.rated, id) });
+  ctx.log.info("admin: lobby edited", { admin: ctx.admin.id, lobby: id, match: matchId, host: fields.hostId });
+  return Response.json({ lobby: await lobbyJson(ctx, id), ratingsStale: await rerate(ctx, relink.rated, id) });
 }
 
 /** `DELETE /api/admin/lobbies/:id`: its match is no longer a tournament, and its screenshot is deleted. */
@@ -185,55 +206,20 @@ async function removeLobby(ctx: Context, id: number): Promise<Response> {
 async function putScreenshot(ctx: Context, id: number, request: Request): Promise<Response> {
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
-  const max = ctx.config.screenshotMaxBytes;
-  const tooLarge = () => fail(413, "too_large", `The image is larger than ${max} bytes`);
-  if (Number(request.headers.get("Content-Length") ?? 0) > max) return tooLarge();
-  const bytes = await readLimited(request, max);
-  if (!bytes) return tooLarge();
-  if (!bytes.length) return fail(400, "empty", "The body is empty: send the image");
-  const type = imageType(bytes);
-  if (!type) return fail(415, "unsupported_type", "Send a PNG, JPEG or WebP image");
-
-  const key = screenshotKey(id, type);
-  await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
-  if (!await stageScreenshot(ctx.db, key, bytes.length, new Date(), ctx.config)) {
-    return fail(409, "conflict", "Screenshot cleanup is pending and storage is full. Try again after cleanup succeeds");
-  }
-  try {
-    await ctx.proofs.put(key, bytes, { httpMetadata: { contentType: type } });
-    await setScreenshot(ctx.db, lobby, key, bytes.length, log(ctx, "lobby_screenshot", { lobby: id, tourney: lobby.tourneyId, bytes: bytes.length, type }));
-  } catch (error) {
-    // Keep failed or conflicting uploads discoverable even if R2 cleanup fails.
-    await queueScreenshot(ctx.db, key, bytes.length, isoSeconds(new Date()));
-    await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
-    if (isLobbyChanged(error)) return changedMeanwhile();
-    throw error;
-  }
-  ctx.log.info("admin: screenshot", { admin: ctx.admin.id, lobby: id, bytes: bytes.length, type });
-  let expired: string[] = [];
-  try {
-    expired = await expireOverCaps(ctx.db, ctx.proofs, ctx.config, ctx.now, ctx.log);
-  } catch (error) {
-    // The upload is stored; the next upload tries again.
-    ctx.log.error("screenshot expiry failed", { lobby: id, error: String(error) });
-  }
-  return Response.json({ lobby: await findLobby(ctx.db, id), expired: expired.length });
+  const stored = await storeScreenshot(ctx, lobby, request, (image) => log(ctx, "lobby_screenshot", { lobby: id, tourney: lobby.tourneyId, ...image }));
+  if (stored instanceof Response) return stored;
+  ctx.log.info("admin: screenshot", { admin: ctx.admin.id, lobby: id, bytes: stored.bytes, type: stored.type });
+  return Response.json({ lobby: await lobbyJson(ctx, id), expired: stored.expired });
 }
 
 /** `DELETE /api/admin/lobbies/:id/screenshot`. */
 async function removeScreenshot(ctx: Context, id: number): Promise<Response> {
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
-  if (!lobby.screenshotKey) return fail(409, "conflict", "The lobby has no screenshot");
-  try {
-    await setScreenshot(ctx.db, lobby, null, null, log(ctx, "lobby_screenshot_delete", { lobby: id, tourney: lobby.tourneyId }));
-  } catch (error) {
-    if (isLobbyChanged(error)) return changedMeanwhile();
-    throw error;
-  }
-  await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
+  const failed = await deleteScreenshot(ctx, lobby, log(ctx, "lobby_screenshot_delete", { lobby: id, tourney: lobby.tourneyId }));
+  if (failed) return failed;
   ctx.log.info("admin: screenshot deleted", { admin: ctx.admin.id, lobby: id });
-  return Response.json({ lobby: await findLobby(ctx.db, id) });
+  return Response.json({ lobby: await lobbyJson(ctx, id) });
 }
 
 /**
@@ -263,7 +249,43 @@ async function verify(ctx: Context, id: number, data: Record<string, unknown>): 
     throw error;
   }
   ctx.log.info("admin: lobby verified", { admin: ctx.admin.id, lobby: id, verified: data.verified });
-  return Response.json({ lobby: await findLobby(ctx.db, id) });
+  return Response.json({ lobby: await lobbyJson(ctx, id) });
+}
+
+/** A lobby as the admin API shows it: `roundLimit` is the one it plays, its own or `tourneyRoundLimit`. */
+function lobbyView(ctx: Context, lobby: LobbyRow) {
+  return { ...lobby, roundLimit: roundLimitOf(lobby.roundLimit, ctx.config), roundLimitDefault: lobby.roundLimit === null };
+}
+
+async function lobbyJson(ctx: Context, id: number) {
+  const lobby = await findLobby(ctx.db, id);
+  return lobby && lobbyView(ctx, lobby);
+}
+
+/**
+ * The host and round limit sent for a lobby, else `from`'s. `hostId`: any host whose token isn't
+ * revoked, whatever its home region (the lobby is played in its tourney's region). `roundLimit`: 1
+ * to `tourneyRoundLimitMax`, or null for `tourneyRoundLimit`.
+ */
+async function lobbyFields(ctx: Context, data: Record<string, unknown>, from: LobbyFields): Promise<LobbyFields | Response> {
+  const isId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
+  let hostId = from.hostId;
+  if (data.hostId !== undefined) {
+    if (data.hostId !== null && !isId(data.hostId)) throw new BadRequest("hostId must be a host id or null");
+    if (data.hostId !== null && data.hostId !== from.hostId) {
+      const host = await findHostById(ctx.db, data.hostId);
+      if (!host) return fail(404, "not_found", "No such host");
+      if (host.trust === "revoked") return fail(409, "conflict", `${host.name}'s token is revoked: make them a new one first`);
+    }
+    hostId = data.hostId;
+  }
+  let roundLimit = from.roundLimit;
+  if (data.roundLimit !== undefined) {
+    const max = ctx.config.tourneyRoundLimitMax;
+    if (data.roundLimit !== null && !(isId(data.roundLimit) && data.roundLimit <= max)) throw new BadRequest(`roundLimit must be 1 to ${max}, or null for the default`);
+    roundLimit = data.roundLimit;
+  }
+  return { label: from.label, hostId, roundLimit };
 }
 
 // Helpers

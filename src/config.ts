@@ -143,6 +143,23 @@ export const defaults = {
   tourneysPageSize: 10,
   /** Longest tourney notes an admin can enter, in characters. */
   tourneyNotesMaxLength: 1000,
+  /**
+   * Rounds a tourney lobby plays when an admin doesn't set its own round limit (#22, #24). The game's
+   * tourney rule gets it from the host tool (GenjiBall-CE#143).
+   */
+  tourneyRoundLimit: 30,
+  /** Highest round limit an admin can set: the game's "tournament rounds" setting goes up to 50. */
+  tourneyRoundLimitMax: 50,
+  /**
+   * How long before a tourney's start its assigned hosts get the tourney code values (`lobbyKey`,
+   * round limit) from `GET /api/host/tourneys`, in minutes (#25). They stay available until the
+   * lobby has a match or the tourney is done or cancelled.
+   */
+  tourneyCodeLeadMinutes: 60,
+  /** Random digits in a lobby's `lobbyKey`, the server's id for it in the game's tourney rule and log. */
+  tourneyLobbyKeyDigits: 12,
+  /** New lobby keys tried when adding a lobby, should one already be taken (about 1 in 10^12 per lobby). */
+  tourneyLobbyKeyAttempts: 3,
   /** Largest verify screenshot (#28), in bytes. A 1440p PNG of the standings is about 2 MB. */
   screenshotMaxBytes: 8 * 1024 * 1024,
   /**

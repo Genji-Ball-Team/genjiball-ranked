@@ -369,7 +369,7 @@ describe("tourney mutation integrity", () => {
     await adminOk(`lobbies/${lobby}`, { body: { matchId: winner } });
     const actions = await db().prepare("SELECT count(*) AS n FROM admin_actions").first("n");
     const dependent = [tournamentStatement(db(), [loser], true), tournamentStatement(db(), [first], false)];
-    await expect(updateLobby(db(), snapshot, snapshot.label, loser, actionLog(), dependent)).rejects.toSatisfy(isLobbyChanged);
+    await expect(updateLobby(db(), snapshot, { ...snapshot, matchId: loser }, actionLog(), dependent)).rejects.toSatisfy(isLobbyChanged);
     await expect(deleteLobby(db(), snapshot, actionLog(), [tournamentStatement(db(), [winner], false)])).rejects.toSatisfy(isLobbyChanged);
     expect((await findLobby(db(), lobby))!.matchId).toBe(winner);
     const { results } = await db().prepare("SELECT id, tournament FROM matches ORDER BY id").all();

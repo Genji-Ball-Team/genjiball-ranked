@@ -20,7 +20,8 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
 | `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |
 | `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC. `region`: its lobbies' matches are from there |
-| `tourney_lobbies` | lobby of a tourney | Its match (`match_id`, unique: a match is in one lobby) and verify screenshot (`screenshot_key` in R2, `verified_by`/`verified_at`). Linking a match sets `matches.tournament` |
+| `tourney_lobbies` | lobby of a tourney | Its match (`match_id`, unique: a match is in one lobby) and verify screenshot (`screenshot_key` in R2, `verified_by`/`verified_at`). Linking a match sets `matches.tournament`. `host_id`: the assigned host (`NULL`: none). `round_limit`: `NULL` is `tourneyRoundLimit`. `lobby_key`: the server's random id for the lobby in the game's tourney rule (unique) |
+| `host_actions` | host API change | A host's own screenshot upload or delete, like `admin_actions`: who, what, when, which lobby (no foreign key: the log outlives the lobby). Only ever inserted |
 | `screenshot_deletions` | screenshot awaiting R2 deletion | Keeps its key and byte count until R2 deletion succeeds; failed deletes remain accounted for and are retried |
 | `live_lobbies` | host with a lobby open or just closed | From the host tool's heartbeats (#11): `region`, `name`, `players`, `opened_at`, `seen_at` (last heartbeat), `closed_at` (closed by the host; the row stays for the rate limit). Not listed once closed or `seen_at` is `lobbyTtlSeconds` old; the cron deletes it once that's past the TTL. Indexed by `region` only, and a heartbeat in the same region doesn't SET it: one row written ([below](#live-lobbies)) |
 | `rating_state` | region | Whether the region's ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)). A region added to the config gets its row the first time it's rated |
@@ -58,7 +59,7 @@ Removing, replacing or expiring a screenshot queues its R2 deletion in the same 
 
 Uploads reserve their random key and bytes in `screenshot_deletions` before writing to R2. The reservation cannot be cleaned up for `screenshotUploadGraceSeconds` (15 minutes), and attaching it removes that record atomically. Once the grace ends, attachment is rejected so cleanup can never delete a newly attached image. A failed or interrupted upload therefore leaves a key the cron can clean up, even if D1 failed after R2 stored it. When pending or staged keys remain, new uploads cannot reserve space past the storage caps; retry after cleanup succeeds.
 
-`tourney_lobbies.version` increases on edits, screenshot changes, expiry and longer-copy uploads. Admin writes check their snapshot version atomically. Verification also requires the version displayed to the admin, and a longer match log clears verification even when the match id stays the same.
+`tourney_lobbies.version` increases on edits, screenshot changes, expiry and longer-copy uploads. Admin and host writes check their snapshot version atomically (the `admin_actions` or `host_actions` row is written only if it still matches, else the batch fails); a host's write also needs, at that moment, the lobby still assigned to them and unverified, their token not revoked, and the tourney not cancelled and still in the region checked (tourney edits don't change lobby versions). Verification also requires the version displayed to the admin, and a longer match log clears verification even when the match id stays the same.
 
 ## Free tier
 
