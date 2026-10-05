@@ -182,6 +182,7 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
       complete: match.endResult !== null ? 1 : 0,
     });
 
+    const stats = matchStats(match);
     for (const player of match.players) {
       const key = nameKey(player.name);
       if (!names.has(key)) names.set(key, player.name);
@@ -191,6 +192,7 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
         key,
         name: player.name,
         joinTime: player.joinTime,
+        kills: stats.kills.get(player.id) ?? 0,
         leaveTime: player.leaveTime,
       });
     }
@@ -223,6 +225,9 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
           place: elim?.place ?? null,
           leftRound: round.leftIds.includes(logId) ? 1 : 0,
           killerId: elim?.killerId ?? null,
+          kills: stats.roundKills.get(roundKey(round.number, logId)) ?? 0,
+          // Legacy logs have no DEFLECT lines: unknown, not 0.
+          deflects: match.format === 0 ? null : (stats.roundDeflects.get(roundKey(round.number, logId)) ?? 0),
         });
       }
     }
@@ -248,6 +253,36 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
 }
 
 export type MatchRows = ReturnType<typeof matchRows>;
+
+/** Key of a player in a round, for `matchStats`. */
+const roundKey = (round: number, logId: number) => `${round}:${logId}`;
+
+/**
+ * The match page's counts (#15), each line looked at once: `kills` per attacker in the whole match
+ * (`KILL` lines with an attacker that aren't a self-kill, as the tourney standings count them), and
+ * per attacker in a round, `roundKills` and `roundDeflects`, keyed by `roundKey`. A `KILL` logged
+ * after its round's `ROUND_END` in the same tick has no round (the spec doesn't say whether `ELIM`
+ * or `KILL` comes first): it counts in the round of the `ELIM` with the same victim and time. Only
+ * in new logs: a legacy log's `ELIM`s are rebuilt from its `KILL`s, whose rounds the legacy parser
+ * already set (and cleared for a round the file ends in). The rating reads only the `ELIM`s, so
+ * nothing else changes.
+ */
+export function matchStats(match: ParsedMatch) {
+  const elimRound = new Map<string, number>();
+  if (match.format !== 0) for (const round of match.rounds) for (const e of round.elims) elimRound.set(`${e.id}@${e.time}`, round.number);
+  const kills = new Map<number, number>();
+  const roundKills = new Map<string, number>();
+  const roundDeflects = new Map<string, number>();
+  const add = <K>(map: Map<K, number>, key: K) => map.set(key, (map.get(key) ?? 0) + 1);
+  for (const k of match.kills) {
+    if (k.attackerId === null || k.attackerId === k.victimId) continue;
+    add(kills, k.attackerId);
+    const round = k.round ?? (k.victimId === null ? undefined : elimRound.get(`${k.victimId}@${k.time}`));
+    if (round !== undefined) add(roundKills, roundKey(round, k.attackerId));
+  }
+  for (const d of match.deflects) add(roundDeflects, roundKey(d.round, d.id));
+  return { kills, roundKills, roundDeflects };
+}
 
 interface EventRow {
   matchKey: string;

@@ -9,6 +9,7 @@ import {
   findPlayers,
   listAliasNames,
   listMerges,
+  pairRowsToRederive,
   publicMerge,
   sharedRound,
   writeMerge,
@@ -90,6 +91,8 @@ async function merge(ctx: Context, fromId: number, data: Record<string, unknown>
   if (together) {
     return fail(409, "conflict", `${from.name} and ${into.name} played round ${together.round} of match ${together.matchId} together: they're two players`);
   }
+  const tooBig = tooManyPairs(ctx, await pairRowsToRederive(ctx.db, fromId, null));
+  if (tooBig) return tooBig;
 
   const at = isoSeconds(ctx.now);
   const names = from.aliases.map((a) => a.name);
@@ -133,6 +136,9 @@ async function undo(ctx: Context, mergeId: number): Promise<Response> {
     const later = await activeMergeOf(ctx.db, found.into.id);
     return fail(409, "conflict", `${found.into.name} was merged into another player since: undo merge ${later ?? "?"} first`);
   }
+
+  const tooBig = tooManyPairs(ctx, await pairRowsToRederive(ctx.db, found.into.id, mergeId));
+  if (tooBig) return tooBig;
 
   const keys = new Set(found.aliasKeys);
   const at = isoSeconds(ctx.now);
@@ -179,4 +185,14 @@ async function rename(ctx: Context, playerId: number, data: Record<string, unkno
   }
   ctx.log.info("admin: player name", { admin: ctx.admin.id, player: playerId, from: player.name, to: name });
   return Response.json({ player: (await findPlayers(ctx.db, [playerId])).get(playerId) });
+}
+
+/** A merge or undo that would re-derive more head-to-head pairs than a day's writes allow: refused. */
+function tooManyPairs(ctx: Context, pairRows: number): Response | null {
+  if (pairRows <= ctx.config.playerMergeMaxPairRows) return null;
+  return fail(
+    409,
+    "too_large",
+    `This would rewrite ${pairRows} head-to-head rows, more than playerMergeMaxPairRows (${ctx.config.playerMergeMaxPairRows}) allows in one go. Nothing was changed`,
+  );
 }

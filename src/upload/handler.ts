@@ -4,10 +4,10 @@ import type { Logger } from "../log";
 import { parseLegacyLog } from "../parser/legacy";
 import { parseLog } from "../parser/parse";
 import type { ParsedMatch } from "../parser/types";
-import { rateNewMatches, type UpdateConfig } from "../rating/update";
+import { rateNewMatches, rateNewMatchesMaxQueries, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
 import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus } from "./plan";
-import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUploadByHash, writeUpload, type Host } from "./store";
+import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUploadByHash, RowTooLarge, TooManyStatements, writeUpload, type Host } from "./store";
 
 /**
  * `POST /api/upload`: the host tool sends a Workshop log file (#5).
@@ -56,7 +56,8 @@ export type UploadConfig = UpdateConfig &
     | "acceptedLogFormats"
     | "maxUploadBytes"
     | "maxUploadsPerHour"
-    | "insertChunkRows"
+    | "insertChunkBytes"
+    | "queriesPerRequest"
     | "minMatchPlayers"
     | "untrustedHostUploads"
     | "legacyBotNames"
@@ -84,7 +85,8 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
 
   const bytes = await readBody(request, config);
   if (bytes instanceof Response) return bytes;
-  return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false });
+  // Two queries so far: the host and the rate limit.
+  return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false, queriesBefore: 2 });
 }
 
 /** The `429 rate_limited` for a host past `maxUploadsPerHour` stored uploads in the last hour, else null. */
@@ -170,6 +172,8 @@ export interface StoreLog {
   legacy: boolean;
   /** Written in the upload's transaction (the admin action log of an import). */
   extra?: (db: D1Database) => D1PreparedStatement[];
+  /** Queries the request made before: they count against `queriesPerRequest`. */
+  queriesBefore: number;
 }
 
 /** The file's body, or the error response when it's empty or too large. */
@@ -197,6 +201,8 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
 
   const keys = parsedMatches.map((m) => m.matchKey).filter((key) => key !== "");
   const stored = await findStoredCopies(db, host.id, keys);
+  // Queries so far: the caller's, the hash, and the stored copies when there were keys to look up.
+  let queries = s.queriesBefore + 1 + (keys.length ? 1 : 0);
   const plans = planUpload(parsedMatches, stored, host.trust, config);
   for (const plan of plans) {
     log.debug("match", {
@@ -233,16 +239,26 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       now: receivedAt,
       plans,
       rows: matchRows(plans, playedAt),
-      chunkRows: config.insertChunkRows,
+      chunkBytes: config.insertChunkBytes,
+      maxStatements: config.queriesPerRequest - queries,
       extra: s.extra?.(db) ?? [],
     });
     uploadId = written.uploadId;
+    queries += written.statements;
     for (const review of written.reviews) {
       const match = matches.find((m) => m.matchKey === review.matchKey)!;
       match.status = "review";
       match.reviewReasons = review.reviewReasons;
     }
   } catch (error) {
+    if (error instanceof TooManyStatements) {
+      log.info("upload needs too many queries", { host: host.id, statements: error.statements, before: queries });
+      return fail(413, "too_large", `The file has more rows than one upload can write (${error.statements} statements)`);
+    }
+    if (error instanceof RowTooLarge) {
+      log.info("upload row too large", { host: host.id, bytes: error.bytes });
+      return fail(413, "too_large", `The file has a row too large to write (${error.bytes} bytes)`);
+    }
     // Another upload of the same file or match was written between our reads and this write.
     // Nothing was written (the batch is one transaction); trying again sees the other upload.
     if (String(error).includes("UNIQUE constraint failed")) {
@@ -260,6 +276,12 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
 
   const toRate = new Set(matches.filter((m) => (m.action === "insert" || m.action === "replace") && m.status === "accepted").map((m) => m.region));
   for (const matchRegion of toRate) {
+    // The free plan's queries per request: what's left can't rate, so the cron does (within 10 minutes).
+    if (queries + rateNewMatchesMaxQueries > config.queriesPerRequest) {
+      log.info("rating left to the cron: no queries left", { upload: uploadId, region: matchRegion, queries });
+      continue;
+    }
+    queries += rateNewMatchesMaxQueries;
     try {
       await rateNewMatches(db, config, now, log, matchRegion);
     } catch (error) {

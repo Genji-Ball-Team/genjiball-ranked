@@ -70,7 +70,7 @@ A second deployment for playtests and for trying changes before they reach the r
 | `public/` | The website's static files |
 | `migrations/` | D1 schema migrations. Tables and free-tier budget: [docs/database.md](docs/database.md) |
 | `docs/` | [api.md](docs/api.md) (the upload, host token check, admin, site and rank tags APIs, CORS and caching of the public API), [rating.md](docs/rating.md), [database.md](docs/database.md), [legacy.md](docs/legacy.md) (old v1.3.2 logs) |
-| `scripts/` | Small Node scripts (`admin:token`) |
+| `scripts/` | Small Node scripts (`admin:token`, `rebuild:head-to-head`) |
 | `test/` | Vitest tests |
 
 ## Contributing

@@ -1,4 +1,5 @@
 import { staleFromMatchesStatement } from "../rating/store";
+import { matchPairsInsert } from "./pairs";
 import type { HostTrust, MatchPlan, MatchRows, MatchStatus, StoredCopy } from "./plan";
 
 /**
@@ -88,13 +89,30 @@ export interface UploadWrite {
   now: string;
   plans: MatchPlan[];
   rows: MatchRows;
-  chunkRows: number;
+  /** Most bytes of JSON a bulk insert binds (`insertChunkBytes`). */
+  chunkBytes: number;
+  /** Most statements the batch may have: what's left of `queriesPerRequest`. */
+  maxStatements: number;
   /** More statements for the same transaction. */
   extra?: D1PreparedStatement[];
 }
 
-/** Writes the upload and its matches in one transaction, including review after resolving aliases. */
-export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ uploadId: number; reviews: { matchKey: string; reviewReasons: string[] }[] }> {
+/** The upload needs more statements than `maxStatements`: nothing was written. */
+export class TooManyStatements extends Error {
+  constructor(readonly statements: number) {
+    super(`The upload needs ${statements} statements`);
+  }
+}
+
+/**
+ * Writes the upload and its matches in one transaction, including review after resolving aliases.
+ * Returns the upload id, the matches sent to review, and how many statements (queries) it took;
+ * throws `TooManyStatements`, writing nothing, past `maxStatements`.
+ */
+export async function writeUpload(
+  db: D1Database,
+  w: UploadWrite,
+): Promise<{ uploadId: number; statements: number; reviews: { matchKey: string; reviewReasons: string[] }[] }> {
   const json = (value: unknown) => JSON.stringify(value);
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
   // CROSS JOIN keeps json_each the outer loop: SQLite has no row count for it, and with a plain JOIN
@@ -157,7 +175,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ upl
          (SELECT id FROM rounds WHERE match_id IN (SELECT value FROM json_each(?1)))`,
       )
       .bind(json(replacedIds)),
-    ...["rounds", "match_players", "events"].map((table) =>
+    // Deleting match_pairs takes them out of the head-to-head totals (a trigger, docs/database.md).
+    ...["match_pairs", "rounds", "match_players", "events"].map((table) =>
       db.prepare(`DELETE FROM ${table} WHERE match_id IN (SELECT value FROM json_each(?1))`).bind(json(replacedIds)),
     ),
     // A longer log changes the standings the screenshot was checked against, at the same match id.
@@ -193,17 +212,17 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ upl
       )
       .bind(json(w.rows.inserted), w.hostId, w.contentHash, w.region),
 
-    ...chunks(w.rows.players, w.chunkRows).map((rows) =>
+    ...jsonChunks(w.rows.players, w.chunkBytes).map((rows) =>
       db
         .prepare(
-          `INSERT INTO match_players (match_id, log_id, player_id, alias_id, name, join_time, leave_time)
-           SELECT m.id, e.value ->> 'logId', a.player_id, a.id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime'
+          `INSERT INTO match_players (match_id, log_id, player_id, alias_id, name, join_time, leave_time, kills)
+           SELECT m.id, e.value ->> 'logId', a.player_id, a.id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime', e.value ->> 'kills'
            FROM json_each(?1) e ${matchJoin}
            CROSS JOIN aliases a ON a.name_key = e.value ->> 'key'`,
         )
-        .bind(json(rows), w.hostId),
+        .bind(rows, w.hostId),
     ),
-    ...chunks(w.rows.rounds, w.chunkRows).map((rows) =>
+    ...jsonChunks(w.rows.rounds, w.chunkBytes).map((rows) =>
       db
         .prepare(
           `INSERT INTO rounds (match_id, number, result, winner_id, start_time, end_time, rated, broken)
@@ -211,21 +230,21 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ upl
              e.value ->> 'endTime', e.value ->> 'rated', e.value ->> 'broken'
            FROM json_each(?1) e ${matchJoin}`,
         )
-        .bind(json(rows), w.hostId),
+        .bind(rows, w.hostId),
     ),
-    ...chunks(w.rows.roundPlayers, w.chunkRows).map((rows) =>
+    ...jsonChunks(w.rows.roundPlayers, w.chunkBytes).map((rows) =>
       db
         .prepare(
-          `INSERT INTO round_players (round_id, log_id, player_id, position, place, left_round, killer_id)
+          `INSERT INTO round_players (round_id, log_id, player_id, position, place, left_round, killer_id, kills, deflects)
            SELECT r.id, e.value ->> 'logId', mp.player_id, e.value ->> 'position', e.value ->> 'place',
-             e.value ->> 'leftRound', e.value ->> 'killerId'
+             e.value ->> 'leftRound', e.value ->> 'killerId', e.value ->> 'kills', e.value ->> 'deflects'
            FROM json_each(?1) e ${matchJoin}
            CROSS JOIN rounds r ON r.match_id = m.id AND r.number = e.value ->> 'round'
            CROSS JOIN match_players mp ON mp.match_id = m.id AND mp.log_id = e.value ->> 'logId'`,
         )
-        .bind(json(rows), w.hostId),
+        .bind(rows, w.hostId),
     ),
-    ...chunks(w.rows.events, w.chunkRows).map((rows) =>
+    ...jsonChunks(w.rows.events, w.chunkBytes).map((rows) =>
       db
         .prepare(
           `INSERT INTO events (match_id, seq, type, round, time, actor_id, target_id, speed)
@@ -233,8 +252,13 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ upl
              e.value ->> 'actor', e.value ->> 'target', e.value ->> 'speed'
            FROM json_each(?1) e ${matchJoin}`,
         )
-        .bind(json(rows), w.hostId),
+        .bind(rows, w.hostId),
     ),
+
+    // Head-to-head (#18): the matches' pairs of players, after their rounds and events. The insert
+    // trigger adds them to `pair_stats` when the match is accepted (migrations/0017_match_stats.sql).
+    db.prepare(matchPairsInsert("SELECT id FROM matches WHERE host_id = ?2 AND match_key IN (SELECT value FROM json_each(?1))"))
+      .bind(json([...new Set(w.rows.players.map((p) => p.matchKey))]), w.hostId),
 
     // The older file of a replaced or repointed match goes once no match is in it any more: a
     // shorter copy is always the start of the longer one, so nothing is lost.
@@ -263,15 +287,53 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ upl
        RETURNING match_key AS matchKey, review_reasons AS reviewReasons`,
     ).bind(w.hostId, json([...w.rows.inserted, ...w.rows.replaced].map((m) => m.matchKey))),
   );
+  if (statements.length > w.maxStatements) throw new TooManyStatements(statements.length);
   const results = await db.batch<{ id: number; matchKey: string; reviewReasons: string }>(statements);
   return {
     uploadId: results[0]!.results[0]!.id,
+    statements: statements.length,
     reviews: results[reviewIndex]!.results.map((r) => ({ matchKey: r.matchKey, reviewReasons: r.reviewReasons.split(",") })),
   };
 }
 
-function chunks<T>(rows: readonly T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+/** A row is bigger than a bulk insert may bind (`insertChunkBytes`): nothing was written. */
+export class RowTooLarge extends Error {
+  constructor(readonly bytes: number) {
+    super(`A row is ${bytes} bytes of JSON`);
+  }
+}
+
+/** The length of `text` in UTF-8, without encoding it: D1's limits are in bytes. */
+export function utf8Length(text: string): number {
+  let bytes = 0;
+  for (let i = 0; i < text.length; i++) {
+    const unit = text.charCodeAt(i);
+    // A surrogate pair is 4 bytes, 2 per half.
+    bytes += unit < 0x80 ? 1 : unit < 0x800 || (unit >= 0xd800 && unit <= 0xdfff) ? 2 : 3;
+  }
+  return bytes;
+}
+
+/**
+ * The rows as JSON arrays of at most `maxBytes` UTF-8 bytes each, for the bulk inserts. Throws
+ * `RowTooLarge` for a row that doesn't fit alone.
+ */
+export function jsonChunks(rows: readonly unknown[], maxBytes: number): string[] {
+  const out: string[] = [];
+  let parts: string[] = [];
+  let size = 2;
+  for (const row of rows) {
+    const text = JSON.stringify(row);
+    const bytes = utf8Length(text);
+    if (bytes + 2 > maxBytes) throw new RowTooLarge(bytes);
+    if (parts.length && size + bytes + 1 > maxBytes) {
+      out.push(`[${parts.join(",")}]`);
+      parts = [];
+      size = 2;
+    }
+    parts.push(text);
+    size += bytes + 1;
+  }
+  if (parts.length) out.push(`[${parts.join(",")}]`);
   return out;
 }
