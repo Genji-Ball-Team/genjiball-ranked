@@ -6,12 +6,13 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 
 | Table | One row per | Notes |
 |---|---|---|
-| `players` | player account | `name` is the alias seen most recently |
-| `aliases` | name seen for a player | A name (ignoring case) belongs to one player. Admins merge them (#8) |
+| `players` | player account | `name` is the alias seen most recently, unless an admin set it (`name_fixed`). `merged_into`: the player an admin merged this one into ([below](#merging-players)); a merged player keeps their row but has no aliases or ratings |
+| `aliases` | name seen for a player | A name (ignoring case) belongs to one player. Admins merge players (#8). A name an admin gave that no log has shown yet has empty seen times |
+| `player_merges` | merge of two players | `from_id` merged into `into_id`, the ids of the aliases it moved (JSON), who and when; `undone_at` once undone |
 | `hosts` | host | Only the SHA-256 of the token. `trust`: `trusted`, `untrusted` or `revoked`. `region`: home region, where uploads without `X-Region` go (`NULL`: none) |
 | `uploads` | uploaded file | The raw log, gzipped, and its SHA-256 (the same file is stored once) |
 | `matches` | match | `status`: `accepted`, `review`, `rejected`, `void`. One per host + `match_key`. `rated_at`: when it went into the ratings. `region`: where it was hosted, kept by later copies. `feed_seq`: its place in the match feed, set by triggers ([below](#the-match-feed)) |
-| `match_players` | player in a match | By the per-match log id from `JOIN` |
+| `match_players` | player in a match | By the per-match log id from `JOIN`; `alias_id` keeps the alias used, regardless of spelling or merges |
 | `rounds` | round | `rated` = a `WIN` round that isn't broken |
 | `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
@@ -32,7 +33,7 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
 
 - **Keep the raw log.** Ratings, stats and players can always be rebuilt from `uploads.raw_log`. When the parser or the rating engine changes, re-run it over the stored logs.
 - **Copies of one match.** The same match can arrive in several files (see "One match in several files" in the spec). The upload endpoint (`src/upload/`, [api.md](api.md)) looks up `(host_id, match_key)`. A shorter stored copy is replaced: the match's rounds, players and events are deleted and the new ones inserted under the same match id. A copy with the same line count isn't rewritten; the match just points at the new upload. A longer stored copy wins and the new one isn't written. An upload no match points at any more is deleted: it was the start of a longer one. If no match in a file is new or longer, nothing is written at all.
-- **Every player has at least one alias.** A new name creates a player and its alias in the same batch; the upload finds the new players as those without an alias. Merging players (#8) must keep that true.
+- **Every player has at least one alias**, except a merged one (`merged_into` set). A new name creates a player and its alias in the same batch; the upload finds the new players as those without an alias that aren't merged.
 - **Bulk inserts.** The free plan allows 50 queries per Worker invocation and 100 bound parameters per query, and one match has hundreds of events. Insert the rows of a table in one statement from a JSON parameter:
 
   ```sql
@@ -44,6 +45,28 @@ Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`)
 
   An upload is about 15 statements whatever the number of matches in the file, plus one per `insertChunkRows` rows of a big table, all in one `db.batch` (a transaction).
 - **BLOBs come back as arrays.** D1 returns a `BLOB` column (`raw_log`) as an array of byte values, not an `ArrayBuffer`: wrap it in `new Uint8Array(...)` before gunzipping.
+
+## Merging players
+
+An admin merges two names that are one player (#8, [api.md](api.md), "Merging players"). Code: `src/admin/players.ts` and `src/admin/playerStore.ts`. A merge, and its undo, is one `db.batch` with its `admin_actions` row. The merge rechecks the shared-round refusal inside the batch. Undo selects match rows by the persisted alias ids in that batch, so a concurrent upload of a new spelling goes back too. Before migration 0016 each player has one alias; the migration backfills existing match rows from that alias, including Unicode case variants.
+
+**Every column that holds a player id is listed in one place, `playerIdColumns` in `src/admin/playerStore.ts`**, with what a merge does to it. `test/players.test.ts` reads the schema and fails when a column referencing `players(id)` isn't listed, so a branch that adds a table with player ids (head-to-head totals, per-match stats, records) adds its entry there:
+
+| Kind | Columns now | Merge | Undo |
+|---|---|---|---|
+| `aliases` | `aliases.player_id` | Moved to the player who stays; their ids are kept in `player_merges.aliases` | Those aliases move back |
+| `matchPlayers` | `match_players.player_id` | Moved | The rows whose persisted `alias_id` is in the merge move back, matches uploaded since the merge too |
+| `perMatch` (a row about a player in one match, with the match and log id) | `round_players.player_id` | Moved | The rows whose `match_players` row went back move back |
+| `derived` (rebuilt from the match rows) | `ratings`, `rating_history` | The merged player's rows are deleted, and each region's ratings go stale from the merged player's first rated match there | Stale from the same match again: the recompute rebuilds both players |
+| `merge` | `players.merged_into`, `player_merges.from_id`, `into_id` | Bookkeeping | |
+
+A per-match table that a later branch adds (`match_stats`, `match_pairs`) is a `perMatch` entry: it follows `match_players` both ways with no other code. A table of totals across matches (`pair_stats`, records) is `derived`, but the rating recompute doesn't rebuild it: that branch adds the rebuild of both players' rows to the merge and undo batches.
+
+Events hold log ids, never player ids, so a merge doesn't touch them. Nothing is lost by deleting the merged player's ratings: they're rebuilt from the matches, so after an undo and its recompute every rating and history row is what it was before the merge.
+
+**Cost.** A merge is about 11 statements whatever the player's size, an undo about 10, a name change 3. A merged player with `m` matches and `r` rounds writes about 2 rows (with the index) per alias, match and round moved, plus the ratings and history rows deleted: for 20 matches of 25 rounds, about 1,100 rows, what one uploaded match costs. The two-names-in-one-round check reads the merged player's `round_players` rows, an undo reads the other player's `match_players` rows. Then the ratings are recomputed from the merged player's first rated match in each region, like a late upload from that day ([rating.md](rating.md)): up to 16 rows written per match re-rated, `ratingMatchesPerRun` matches a cron run. Merging a name first seen months ago re-rates every later match of its region, so merge soon after a name change and avoid merging and undoing back and forth.
+
+**Queries per request.** A merge reads the admin, the two players and the shared-round check (3), then writes its batch (11): 14 queries. An undo reads the admin and merge (2), then writes its batch (10): 12 queries. Both answer `ratingsStale: true`; all rating computation runs in the cron, keeping round replay out of the free plan's 10 ms request CPU budget. A merged player page follows the whole merge chain in one recursive query, then reads the canonical page (at most 6 queries, independent of chain length).
 
 ## The match feed
 

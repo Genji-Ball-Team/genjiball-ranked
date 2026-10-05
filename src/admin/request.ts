@@ -22,6 +22,8 @@ export type AdminConfig = UpdateConfig &
     | "tourneyRoundLimitMax"
     | "tourneyLobbyKeyDigits"
     | "tourneyLobbyKeyAttempts"
+    | "playerNameMaxLength"
+    | "playerSearchMinLength"
   >;
 
 export interface Context {

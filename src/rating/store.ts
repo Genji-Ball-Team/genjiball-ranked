@@ -241,18 +241,33 @@ export function isConflict(error: unknown): boolean {
  * changing them.
  */
 export function staleFromMatchesStatement(db: D1Database, matchIds: readonly number[], now: string, onlyRated = false): D1PreparedStatement {
-  return db
-    .prepare(
-      `UPDATE rating_state SET version = version + 1, stale_since = coalesce(stale_since, ?2),
-         stale_played_at = CASE WHEN stale_played_at IS NULL OR (m.played_at, m.id) < (stale_played_at, stale_match_id)
-           THEN m.played_at ELSE stale_played_at END,
-         stale_match_id = CASE WHEN stale_played_at IS NULL OR (m.played_at, m.id) < (stale_played_at, stale_match_id)
-           THEN m.id ELSE stale_match_id END
-       FROM (SELECT region, played_at, id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY played_at, id) AS nth
-             FROM matches WHERE id IN (SELECT value FROM json_each(?1)) AND (?3 = 0 OR rated_at IS NOT NULL)) AS m
-       WHERE m.nth = 1 AND rating_state.board = m.region`,
-    )
+  return staleFromWhere(db, "id IN (SELECT value FROM json_each(?1)) AND (?3 = 0 OR rated_at IS NOT NULL)")
     .bind(json(matchIds), now, onlyRated ? 1 : 0);
+}
+
+/**
+ * Marks each region's ratings stale from the first rated match these players played there, for a
+ * change to who played a match (a merge, #8). Reads `match_players` when the batch runs it.
+ */
+export function staleFromPlayersStatement(db: D1Database, playerIds: readonly number[], now: string): D1PreparedStatement {
+  return staleFromWhere(
+    db,
+    "rated_at IS NOT NULL AND id IN (SELECT match_id FROM match_players WHERE player_id IN (SELECT value FROM json_each(?1)))",
+  ).bind(json(playerIds), now);
+}
+
+/** Stale from the first match in each region of those `where` picks (`?2`: now). */
+function staleFromWhere(db: D1Database, where: string): D1PreparedStatement {
+  return db.prepare(
+    `UPDATE rating_state SET version = version + 1, stale_since = coalesce(stale_since, ?2),
+       stale_played_at = CASE WHEN stale_played_at IS NULL OR (m.played_at, m.id) < (stale_played_at, stale_match_id)
+         THEN m.played_at ELSE stale_played_at END,
+       stale_match_id = CASE WHEN stale_played_at IS NULL OR (m.played_at, m.id) < (stale_played_at, stale_match_id)
+         THEN m.id ELSE stale_match_id END
+     FROM (SELECT region, played_at, id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY played_at, id) AS nth
+           FROM matches WHERE ${where}) AS m
+     WHERE m.nth = 1 AND rating_state.board = m.region`,
+  );
 }
 
 /** Marks the region's ratings stale from `from` (`fromStart` for everything); every region's with `board` null. */

@@ -9,6 +9,7 @@ import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readSt
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
+  canonicalPlayerId,
   findMatchDetail,
   findPlayer,
   findRating,
@@ -173,20 +174,27 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
   };
 }
 
-/** A player in one region: their rating and matches there, and the regions they have a rating in. */
-async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date) {
+/**
+ * A player in one region: their rating and matches there, and the regions they have a rating in.
+ * A player an admin merged into another (#8) answers as that one, so old links keep working.
+ */
+async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
+  const canonical = await canonicalPlayerId(db, id);
+  if (canonical === null) return null;
   const [found, rating, matches, rated] = await Promise.all([
-    findPlayer(db, id),
-    findRating(db, region.id, id),
-    listPlayerMatches(db, region.id, id, config.playerRecentMatches),
-    listRatedRegions(db, id),
+    findPlayer(db, canonical),
+    findRating(db, region.id, canonical),
+    listPlayerMatches(db, region.id, canonical, config.playerRecentMatches),
+    listRatedRegions(db, canonical),
   ]);
   if (!found) return null;
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
   return {
     region: region.id,
     player: {
-      ...found,
+      id: found.id,
+      name: found.name,
+      aliases: found.aliases,
       regions: config.regions.map((r) => r.id).filter((r) => rated.includes(r)),
       rating: rating && {
         rank: ranked ? await rankOf(db, region.id, rating, config.minRankedRounds) : null,

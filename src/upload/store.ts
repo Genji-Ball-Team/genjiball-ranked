@@ -93,8 +93,8 @@ export interface UploadWrite {
   extra?: D1PreparedStatement[];
 }
 
-/** Writes the upload and its matches in one transaction. Returns the upload id. */
-export async function writeUpload(db: D1Database, w: UploadWrite): Promise<number> {
+/** Writes the upload and its matches in one transaction, including review after resolving aliases. */
+export async function writeUpload(db: D1Database, w: UploadWrite): Promise<{ uploadId: number; reviews: { matchKey: string; reviewReasons: string[] }[] }> {
   const json = (value: unknown) => JSON.stringify(value);
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
   // CROSS JOIN keeps json_each the outer loop: SQLite has no row count for it, and with a plain JOIN
@@ -116,7 +116,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       .bind(w.hostId, w.contentHash, w.rawLog, w.rawSize, w.fileName, w.now),
 
     // Players: a name seen for the first time is a new player with that name as their alias. Every
-    // player has at least one alias, so the players without one are the ones just inserted.
+    // player who isn't merged into another (#8) has at least one alias, so the players without one
+    // are the ones just inserted.
     db
       .prepare(
         `INSERT INTO players (name, created_at)
@@ -129,10 +130,11 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
         `INSERT INTO aliases (player_id, name, name_key, first_seen_at, last_seen_at)
          SELECT p.id, p.name, e.value ->> 'key', ?2, ?2
          FROM players p JOIN json_each(?1) e ON e.value ->> 'name' = p.name
-         WHERE NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
+         WHERE p.merged_into IS NULL AND NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
       )
       .bind(json(w.rows.names), w.playedAt),
-    // Known names: last seen, and the spelling seen most recently becomes the display name.
+    // Known names: last seen, and the spelling seen most recently becomes the display name, unless
+    // an admin set the name (`name_fixed`).
     db
       .prepare(
         `UPDATE aliases SET name = e.value ->> 'name', last_seen_at = ?2
@@ -141,11 +143,12 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       .bind(json(w.rows.names), w.playedAt),
     db
       .prepare(
-        `UPDATE players SET name = a.name
-         FROM aliases a JOIN json_each(?1) e ON a.name_key = e.value ->> 'key'
-         WHERE a.player_id = players.id AND a.last_seen_at = ?2`,
+        `UPDATE players SET name = (SELECT a.name FROM aliases a WHERE a.player_id = players.id
+           ORDER BY a.last_seen_at DESC, a.id DESC LIMIT 1)
+         WHERE players.name_fixed = 0 AND players.id IN
+           (SELECT a.player_id FROM json_each(?1) e CROSS JOIN aliases a ON a.name_key = e.value ->> 'key')`,
       )
-      .bind(json(w.rows.names), w.playedAt),
+      .bind(json(w.rows.names)),
 
     // A longer copy replaces a match's rows under the same match id.
     db
@@ -193,8 +196,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
     ...chunks(w.rows.players, w.chunkRows).map((rows) =>
       db
         .prepare(
-          `INSERT INTO match_players (match_id, log_id, player_id, name, join_time, leave_time)
-           SELECT m.id, e.value ->> 'logId', a.player_id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime'
+          `INSERT INTO match_players (match_id, log_id, player_id, alias_id, name, join_time, leave_time)
+           SELECT m.id, e.value ->> 'logId', a.player_id, a.id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime'
            FROM json_each(?1) e ${matchJoin}
            CROSS JOIN aliases a ON a.name_key = e.value ->> 'key'`,
         )
@@ -245,8 +248,26 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
     ...(w.extra ?? []),
   ];
 
-  const [upload] = await db.batch<{ id: number }>(statements);
-  return upload!.results[0]!.id;
+  // Check the resolved ids in this transaction: a concurrent merge may have changed the aliases
+  // since parsing. Different aliases of one player in a round need review, like duplicate_name.
+  const reviewIndex = statements.length;
+  statements.push(
+    db.prepare(
+      `UPDATE matches SET status = 'review',
+         review_reasons = CASE WHEN instr(',' || coalesce(review_reasons, '') || ',', ',merged_names,') > 0
+           THEN review_reasons ELSE coalesce(review_reasons || ',', '') || 'merged_names' END
+       WHERE host_id = ?1 AND match_key IN (SELECT value FROM json_each(?2)) AND status IN ('accepted', 'review')
+         AND EXISTS (SELECT 1 FROM rounds r JOIN round_players rp ON rp.round_id = r.id
+           JOIN match_players mp ON mp.match_id = r.match_id AND mp.log_id = rp.log_id
+           WHERE r.match_id = matches.id GROUP BY rp.round_id, rp.player_id HAVING COUNT(DISTINCT mp.alias_id) > 1)
+       RETURNING match_key AS matchKey, review_reasons AS reviewReasons`,
+    ).bind(w.hostId, json([...w.rows.inserted, ...w.rows.replaced].map((m) => m.matchKey))),
+  );
+  const results = await db.batch<{ id: number; matchKey: string; reviewReasons: string }>(statements);
+  return {
+    uploadId: results[0]!.results[0]!.id,
+    reviews: results[reviewIndex]!.results.map((r) => ({ matchKey: r.matchKey, reviewReasons: r.reviewReasons.split(",") })),
+  };
 }
 
 function chunks<T>(rows: readonly T[], size: number): T[][] {
