@@ -13,6 +13,8 @@ The ranked server: one Cloudflare Worker (TypeScript) that serves the API and th
 
 Tests run inside the Workers runtime (`@cloudflare/vitest-pool-workers`) with every migration applied, so a test can use `env.DB` directly. The `compatibility_date` in `wrangler.toml` can't be newer than the runtime in the installed wrangler supports, or the tests fail to start.
 
+The region head script also has Node tests (`test/*.node.mjs`), with browser globals stubbed. `npm run test` runs both suites.
+
 ## Config: no magic numbers
 
 Every tunable lives in `src/config.ts`, with its default and a comment saying what it does: rating parameters, tier thresholds, limits, timeouts, accepted log versions, feature flags. Code reads `config.someValue`, never a literal.

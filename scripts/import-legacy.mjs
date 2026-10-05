@@ -1,16 +1,19 @@
 /* global process, console, fetch, URL */
 // Imports old v1.3.2 logs as legacy matches (#13, docs/legacy.md):
-// `npm run import:legacy -- <server> <host id> <file or folder>...` with an admin token in
+// `npm run import:legacy -- <server> <host id> [--region=<region>] <file or folder>...` with an admin token in
 // GENJIBALL_ADMIN_TOKEN. A folder means every .txt file in it (a folder of logs is too many names for
 // a Windows command line).
 // Files go oldest first, so the ratings are built in the order the matches were played. A file whose
 // KILL lines are the start of another file's is a shorter copy of that match and is left out (legacy
 // logs have no matchKey to tell copies apart). X-Log-Started-At comes from the file name, read in
-// this computer's time zone, so run it in the host's.
+// this computer's time zone, so run it in the host's. Matches go to --region, or else the host's home
+// region (#47).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
-const [server, hostId, ...args] = process.argv.slice(2);
+const [server, hostId, ...rest] = process.argv.slice(2);
+const region = rest.find((arg) => arg.startsWith("--region="))?.slice("--region=".length).trim();
+const args = rest.filter((arg) => !arg.startsWith("--region="));
 const files = args.flatMap((arg) =>
   statSync(arg).isDirectory()
     ? readdirSync(arg)
@@ -19,8 +22,8 @@ const files = args.flatMap((arg) =>
     : [arg],
 );
 const token = process.env.GENJIBALL_ADMIN_TOKEN?.trim();
-if (!server || !/^\d+$/.test(hostId ?? "") || files.length === 0 || !token) {
-  console.error("Usage: GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- <server URL> <host id> <log file or folder>...");
+if (!server || !/^\d+$/.test(hostId ?? "") || files.length === 0 || !token || region === "") {
+  console.error("Usage: GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- <server URL> <host id> [--region=eu|na] <log file or folder>...");
   process.exit(1);
 }
 
@@ -70,6 +73,7 @@ for (const log of logs) {
   }
   const url = new URL("/api/admin/legacy-import", server);
   url.searchParams.set("host", hostId);
+  if (region) url.searchParams.set("region", region);
   let res;
   try {
     res = await fetch(url, {

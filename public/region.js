@@ -24,11 +24,13 @@ const site = (() => {
   };
   const param = () => new URLSearchParams(location.search).get("region")?.trim().toLowerCase() || null;
   const guess = () => (Intl.DateTimeFormat().resolvedOptions().timeZone?.startsWith("America/") ? "na" : "eu");
-  const known = (id) => !regions || regions.some((r) => r.id === id);
+  // Before the server supplies the list, only the built-in regions are safe for API requests.
+  const known = (id) => regions?.length ? regions.some((r) => r.id === id) : ["eu", "na"].includes(id);
+  const preferred = [param(), store.get("region"), guess()];
 
   let regions = store.get("regions");
   const site = {
-    region: [param(), store.get("region"), guess()].find((id) => id && known(id)) ?? regions[0].id,
+    region: preferred.find((id) => id && known(id)) ?? regions?.[0]?.id ?? guess(),
     // Set by a page that shows one match or tourney: the region is that one's, not the URL's.
     own: false,
     // Where the switch leads: this page in the other region. Pages that show one match or tourney
@@ -78,13 +80,23 @@ const site = (() => {
   }
 
   document.documentElement.dataset.region = site.region;
-  store.set("region", site.region);
   document.addEventListener("DOMContentLoaded", draw);
   site.server
     .then((server) => {
       regions = server.regions;
       store.set("regions", regions);
-      if (known(site.region)) return draw();
+      // Revisit the original choices: an uncached region may now be known. Match and tourney
+      // pages keep the region from their own API response.
+      const region = site.own ? site.region : preferred.find((id) => id && known(id)) ?? regions[0].id;
+      if (region !== site.region) {
+        site.use(region);
+        return location.replace(site.link(region));
+      }
+      // Kept for the next page only once the server knows it, so a mistyped link isn't remembered.
+      if (known(site.region)) {
+        store.set("region", site.region);
+        return draw();
+      }
       // A region that's gone, or a mistyped link: the first region instead. A match or tourney page
       // shows its own region once it's loaded, so it stays.
       site.use(regions[0].id);

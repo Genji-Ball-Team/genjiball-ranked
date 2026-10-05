@@ -341,7 +341,8 @@ export async function latestFeedSeq(db: D1Database): Promise<number> {
 /**
  * The match feed (#59): matches whose `feed_seq` is past `after`, oldest change first, at most
  * `limit`, in `region` or every region, each with its players and its change number. A match that
- * stopped being public is only its id, `removed`. Ratings are on the board of the match's region.
+ * stopped being public, or with `region` was moved out of it, is only its id, `removed`. Ratings
+ * are on the board of the match's region.
  * Reads through index `matches_feed`, so asking when nothing changed reads no match rows.
  */
 export async function listFeed(
@@ -350,12 +351,13 @@ export async function listFeed(
   region: string | null,
   limit: number,
 ): Promise<{ seq: number; match: FeedMatchRow }[]> {
-  const inRegion = "(?3 IS NULL OR region = ?3)";
+  // A match moved out of the region is listed there too, as removed (`feed_left_regions`).
+  const inRegion = "(?3 IS NULL OR region = ?3 OR instr(feed_left_regions, ',' || ?3 || ',') > 0)";
   const page = `SELECT id FROM matches WHERE feed_seq > ?1 AND ${inRegion} ORDER BY feed_seq LIMIT ?2`;
   const [matches, players] = await db.batch([
     db
       .prepare(
-        `SELECT m.id, m.feed_seq AS seq, m.status NOT IN ${publicStatuses} AS removed, m.region, m.played_at AS playedAt, m.map, m.legacy,
+        `SELECT m.id, m.feed_seq AS seq, m.status NOT IN ${publicStatuses} OR (?3 IS NOT NULL AND m.region IS NOT ?3) AS removed, m.region, m.played_at AS playedAt, m.map, m.legacy,
            m.status = 'void' AS void, m.complete, m.tournament, ${tourneyRef},
            (SELECT COUNT(*) FROM rounds r WHERE r.match_id = m.id) AS rounds,
            (SELECT COUNT(*) FROM rounds r WHERE r.match_id = m.id AND r.rated = 1) AS ratedRounds
