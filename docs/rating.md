@@ -14,6 +14,10 @@ Each rated round is one game of [OpenSkill](https://github.com/philihp/openskill
 
 The parser builds the finishing order. The engine gets it with player ids (`players.id`) instead of log ids.
 
+## Win streaks
+
+Along with rounds and wins, a rating counts `streak`, the rated rounds won in a row up to now, and `bestStreak`, the longest ever (for the records, #19). A round finished in another place ends the streak; a round the player left isn't one of theirs, so it doesn't. The streak carries from one match to the next in play order, and is in every history row, so a recompute redoes it like the rest. It doesn't change the rating.
+
 ## Damping
 
 A full OpenSkill game moves a rating a lot, and a match has around 25 rounds. So each round moves mu by only 1/`ratingRoundsPerMatch` of what a full game would. `ratingTau`, the uncertainty that keeps old ratings movable, is spread the same way. With the default of 4, a match of 25 rounds moves mu about as much as 6 full games.
@@ -51,15 +55,17 @@ A longer copy that replaces a rated match makes the ratings stale from it too, i
 
 **The cron** (`[triggers]` in `wrangler.toml`, every 10 minutes) runs `updateRatings`: it rates the matches that became due in each region (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute of each region whose ratings are stale. The regions share one run's `ratingMatchesPerRun`, in the order of `regions`; a recompute that didn't fit carries on in the next run. That's 144 runs a day. With the default of 100 matches a run, a full recompute of the v1.3.2 logs (220 matches) takes 3 runs.
 
-The default fits the Workers Standard plan (30 s CPU an invocation; D1 includes 25 billion rows read and 50 million written a month). A day of recomputing at 100 a run reads about 3.6 million rows and writes up to about 230,000, far inside it. That would pass the free tier's 100,000 writes a day, so on the free plan set `RATING_MATCHES_PER_RUN = "10"` in `wrangler.toml`; the table below is for that setting, 1,440 re-rated matches a day. On the free tier:
+The default fits the Workers Standard plan (30 s CPU an invocation; D1 includes 25 billion rows read and 50 million written a month). A day of recomputing at 100 a run reads about 3.6 million rows and writes up to about 230,000, far inside it. That would pass the free tier's 100,000 writes a day, so `wrangler.toml` sets `RATING_MATCHES_PER_RUN = "5"` (production and test server): 720 re-rated matches a day, the table below. A full replay (after a change to the rating, like `migrations/0015_records.sql`) of N matches takes N / 720 days. On the free tier:
 
 | Cost | Nothing stale | Recomputing all day |
 |---|---|---|
-| Rows read | about 3 a run, 450 a day | about 2,500 a run, 360,000 a day (7% of 5 million) |
-| Rows written | none | up to about 16 per match re-rated with indexes, 23,000 a day (23% of 100,000) |
+| Rows read | about 3 a run, 450 a day | about 1,250 a run, 180,000 a day (4% of 5 million) |
+| Rows written | none | up to about 40 per match re-rated with indexes (8 history rows with 3 index rows each since #19, 8 ratings rows with 2), 28,800 a day (29% of 100,000) |
 | Invocations | 144 a day, out of 100,000 | the same |
 
-Every 5 minutes would double the recompute speed but, during a long recompute on a busy day of uploads (about 44,500 rows written, docs/database.md), could pass the daily write limit. Every 10 minutes keeps the worst case under it.
+A recompute all day on a busy day of uploads (about 45,600 rows written, docs/database.md) is about 74,400 rows written, 74%: room for the records and admin work. At 10 a run it would be 57,600 + 45,600, past the limit, and every 5 minutes would double it too. Raise either only on the Workers Paid plan.
+
+**Queries an invocation.** A cron run counts its D1 queries (`src/budget.ts`) against `d1QueriesPerInvocation` (50) less `cronCleanupQueries` (8, kept for the stale live lobbies and the screenshot cleanup). Each rating step runs only if its most queries still fit (`rateNewQueries` 14, `recomputeQueries` 17); one that doesn't waits for the next run. With both regions busy, a run rates the new matches and recomputes one region, and the other region and the records wait 10 minutes.
 
 **Concurrent writes.** Every rating write is one batch that starts by checking `rating_state.version` and moving it on. If another write landed since the data was read, the batch fails and writes nothing; the cron tries again.
 

@@ -1,3 +1,4 @@
+import type { QueryBudget } from "../budget";
 import type { Config } from "../config";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
@@ -63,6 +64,18 @@ export interface RecomputeResult {
 }
 
 const hourMs = 60 * 60 * 1000;
+
+/**
+ * The most D1 queries one `rateNewMatches` makes: the rating state (3 when its row is new), the
+ * unrated and the newest rated match, the rounds and ratings, and a batch of the lock, the stale
+ * mark, 4 writes and `rated_at`.
+ */
+export const rateNewQueries = 14;
+/**
+ * The most one `recomputeRatings` run makes: the state (3 when new), 6 reads, and a batch of the
+ * lock, 4 writes, 2 `rated_at` and the stale point.
+ */
+export const recomputeQueries = 17;
 
 /** A match counts once it's complete, or once its grace period has passed. */
 export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, config: Pick<UpdateConfig, "ratingIncompleteGraceHours">, now: Date): boolean {
@@ -204,7 +217,8 @@ export async function markAllStale(db: D1Database, now: Date): Promise<void> {
 /**
  * The cron: rate what's due in each region, then carry on the recomputes of regions whose ratings
  * are stale. The regions share one run's `ratingMatchesPerRun`, so a run costs what it did with
- * one leaderboard; a region whose recompute didn't fit carries on in the next run.
+ * one leaderboard; a region whose recompute didn't fit carries on in the next run. On the cron,
+ * `queries` keeps the run inside D1's queries an invocation: pass its `db` as `db`.
  */
 export async function updateRatings(
   db: D1Database,
@@ -212,14 +226,25 @@ export async function updateRatings(
   now: Date,
   log: Logger,
   regions: readonly string[] = config.regions.map((r) => r.id),
+  queries?: QueryBudget,
 ): Promise<void> {
+  // With `queries`, a step that might not fit in the invocation's D1 queries waits for the next run.
+  const fits = (most: number) => !queries || queries.left() >= most;
   let budget = config.ratingMatchesPerRun;
   for (const region of regions) {
     if (budget <= 0) return;
+    if (!fits(rateNewQueries)) {
+      log.info("rating deferred: out of D1 queries for this run", { region });
+      return;
+    }
     budget -= (await rateNewMatches(db, config, now, log, region, budget)).rated;
   }
   for (const region of regions) {
     if (budget <= 0) return;
+    if (!fits(recomputeQueries)) {
+      log.info("recompute deferred: out of D1 queries for this run", { region });
+      return;
+    }
     budget -= (await recomputeRatings(db, config, now, log, region, budget)).rated;
   }
 }

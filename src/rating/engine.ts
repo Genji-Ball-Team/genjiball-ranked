@@ -45,6 +45,10 @@ export interface PlayerRating {
   rounds: number;
   /** Rated rounds won. */
   wins: number;
+  /** Rated rounds won in a row, up to now: a round they finish in another place ends it. A round they left doesn't count. */
+  streak: number;
+  /** The longest `streak` they ever had. */
+  bestStreak: number;
   lastPlayedAt: string | null;
 }
 
@@ -61,12 +65,14 @@ export interface HistoryEntry {
   display: number;
   rounds: number;
   wins: number;
+  streak: number;
+  bestStreak: number;
 }
 
 export type Ratings = Map<number, PlayerRating>;
 
 export function newRating(config: RatingConfig): PlayerRating {
-  return { mu: config.ratingMu, sigma: config.ratingSigma, rounds: 0, wins: 0, lastPlayedAt: null };
+  return { mu: config.ratingMu, sigma: config.ratingSigma, rounds: 0, wins: 0, streak: 0, bestStreak: 0, lastPlayedAt: null };
 }
 
 /**
@@ -92,6 +98,7 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
   order.forEach((id, i) => {
     const prior = before[i]!;
     const full = after[i]![0]!;
+    const streak = i === 0 ? prior.streak + 1 : 0;
     // Damping: mu moves 1/n of the way to the full update. Sigma takes the full update: damping it
     // too kept every regular's sigma near 6 however much they played, so the ratings never settled
     // and a strong player kept gaining a lot from beating far weaker ones (docs/rating.md).
@@ -100,6 +107,8 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
       sigma: full.sigma,
       rounds: prior.rounds + 1,
       wins: prior.wins + (i === 0 ? 1 : 0),
+      streak,
+      bestStreak: Math.max(prior.bestStreak, streak),
       lastPlayedAt: prior.lastPlayedAt,
     });
   });
@@ -141,6 +150,8 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
       display: displayRating(rating, config),
       rounds: rating.rounds,
       wins: rating.wins,
+      streak: rating.streak,
+      bestStreak: rating.bestStreak,
     };
   });
 }
@@ -154,7 +165,7 @@ function tournamentConfig(config: RatingConfig): RatingConfig {
 /**
  * If the match moved a player more than `maxChange` display points either way, moves
  * their mu back toward where they started, as little as it takes to move exactly that many (sigma,
- * rounds and wins stay as the match left them).
+ * rounds, wins and streaks stay as the match left them).
  */
 export function capChange(rating: PlayerRating, started: PlayerRating, maxChange: number, config: RatingConfig): void {
   const from = displayRating(started, config);

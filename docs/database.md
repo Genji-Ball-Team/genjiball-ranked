@@ -16,8 +16,8 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `rounds` | round | `rated` = a `WIN` round that isn't broken |
 | `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
-| `ratings` | player per region | `board` is the region id (`eu`, `na`): each region is its own leaderboard, tourney matches included (marked `matches.tournament`) |
-| `rating_history` | player per match | On the board of the match's region (`h.board = m.region`). The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
+| `ratings` | player per region | `board` is the region id (`eu`, `na`): each region is its own leaderboard, tourney matches included (marked `matches.tournament`). `streak`, `best_streak`: rated rounds won in a row now, and the longest ever |
+| `rating_history` | player per match | On the board of the match's region (`h.board = m.region`). The whole rating after each match (mu, sigma, rounds, wins, streaks): for the graph (`/api/players/:id/history`), and where a recompute starts |
 | `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
 | `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |
 | `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC. `region`: its lobbies' matches are from there |
@@ -25,6 +25,10 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `host_actions` | host API change | A host's own screenshot upload or delete, like `admin_actions`: who, what, when, which lobby (no foreign key: the log outlives the lobby). Only ever inserted |
 | `screenshot_deletions` | screenshot awaiting R2 deletion | Keeps its key and byte count until R2 deletion succeeds; failed deletes remain accounted for and are retried |
 | `live_lobbies` | host with a lobby open or just closed | From the host tool's heartbeats (#11): `region`, `name`, `players`, `opened_at`, `seen_at` (last heartbeat), `closed_at` (closed by the host; the row stays for the rate limit). Not listed once closed or `seen_at` is `lobbyTtlSeconds` old; the cron deletes it once that's past the TTL. Indexed by `region` only, and a heartbeat in the same region doesn't SET it: one row written ([below](#live-lobbies)) |
+| `match_stats` | accepted match | Its bests for the records (deflects in a round, fastest deflect, kills, wins) and its rated rounds. Derived by the cron ([below](#records)); players are log ids |
+| `records` | region | The records page as served (`/api/records`), JSON, when it was made and from which revision |
+| `records_revisions` | region | `revision`: goes up when what its records count changes; `urgent`: when a match last left them |
+| `records_state` | (one row) | `feed_cursor`: how far the cron has read the match feed for `match_stats` |
 | `rating_state` | region | Whether the region's ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)). A region added to the config gets its row the first time it's rated |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
@@ -72,6 +76,16 @@ Events hold log ids, never player ids, so a merge doesn't touch them. Nothing is
 
 `GET /api/matches?after=` ([api.md](api.md)) lists public matches by `matches.feed_seq`, a change number. Two triggers (`migrations/0010_match_feed.sql`) give a match the next number (`max(feed_seq) + 1`, through the unique index `matches_feed`) when it's inserted as `accepted` or `void`, and when, while public or on leaving public, its `status`, `line_count` or `tournament` changes or `rated_at` goes from `NULL` to a time. A third (`migrations/0014_feed_region_moves.sql`) does the same when a match that is or was public moves to another region, and adds the region it left to `feed_left_regions` (`,eu,na,`), so the feed of every region it left lists it as removed, even after several moves or a move after leaving public. So code that writes `matches` doesn't have to know about the feed, and a recompute (which only stamps `rated_at` on newly rated matches) doesn't re-list old ones. Each change costs one more row written, about three a match.
 
+## Records
+
+`GET /api/records` ([api.md](api.md)) shows a region's records, activity and top hosts. Counting them from `events` and `round_players` on every view would read every event ever stored, so they're derived, by the cron after the ratings (`src/records/`), and rebuildable from the stored rounds and events (themselves from the logs):
+
+- **`match_stats`**: one row per accepted match, its bests (by log id, so merging aliases rewrites nothing), its rated rounds and the `line_count` it was counted from. The cron follows the match feed (`feed_seq`, [below](#the-match-feed)) from `records_state.feed_cursor`, at most `recordsMatchesPerRun` (10) matches a run: a match that changed is recounted if it's accepted. Counts are grouped by match once, then each match's own rows scanned: work grows with the input rows, not matches times rows. Its write is one batch that first moves the cursor from where it was read and fails whole if another run moved it; it writes a match's row only if the match is still accepted with the same copy, in the region it's in then. **Rebuild**: `UPDATE records_state SET feed_cursor = 0`; the cron recounts every public match over the next runs.
+- **A match that stops counting** (voided, rejected, back in review with a longer copy) or moves to the other region: trigger `match_stats_leave` (`migrations/0015_records.sql`), in the same transaction, deletes or moves its row and raises the regions' `records_revisions.revision`, the old region's as `urgent` too.
+- **Win streaks** are order-dependent, so they're part of the rating: `streak`/`best_streak` in `ratings` and `rating_history`, recomputed with it ([rating.md](rating.md)). **Highest rating** is the top of `rating_history` through `rating_history_board_display`.
+- **`records`**: the page each region serves, so a view reads one row, with the revision and rating version it was made from. Every rebuild reads only matches accepted in the region now. **Cadence**: one region a cron run (every 10 minutes). A region with an urgent revision newer than its page is rebuilt at the next run; until then a view checks the page's match records against the matches (one more query) and leaves out any match no longer public there (its counts in the activity and top hosts wait for the rebuild). Otherwise a page is rebuilt when its revision or `rating_state.version` moved or a new UTC day started, once `recordsRefreshMinutes` (60) have passed since the last: so 60 to 70 minutes after a change, more when both regions are due or the cron is short of queries. The revision only goes up and a page is only stored over an older one, so a change made during a rebuild keeps the page due.
+- **CPU and backlog**: the free plan allows 10 ms CPU per request and cron invocation. A local Node benchmark of 10 matches × 100 rounds × 12 players took 4.4 ms cold, 0.7 ms median and 1.4 ms p95 for `matchStats` alone; the rest of the cron shares the budget. The regression counts input scans because the Workers test clock freezes between I/O. The sync takes 10 changed matches a run, at most 1,440 a day. A rebuild from 0 of a year at 40 matches a day (14,600 matches; the feed keeps only each match's latest change) takes 1,460 runs, about 10 days, during which pages show the matches counted so far. The cron does the records only when `syncQueries` (10) and then `refreshQueries` (5) still fit in its queries ([rating.md](rating.md), "Queries an invocation"): during a long recompute of both regions they wait.
+
 ## Screenshots in R2
 
 Tourney verify screenshots aren't in D1: they're in the R2 bucket bound as `PROOFS` (`genjiball-proofs`, `genjiball-proofs-test` for the test server). R2's free tier holds 10 GB, about 5,000 screenshots of 2 MB. A screenshot's key is random and never reused: replacing one writes a new object and deletes the old. Browsers may cache an image for `screenshotCacheSeconds` (1 h); removal stops origin access immediately, while already cached copies may remain until that time passes.
@@ -86,7 +100,7 @@ Uploads reserve their random key and bytes in `screenshot_deletions` before writ
 
 ## Free tier
 
-The Workers Free plan limits for D1 (checked 2026-10-03, [limits](https://developers.cloudflare.com/d1/platform/limits/), [pricing](https://developers.cloudflare.com/d1/platform/pricing/)):
+The Workers Free plan has 10 ms CPU per request and cron invocation. Its D1 limits (checked 2026-10-03, [limits](https://developers.cloudflare.com/d1/platform/limits/), [pricing](https://developers.cloudflare.com/d1/platform/pricing/)):
 
 | Limit | Free plan |
 |---|---|
@@ -115,11 +129,12 @@ Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the
 | `round_players` | 200 | 400 |
 | `events` | 575 | 575 |
 | `ratings` | 8 | 16 |
-| `rating_history` | 8 | 16 |
+| `rating_history` | 8 | 24 |
 | `rating_state` | 1 | 1 |
-| **Total** | | **≈ 1,110** |
+| `match_stats` (about 3 feed changes a match) | 3 | 21 |
+| **Total** | | **≈ 1,140** |
 
-40 matches a day is **≈ 44,500 rows written a day, 45% of the limit**. Without the "drop a copy that isn't longer" rule above, a match uploaded in 3 files would cost up to 3 times that, and a busy day would go over the limit. So the upload endpoint must check the line count before it writes anything, and the host tool should upload a file only once it has stopped growing.
+40 matches a day is **≈ 45,600 rows written a day, 46% of the limit**. The records add the `match_stats` rows (6 indexes) and the `rating_history_board_display` index, about 30 a match, and a `records` row (2 with its key) per refresh: at most 48 a day per region. Without the "drop a copy that isn't longer" rule above, a match uploaded in 3 files would cost up to 3 times that, and a busy day would go over the limit. So the upload endpoint must check the line count before it writes anything, and the host tool should upload a file only once it has stopped growing.
 
 `events` is the biggest table. If writes get tight, deflects can be stored as per-player counts per match instead of rows: the raw log keeps the detail.
 
@@ -127,7 +142,15 @@ Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the
 
 **Regions** (#47) split the same matches and players between two leaderboards: the writes above don't change, and a player who plays in both regions has two `ratings` rows. The rating reads a region's matches through `matches_region_status_played`, `matches_unrated` and `matches_rated` (all keyed by region first), and the cron's `ratingMatchesPerRun` is shared between the regions, so a recompute costs what it did with one leaderboard.
 
-**Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The exception is the **name search** (`/api/players?search=`, for the Discord bot's autocomplete): a "contains" match can't use an index, so each search reads every alias once, plus the players and ratings of the hits. The v1.3.2 logs hold about 1,450 names, so a search reads about 1,500 rows: 1,000 searches a day is 1.5 million, 30% of the limit. The bot waits for a pause in typing before it asks, and `playerSearchMinLength` can go up if searches get too many. The **match feed** reads through `matches_feed`: a bot asking every 2 minutes while nothing changed reads about one row a time, 720 a day; each listed match reads its rounds and players, a few hundred rows. The cost to watch is a **rating recompute** (#6): it reads every rated `round_players` row of the matches it re-rates, about 200 a match, and a full one would read about 3 million rows after a year at this rate, most of a day's reads. So a new match is rated incrementally, and a recompute starts at the first changed match, from the players' `rating_history` just before it, not from scratch. It re-rates `ratingMatchesPerRun` matches a run (about 2,000 rows read) and writes only the history and ratings rows that changed, so a late upload only rewrites the later matches of the players it moved ([rating.md](rating.md), "Ratings in the database"). The dry-run recompute (`npm run ratings:dry-run`, run by hand) does read a whole region from scratch, about 225 rows a match, writing nothing ([api.md](api.md), "Debug tools").
+**Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The exception is the **name search** (`/api/players?search=`, for the Discord bot's autocomplete): a "contains" match can't use an index, so each search reads every alias once, plus the players and ratings of the hits. The v1.3.2 logs hold about 1,450 names, so a search reads about 1,500 rows: 1,000 searches a day is 1.5 million, 30% of the limit. The bot waits for a pause in typing before it asks, and `playerSearchMinLength` can go up if searches get too many. The **match feed** reads through `matches_feed`: a bot asking every 2 minutes while nothing changed reads about one row a time, 720 a day; each listed match reads its rounds and players, a few hundred rows. The **rating history** (`/api/players/:id/history`) reads one row per match the player was rated in, in the region, with its match by id (a regular after a year: a few hundred), and the 20 rounds of their recent form; the Worker thins the graph to `ratingHistoryMaxPoints` (200) points. The **records** cost one row a view; the cron's work is the cost:
+
+| Records, at 40 matches a day | Rows read |
+|---|---|
+| Counting a match (`match_stats`): its events twice, rounds and players | about 1,200, about 3 times a match (each feed change): 144,000 a day (3%) |
+| Rebuilding a region's page: the records (tens), its ratings 3 times (one row per rated player), the activity window twice (about 12 rows a match in it, its match checked: 1,120 matches in 28 days) and top hosts (two rows per match in the region: its stats and its match) | after a year of one region: about 9,000 + 27,000 + 30,000 ≈ 66,000 |
+| Rebuilds a day: when changed, at most every hour per region, plus one per match leaving | about 9 on a day with evening play, 600,000 (12%); 24 at most, 1.6 million (32%) |
+
+A view of a page made before a match left reads 5 more rows. Top hosts and the ratings scans grow with the region's history: past a year, raise `recordsRefreshMinutes`, or keep per-host counts. The cost to watch is a **rating recompute** (#6): it reads every rated `round_players` row of the matches it re-rates, about 200 a match, and a full one would read about 3 million rows after a year at this rate, most of a day's reads. So a new match is rated incrementally, and a recompute starts at the first changed match, from the players' `rating_history` just before it, not from scratch. It re-rates `ratingMatchesPerRun` matches a run (about 2,000 rows read) and writes only the history and ratings rows that changed, so a late upload only rewrites the later matches of the players it moved ([rating.md](rating.md), "Ratings in the database"). The dry-run recompute (`npm run ratings:dry-run`, run by hand) does read a whole region from scratch, about 225 rows a match, writing nothing ([api.md](api.md), "Debug tools").
 
 ### Live lobbies
 

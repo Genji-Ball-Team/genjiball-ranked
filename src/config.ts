@@ -111,7 +111,8 @@ export const defaults = {
    * Rating costs about 0.5 ms of CPU a match. The Workers Standard plan allows 30 s an invocation,
    * so 100 is far inside it, and a run's history rows (about 150 bytes each, a dozen a match) stay
    * well under D1's 2 MB per bound value. On the free plan (10 ms CPU, 100k rows written a day),
-   * set `RATING_MATCHES_PER_RUN = "10"`.
+   * `wrangler.toml` sets `RATING_MATCHES_PER_RUN = "5"`: a full replay then writes about 29% of a day's
+   * rows (docs/rating.md).
    */
   ratingMatchesPerRun: 100,
 
@@ -265,6 +266,42 @@ export const defaults = {
    * (`Access-Control-Max-Age`). Chrome caps it at 2 hours, Firefox at 24.
    */
   corsMaxAgeSeconds: 2 * 60 * 60,
+
+  /**
+   * Most points in a rating history graph (`/api/players/:id/history`, #17). A longer history is
+   * thinned to this many, evenly over its matches, keeping the first, the last and the peak.
+   * At least 3.
+   */
+  ratingHistoryMaxPoints: 200,
+  /** Rated rounds in a player's recent form, newest first. */
+  recentFormRounds: 20,
+  /**
+   * Records page (`/api/records`, #19). The cron keeps one `match_stats` row per accepted match,
+   * following the match feed: at most this many matches a run (each reads about 1,200 rows). Keep
+   * batches small for the free plan's 10 ms CPU limit, including long matches.
+   */
+  recordsMatchesPerRun: 10,
+  /**
+   * A region's records are recomputed at most this often, in minutes, and only when its matches or
+   * ratings changed (or a new day started, for the activity). Each refresh reads about one row a
+   * match in the region for the top hosts (docs/database.md, "Records").
+   */
+  recordsRefreshMinutes: 60,
+  /**
+   * D1 queries a Worker invocation may make: 50 on the free plan. The cron counts its own and
+   * leaves the rating work and the records for the next run when they might not fit.
+   */
+  d1QueriesPerInvocation: 50,
+  /**
+   * Queries the cron keeps for its cleanup, outside the ratings and records: the stale live lobbies
+   * (1, first) and screenshot expiry (7 at most, last: pending deletes twice, the old ones, the
+   * expiry batch).
+   */
+  cronCleanupQueries: 8,
+  /** Days of activity on the records page (matches, rounds and players a day, UTC), today included. */
+  recordsActivityDays: 28,
+  /** Hosts in the records' top hosts, most matches first. */
+  recordsTopHosts: 10,
 };
 
 export type Config = typeof defaults;

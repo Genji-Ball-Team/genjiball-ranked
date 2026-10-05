@@ -84,7 +84,9 @@ function sameEntry(a: HistoryEntry | undefined, b: HistoryEntry): boolean {
     a.sigma === b.sigma &&
     a.display === b.display &&
     a.rounds === b.rounds &&
-    a.wins === b.wins
+    a.wins === b.wins &&
+    a.streak === b.streak &&
+    a.bestStreak === b.bestStreak
   );
 }
 
@@ -96,6 +98,8 @@ function sameRating(a: StoredRating | undefined, b: StoredRating): boolean {
     a.display === b.display &&
     a.rounds === b.rounds &&
     a.wins === b.wins &&
+    a.streak === b.streak &&
+    a.bestStreak === b.bestStreak &&
     a.lastPlayedAt === b.lastPlayedAt
   );
 }
