@@ -106,15 +106,35 @@ function query<T>(sql: string): T[] {
   return answer[0]?.results ?? [];
 }
 
-const now = new Date();
-const stale = query<{ playedAt: string | null; id: number | null }>(dryRunSql.stale(region))[0] ?? null;
-const accepted = query<CandidateRow>(dryRunSql.matches(region));
-const counted = countedMatches(accepted, defaults, now);
-const rounds: RoundRow[] = [];
-for (let i = 0; i < counted.length; i += chunk) {
-  rounds.push(...query<RoundRow>(dryRunSql.rounds(counted.slice(i, i + chunk).map((m) => m.id))));
+type State = { version: number; playedAt: string | null; id: number | null } | null;
+
+/**
+ * Every read, between two reads of the region's rating state. A rating write, recompute mark or
+ * tournament change moves its version on; if one landed while reading, the reads may not fit
+ * together, so they're read again once.
+ */
+function readAll(now: Date) {
+  const state = query<NonNullable<State>>(dryRunSql.state(region))[0] ?? null;
+  const accepted = query<CandidateRow>(dryRunSql.matches(region));
+  const counted = countedMatches(accepted, defaults, now);
+  const rounds: RoundRow[] = [];
+  for (let i = 0; i < counted.length; i += chunk) {
+    rounds.push(...query<RoundRow>(dryRunSql.rounds(counted.slice(i, i + chunk).map((m) => m.id))));
+  }
+  const stored = query<StoredRating & { playerId: number }>(dryRunSql.ratings(region));
+  const after = query<NonNullable<State>>(dryRunSql.state(region))[0] ?? null;
+  const steady = (state?.version ?? null) === (after?.version ?? null);
+  return { state, accepted, counted, rounds, stored, steady };
 }
-const stored = query<StoredRating & { playerId: number }>(dryRunSql.ratings(region));
+
+const now = new Date();
+let read = readAll(now);
+if (!read.steady) {
+  console.log("The ratings changed while reading: reading again.");
+  read = readAll(now);
+  if (!read.steady) die("The ratings changed while reading, twice (a cron run or an admin action). Run it again in a minute.");
+}
+const { state: stale, accepted, counted, rounds, stored } = read;
 const diff = dryRunDiff(counted, rounds, stored, defaults);
 
 const names = new Map<number, string>();

@@ -143,7 +143,10 @@ describe("POST /api/admin/parse", () => {
     expect(body.region).toBe("na");
     expect(body.upload.region).toBe("na");
     expect(body.parser.matches[0]).toMatchObject({ region: "na", status: "accepted" });
-    expect((await post("parse?region=mars", matchLog())).status).toBe(400);
+    // A bad region is the upload's 400 (an X-Region that isn't a region); the parser still reads the file.
+    const mars = await postOk<Parsed>("parse?region=mars", matchLog());
+    expect(mars.upload).toMatchObject({ status: 400, error: "bad_request" });
+    expect(mars.parser.matches).toHaveLength(1);
   });
 
   it("plans against a host's stored copies, which keep their region", async () => {
@@ -236,10 +239,25 @@ describe("POST /api/admin/parse", () => {
     expect((await postOk<Parsed>("parse", matchLog({ end: false }))).parser.warnings.join("\n")).toMatch(/no MATCH_END/);
   });
 
+  it("checks host, region and rate limit before the body, as the real handlers do", async () => {
+    const tooBig = "x".repeat(defaults.maxUploadBytes + 1);
+    // No-region host and a body over the limit: no_region first.
+    expect((await postOk<Parsed>("parse?host=3", tooBig)).upload).toMatchObject({ status: 422, error: "no_region" });
+    // The legacy import's region error comes before the empty body.
+    expect((await postOk<Parsed>("parse?host=3&legacy=1", "")).upload).toMatchObject({ status: 400, error: "bad_request", message: expect.stringMatching(/home region/) });
+
+    await db().prepare("UPDATE hosts SET trust = 'revoked' WHERE id = 1").run();
+    // Revoked host: 403 before a bad region or an empty body.
+    expect((await postOk<Parsed>("parse?host=1&region=mars", matchLog())).upload).toMatchObject({ status: 403, error: "revoked" });
+    expect((await postOk<Parsed>("parse?host=1", "")).upload).toMatchObject({ status: 403, error: "revoked" });
+  });
+
   it("has the upload's size limit, needs an admin and a POST, and writes nothing when it refuses", async () => {
     const before = await snapshot();
-    expect((await post("parse", "x".repeat(defaults.maxUploadBytes + 1))).status).toBe(413);
-    expect((await post("parse", "")).status).toBe(400);
+    const tooBig = await postOk<Parsed>("parse", "x".repeat(defaults.maxUploadBytes + 1));
+    expect(tooBig.upload).toMatchObject({ status: 413, error: "too_large" });
+    expect(tooBig.parser).toMatchObject({ error: { status: 413, error: "too_large" }, matches: [] });
+    expect((await postOk<Parsed>("parse", "")).upload).toMatchObject({ status: 400, error: "empty" });
     expect((await post("parse?legacy=maybe", matchLog())).status).toBe(400);
     expect((await post("parse?host=99", matchLog())).status).toBe(404);
     expect((await post("parse", matchLog(), null)).status).toBe(401);
@@ -309,7 +327,7 @@ describe("POST /api/admin/ratings/recompute", () => {
 async function dryRun(region: string, { chunk = 200, now = new Date() } = {}) {
   const r = sqlRegion(defaults.regions, region);
   const all = async <T>(sql: string) => (await db().prepare(sql).all<T>()).results;
-  const stale = (await all<{ playedAt: string | null; id: number | null }>(dryRunSql.stale(r)))[0] ?? null;
+  const stale = (await all<{ version: number; playedAt: string | null; id: number | null }>(dryRunSql.state(r)))[0] ?? null;
   const accepted = await all<CandidateRow>(dryRunSql.matches(r));
   const counted = countedMatches(accepted, defaults, now);
   const rounds: RoundRow[] = [];
@@ -409,6 +427,19 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
     const result = await dryRun("na");
     expect(result).toMatchObject({ stale: null, counted: 0, players: [] });
     expect(result.summary.identical).toBe(true);
+  });
+
+  it("reads a rating state version that rating writes, recompute marks and tournament changes move on", async () => {
+    const version = async () => (await dryRun("eu")).stale!.version;
+    const v0 = await version();
+    await upload(matchLog(), tokens.eu, hoursAgo(1)); // rated on upload
+    const v1 = await version();
+    expect(v1).toBeGreaterThan(v0);
+    await postOk("ratings/recompute?region=eu");
+    const v2 = await version();
+    expect(v2).toBeGreaterThan(v1);
+    await postOk("matches/" + (await matchId("000000000001")) + "/tournament", JSON.stringify({ tournament: true }));
+    expect(await version()).toBeGreaterThan(v2);
   });
 
   it("writes only checked values into its SQL", () => {

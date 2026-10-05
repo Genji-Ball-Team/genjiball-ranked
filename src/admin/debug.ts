@@ -1,3 +1,4 @@
+import { findRegion } from "../config";
 import { fail } from "../http";
 import type { ParsedMatch } from "../parser/types";
 import { fromStart, staleFromStatement } from "../rating/store";
@@ -43,7 +44,7 @@ async function simulated(response: Response): Promise<Simulated> {
  */
 export async function dryRunParse(ctx: Context, request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
-  const asked = params.has("region") ? regionField(params.get("region"), ctx.config, "region") : null;
+  const rawRegion = params.get("region");
   const legacy = flag(params, "legacy");
   let host: Host | null = null;
   if (params.has("host")) {
@@ -53,8 +54,39 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
     if (!host) return fail(404, "not_found", "No such host");
   }
 
+  // The real handlers' checks, in their order: host, region and rate limit before the body.
+  let region: string | null = null;
+  let stop: Simulated | null = null;
+  if (legacy) {
+    if (!host) stop = { status: 400, error: "bad_request", message: "host=<host id> is required" };
+    else if (rawRegion !== null && !findRegion(ctx.config.regions, rawRegion)) {
+      stop = { status: 400, error: "bad_request", message: `region must be one of ${ctx.config.regions.map((r) => r.id).join(", ")}` };
+    } else if (!(region = findRegion(ctx.config.regions, rawRegion)?.id ?? host.region)) {
+      stop = { status: 400, error: "bad_request", message: "The host has no home region: add region=<region>" };
+    }
+  } else if (host?.trust === "revoked") {
+    stop = { status: 403, error: "revoked", message: "This host token has been revoked" };
+  } else if (host || rawRegion !== null) {
+    // `region` stands for X-Region. Without a host, only the header itself is checked.
+    const headers: Record<string, string> = rawRegion !== null ? { "X-Region": rawRegion } : {};
+    const as = host ?? { id: 0, name: "", trust: "trusted" as const, region: null };
+    const found = hostRegion(new Request(request.url, { headers }), as, ctx.config, "the matches were hosted in");
+    if (found instanceof Response) stop = await simulated(found);
+    else {
+      region = found.id;
+      const limited = host ? await rateLimit(ctx.db, host.id, ctx.now, ctx.config) : null;
+      if (limited) stop = await simulated(limited);
+    }
+  }
+
   const bytes = await readBody(request, ctx.config);
-  if (bytes instanceof Response) return bytes;
+  const bodyError = bytes instanceof Response ? await simulated(bytes) : null;
+  stop ??= bodyError;
+  const hostOut = host && { id: host.id, name: host.name, trust: host.trust, region: host.region };
+  if (bytes instanceof Response) {
+    // Nothing to parse: the upload's answer is the body's error, or an earlier one.
+    return Response.json({ dryRun: true, region, host: hostOut, legacy, bytes: null, duplicateOf: null, upload: stop, parser: { error: bodyError, matches: [], warnings: [] } });
+  }
   const contentHash = await sha256(bytes);
   const duplicateOf = (await findUploadByHash(ctx.db, contentHash))?.id ?? null;
 
@@ -66,26 +98,6 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
   const trust = legacy || !host ? "trusted" : host.trust;
   const stored = host ? await findStoredCopies(ctx.db, host.id, matches.map((m) => m.matchKey).filter((key) => key !== "")) : [];
   const plans = planUpload(matches, stored, trust, ctx.config);
-
-  // The region the upload would store new matches in, or the answer it stops at before that.
-  let region: string | null = asked;
-  let stop: Simulated | null = null;
-  if (legacy) {
-    if (!host) stop = { status: 400, error: "bad_request", message: "host=<host id> is required" };
-    else if (!(region ??= host.region)) stop = { status: 400, error: "bad_request", message: "The host has no home region: add region=<region>" };
-  } else if (host) {
-    if (host.trust === "revoked") stop = { status: 403, error: "revoked", message: "This host token has been revoked" };
-    else {
-      const headers: Record<string, string> = asked ? { "X-Region": asked } : {};
-      const found = hostRegion(new Request(request.url, { headers }), host, ctx.config, "the matches were hosted in");
-      if (found instanceof Response) stop = await simulated(found);
-      else {
-        region = found.id;
-        const limited = await rateLimit(ctx.db, host.id, ctx.now, ctx.config);
-        if (limited) stop = await simulated(limited);
-      }
-    }
-  }
 
   const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
   const regionOf = (plan: MatchPlan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
@@ -108,7 +120,7 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
   return Response.json({
     dryRun: true,
     region,
-    host: host && { id: host.id, name: host.name, trust: host.trust, region: host.region },
+    host: hostOut,
     legacy,
     bytes: bytes.length,
     duplicateOf,

@@ -29,8 +29,13 @@ const idList = (ids: readonly number[]) => {
 
 /** The read-only queries, for a region already checked with `sqlRegion`. */
 export const dryRunSql = {
-  /** Where the region's ratings are stale from; no row for a region never rated. */
-  stale: (region: string) => `SELECT stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = '${region}'`,
+  /**
+   * The region's rating state: where its ratings are stale from, and `version`, which every rating
+   * write, recompute mark and tournament change moves on. Read it before and after the other reads:
+   * if it moved, they may not fit together. No row for a region never rated.
+   */
+  state: (region: string) =>
+    `SELECT version, stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = '${region}'`,
   /** The region's accepted matches, in play order (index `matches_region_status_played`). */
   matches: (region: string) =>
     `SELECT ${candidateColumns} FROM matches WHERE region = '${region}' AND status = 'accepted' ORDER BY played_at, id`,

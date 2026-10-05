@@ -231,12 +231,12 @@ Lobby mutations return `409 conflict` if another edit, replacement, expiry or lo
 
 For finding out why a log was parsed, judged or rated the way it was (#33). Code: `src/admin/debug.ts`, `src/rating/dryRun.ts`, `scripts/ratings-dry-run.ts`. With `LOG_LEVEL=debug` the server also logs each uploaded match's action, status, rejection, review reasons and skipped lines.
 
-**Dry-run parse: `POST /api/admin/parse`.** The body is a log file, as with an upload, at most `maxUploadBytes` (`413 too_large` past it, `400 empty` for none). It's parsed and planned exactly as an upload would be, through the same code, and nothing is written. Query, all optional:
+**Dry-run parse: `POST /api/admin/parse`.** The body is a log file, as with an upload, at most `maxUploadBytes` (past it, or empty, `upload` says the upload's `413`/`400` and nothing is parsed). It's parsed and planned exactly as an upload would be, through the same code, and nothing is written. Query, all optional:
 
 | Param | |
 |---|---|
 | `host` | A host id: answers as that host's upload would: its revocation, home region, rate limit, trust and stored copies (`replace`, `repoint`, `skip`; a stored match keeps its region). Without it the host checks are skipped, and the file is judged as from a trusted host with nothing stored. `404` for an unknown host |
-| `region` | Stands for the upload's `X-Region` (the import's `region`): echoed into each new match's `region`. `400` if it isn't a region. Without it, the host's home region, or `null` |
+| `region` | Stands for the upload's `X-Region` (the import's `region`): echoed into each new match's `region`. One that isn't a region is the upload's `400`. Without it, the host's home region, or `null` |
 | `legacy` | `1`: as `legacy-import` would read the file (the v1.3.2 parser, as from a trusted host, revocation not checked, `host` required) |
 
 `200`, also for a file an upload would refuse:
@@ -277,7 +277,7 @@ For finding out why a log was parsed, judged or rated the way it was (#33). Code
 }
 ```
 
-- **`upload`** is what `POST /api/upload` (or `legacy-import`) would answer: its status and body, with `uploadId: null` for a file it would store. It checks in the real order. An upload: `403 revoked`, then `422 no_region`, then `429 rate_limited`, then `duplicate` (this exact file is stored: `duplicateOf`), then the parser's `422` (`not_ranked`, `legacy_log`), then `stored` or `unchanged`. An import: `400` without `host` or a region, then `duplicate`, then `422 not_legacy`, then the result.
+- **`upload`** is what `POST /api/upload` (or `legacy-import`) would answer: its status and body, with `uploadId: null` for a file it would store. It checks in the real order: the host, region and rate limit before the body. An upload: `403 revoked`, then `400` for a `region` that isn't one, `422 no_region`, `429 rate_limited`, then the body (`413 too_large`, `400 empty`), `duplicate` (this exact file is stored: `duplicateOf`), the parser's `422` (`not_ranked`, `legacy_log`), and `stored` or `unchanged`. An import: `400` without `host`, for a bad `region` or with no region, then the body, `duplicate`, `422 not_legacy`, and the result. The dry run itself only refuses its own parameters: `400` for a malformed `host` or `legacy`, `404` for an unknown host.
 - **`parser`** is what the parser read, even when the upload would stop before parsing (a stored file, a revoked host). `error` is the parse's own refusal (`{ status, error, message }`) or `null`. Each match has its plan (`action, status, rejection, reviewReasons`, `region`, `storedMatchId` with `host`) and what was read: player and round ids are the log's, `placements` the rated finishing order (winner first, leavers left out; empty for a round that isn't rated), `problems` the lines skipped and why. `warnings`: copies of one match in the file (only the longest is used), skipped lines, broken rounds, no `MATCH_END`.
 
 **Recompute: `POST /api/admin/ratings/recompute?region=eu`.** Marks the region's ratings stale from its first match and logs `ratings_recompute`, in one batch; `{ region, ratingsStale: true }`. It rates nothing itself: the cron (every 10 minutes) recomputes `ratingMatchesPerRun` matches a run until it's done ([rating.md](rating.md), "Ratings in the database"), so the request stays inside the free plan's 10 ms of CPU. New matches are still rated meanwhile. `region` is required (`400` without it, or for one that isn't a region); the other region is never touched. `dryRun` gets a `400`: the dry run is a script. Use it after a rating config or engine change, or when the dry run finds drift.
@@ -296,6 +296,8 @@ For finding out why a log was parsed, judged or rated the way it was (#33). Code
 Each of `players` changes on the leaderboard: `{ playerId, name, before, after, change, rankChange }`, `before`/`after` `{ display, rounds, wins, rank }` or `null` (gains or loses a rating), `rank` the leaderboard's (display down, from `minRankedRounds` rated rounds; `null` below), `rankChange` places up (negative: down). `summary`: `players, changed, added, removed, up, down, biggestGain, biggestLoss`, and `identical`: every stored rating, mu and sigma included, is exactly what a recompute from scratch gives.
 
 **Cost.** One query for the matches, one for the stored ratings, one per `--chunk` counted matches for the rounds (about 225 rows read a match: its rounds and placed players), one per `--chunk` changed players for their names. With `--remote` these are real D1 reads: the 220 v1.3.2 matches are about 50,000 rows (1% of the free tier's 5 million a day); a year of busy weeks (14,600 matches) about 3.3 million, most of a day's reads. `cost.rowsRead` says what a run read (`null` locally: the local D1 doesn't report it). Run it when needed, not on a schedule.
+
+**Consistent reads.** The reads are separate `wrangler` calls, so a cron run or an admin action could land between them. The script reads the region's `rating_state.version` before and after them: every rating write, recompute mark and tournament change moves it on. If it moved, the script reads everything again once; if it moved again, it stops with "The ratings changed while reading": run it again a minute later. (A change that writes no rating, like accepting a match the cron hasn't rated yet, doesn't move it; the next run shows it.)
 
 ### Errors
 
