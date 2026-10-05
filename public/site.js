@@ -227,12 +227,17 @@ function ratingGraph(box, h, r) {
     const cursor = svg.querySelector(".cursor");
     const tip = box.querySelector(".tip");
     let at = -1;
+    // A mouse click opens the match under the cursor; a tap shows its point first, a second tap on it
+    // opens it.
+    let open = false;
     const show = (e) => {
       const px = e.clientX - svg.getBoundingClientRect().left;
       const i = points.length > 1 ? Math.round(((px - pad.left) / (width - pad.left - pad.right)) * (points.length - 1)) : 0;
       at = Math.min(points.length - 1, Math.max(0, i));
       const p = points[at];
-      cursor.hidden = tip.hidden = false;
+      // An SVG element has no `hidden` property: the attribute itself.
+      cursor.removeAttribute("hidden");
+      tip.hidden = false;
       cursor.querySelector("line").setAttribute("x1", x(at));
       cursor.querySelector("line").setAttribute("x2", x(at));
       cursor.querySelector("circle").setAttribute("cx", x(at));
@@ -244,12 +249,18 @@ function ratingGraph(box, h, r) {
       tip.style.top = `${y(p.rating)}px`;
     };
     svg.addEventListener("pointermove", show);
-    svg.addEventListener("pointerdown", show);
+    svg.addEventListener("pointerdown", (e) => {
+      const before = tip.hidden ? -1 : at;
+      show(e);
+      open = e.pointerType === "mouse" || at === before;
+    });
     svg.addEventListener("pointerleave", (e) => {
-      if (e.pointerType === "mouse") cursor.hidden = tip.hidden = true;
+      if (e.pointerType !== "mouse") return;
+      cursor.setAttribute("hidden", "");
+      tip.hidden = true;
     });
     svg.addEventListener("click", () => {
-      if (at >= 0 && matchMedia("(hover: hover)").matches) location.href = `/match?id=${points[at].matchId}`;
+      if (open && at >= 0) location.href = `/match?id=${points[at].matchId}`;
     });
   };
   draw();
