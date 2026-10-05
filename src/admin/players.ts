@@ -185,15 +185,16 @@ async function rename(ctx: Context, playerId: number, data: Record<string, unkno
 }
 
 /**
- * After a merge or an undo, recomputes the regions whose ratings are stale as far as one cron run
- * would (`ratingMatchesPerRun` shared between them). Returns whether some are still stale, for the
+ * After a merge or an undo, recomputes the regions whose ratings are stale, at most
+ * `playerMergeRecomputeMatches` matches (and `ratingMatchesPerRun`) shared between them, so the
+ * request stays inside the free plan's CPU time. Returns whether some are still stale, for the
  * cron to finish. At most 1 + 15 queries a region (docs/database.md, "Merging players").
  */
 async function catchUp(ctx: Context): Promise<boolean> {
   try {
     const { results } = await ctx.db.prepare("SELECT board FROM rating_state WHERE stale_played_at IS NOT NULL").all<{ board: string }>();
     const stale = new Set(results.map((row) => row.board));
-    let budget = ctx.config.ratingMatchesPerRun;
+    let budget = Math.min(ctx.config.ratingMatchesPerRun, ctx.config.playerMergeRecomputeMatches);
     let done = true;
     for (const region of ctx.config.regions.map((r) => r.id).filter((r) => stale.has(r))) {
       if (budget <= 0) return true;

@@ -24,6 +24,7 @@ export type AdminConfig = UpdateConfig &
     | "tourneyLobbyKeyAttempts"
     | "playerNameMaxLength"
     | "playerSearchMinLength"
+    | "playerMergeRecomputeMatches"
   >;
 
 export interface Context {

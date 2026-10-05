@@ -174,6 +174,18 @@ describe("players: merge", () => {
     await expectRegionUpToDate("na");
   });
 
+  it("re-rates at most playerMergeRecomputeMatches before answering, and leaves the rest to the cron", async () => {
+    await upload(matchLog({ key: "000000000001", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(30));
+    for (let i = 2; i <= defaults.playerMergeRecomputeMatches + 2; i++) {
+      await upload(matchLog({ key: String(i).padStart(12, "0") }), tokens.eu, hoursAgo(30 - i));
+    }
+    const res = await adminOk<{ ratingsStale: boolean }>(`players/${await playerId("Alfa")}/merge`, { into: await playerId("Alpha") });
+    expect(res.ratingsStale).toBe(true);
+    expect((await readState(db(), "eu")).staleFrom).not.toBeNull();
+    await finishRecompute();
+    await expectRegionUpToDate("eu");
+  });
+
   it("leaves a region the merged player never played in alone", async () => {
     await upload(matchLog({ key: "000000000001" }), tokens.na, hoursAgo(3));
     await upload(matchLog({ key: "000000000002", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(2));
