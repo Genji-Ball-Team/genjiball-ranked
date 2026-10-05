@@ -1,4 +1,4 @@
-import type { Config } from "../config";
+import { findRegion, type Config, type Region } from "../config";
 import { fail } from "../http";
 import { isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
@@ -14,6 +14,7 @@ import {
   listFeed,
   listLeaderboard,
   listPlayerMatches,
+  listRatedRegions,
   listTagCandidates,
   rankOf,
   searchPlayers,
@@ -28,12 +29,25 @@ import {
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
  * and the verify screenshots, `/api/screenshots/:key`.
+ *
+ * Regions (#47): the leaderboard, a player's rating and matches, the rank tags and the Tourneys page
+ * show one region's, `?region=`, the first of `regions` without one.
  */
 
 export type SiteConfig = RankTagsConfig &
   Pick<
     Config,
-    "leaderboardPageSize" | "matchFeedLimit" | "playerRecentMatches" | "playerSearchLimit" | "playerSearchMinLength" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer" | "tourneysPageSize" | "screenshotCacheSeconds"
+    | "leaderboardPageSize"
+    | "matchFeedLimit"
+    | "playerRecentMatches"
+    | "playerSearchLimit"
+    | "playerSearchMinLength"
+    | "publicCacheSeconds"
+    | "rankTagsCacheSeconds"
+    | "testServer"
+    | "tourneysPageSize"
+    | "screenshotCacheSeconds"
+    | "regions"
   >;
 
 /** Answers a site route, or returns null when the path isn't one. */
@@ -47,17 +61,20 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
+  const regional = ["leaderboard", "rank-tags", "tourneys", "players"].includes(route ?? "");
+  const region = regional ? regionParam(url, config) : null;
+  if (region instanceof Response) return region;
   if (path.length === 1 && route === "leaderboard") {
     if (!isRead(request)) return notAllowed();
-    return cached(await leaderboard(db, config, url.searchParams.get("page"), now), config.publicCacheSeconds);
+    return cached(await leaderboard(db, config, region!, url.searchParams.get("page"), now), config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "server") {
     if (!isRead(request)) return notAllowed();
-    return cached({ testServer: config.testServer }, config.publicCacheSeconds);
+    return cached({ testServer: config.testServer, regions: config.regions }, config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "rank-tags") {
     if (!isRead(request)) return notAllowed();
-    return cached(await tags(db, config, now), config.rankTagsCacheSeconds);
+    return cached(await tags(db, config, region!, now), config.rankTagsCacheSeconds);
   }
   if (path.length === 1 && route === "players") {
     if (!isRead(request)) return notAllowed();
@@ -65,17 +82,20 @@ export async function handleSite(
     if ([...search].length < config.playerSearchMinLength) {
       return fail(400, "bad_request", `search needs at least ${config.playerSearchMinLength} characters`);
     }
-    return cached(await playerSearch(db, config, search, now), config.publicCacheSeconds);
+    return cached(await playerSearch(db, config, region!, url.searchParams.has("region"), search, now), config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "matches") {
     if (!isRead(request)) return notAllowed();
-    const body = await feed(db, config, url.searchParams.get("after"), url.searchParams.get("limit"));
+    // Every region's matches unless one is asked for.
+    const feedRegion = url.searchParams.has("region") ? regionParam(url, config) : null;
+    if (feedRegion instanceof Response) return feedRegion;
+    const body = await feed(db, config, feedRegion, url.searchParams.get("after"), url.searchParams.get("limit"));
     if (!body) return fail(400, "bad_request", `after must be a cursor from this feed, 0 or latest; limit 1 to ${config.matchFeedLimit}`);
     return cached(body, config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "tourneys") {
     if (!isRead(request)) return notAllowed();
-    return cached(await tourneys(db, config, url.searchParams.get("page")), config.publicCacheSeconds);
+    return cached(await tourneys(db, config, region!, url.searchParams.get("page")), config.publicCacheSeconds);
   }
   if (path.length === 2 && route === "screenshots") {
     if (!isRead(request)) return notAllowed();
@@ -84,7 +104,7 @@ export async function handleSite(
   if (path.length === 2 && (route === "players" || route === "matches" || route === "tourneys")) {
     if (!isRead(request)) return notAllowed();
     const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
-    const read = { players: () => player(db, config, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, id!) }[route];
+    const read = { players: () => player(db, config, region!, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, id!) }[route];
     const body = id === null ? null : await read();
     if (!body) return fail(404, "not_found", { players: "No such player", matches: "No such match", tourneys: "No such tourney" }[route]);
     return cached(body, config.publicCacheSeconds);
@@ -92,13 +112,21 @@ export async function handleSite(
   return null;
 }
 
-async function leaderboard(db: D1Database, config: SiteConfig, pageParam: string | null, now: Date) {
+/** `?region=`: one of `regions`, the first without it, or the 400 for one that isn't a region. */
+function regionParam(url: URL, config: SiteConfig): Region | Response {
+  const param = url.searchParams.get("region");
+  const region = param === null ? config.regions[0]! : findRegion(config.regions, param);
+  return region ?? fail(400, "bad_request", `region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+}
+
+async function leaderboard(db: D1Database, config: SiteConfig, region: Region, pageParam: string | null, now: Date) {
   const page = pageParam && /^[1-9]\d{0,5}$/.test(pageParam) ? Number(pageParam) : 1;
   const size = config.leaderboardPageSize;
   const offset = (page - 1) * size;
   // One more than a page, to know if there's a next one.
-  const rows = await listLeaderboard(db, config.minRankedRounds, size + 1, offset);
+  const rows = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset);
   return {
+    region: region.id,
     page,
     pageSize: size,
     hasMore: rows.length > size,
@@ -107,17 +135,18 @@ async function leaderboard(db: D1Database, config: SiteConfig, pageParam: string
 }
 
 /**
- * The match feed: public matches changed after the cursor, oldest change first. `after=latest`
- * gives no matches and the current cursor, to start from now. Null when a parameter is malformed.
+ * The match feed: public matches changed after the cursor, oldest change first, in one region or
+ * all. `after=latest` gives no matches and the current cursor, to start from now. Null when a
+ * parameter is malformed.
  */
-async function feed(db: D1Database, config: SiteConfig, afterParam: string | null, limitParam: string | null) {
+async function feed(db: D1Database, config: SiteConfig, region: Region | null, afterParam: string | null, limitParam: string | null) {
   const limit = limitParam === null ? config.matchFeedLimit : /^[1-9]\d{0,5}$/.test(limitParam) ? Number(limitParam) : 0;
   if (limit < 1 || limit > config.matchFeedLimit) return null;
   if (afterParam === "latest") return { cursor: await latestFeedSeq(db), hasMore: false, matches: [] };
   if (afterParam === null || !/^(0|[1-9]\d{0,15})$/.test(afterParam)) return null;
   const after = Number(afterParam);
   // One more than asked for, to know if there's more.
-  const rows = await listFeed(db, after, limit + 1);
+  const rows = await listFeed(db, after, region?.id ?? null, limit + 1);
   const shown = rows.slice(0, limit);
   return {
     cursor: shown.at(-1)?.seq ?? after,
@@ -126,19 +155,23 @@ async function feed(db: D1Database, config: SiteConfig, afterParam: string | nul
   };
 }
 
-async function player(db: D1Database, config: SiteConfig, id: number, now: Date) {
-  const [found, rating, matches] = await Promise.all([
+/** A player in one region: their rating and matches there, and the regions they have a rating in. */
+async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date) {
+  const [found, rating, matches, rated] = await Promise.all([
     findPlayer(db, id),
-    findRating(db, id),
-    listPlayerMatches(db, id, config.playerRecentMatches),
+    findRating(db, region.id, id),
+    listPlayerMatches(db, region.id, id, config.playerRecentMatches),
+    listRatedRegions(db, id),
   ]);
   if (!found) return null;
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
   return {
+    region: region.id,
     player: {
       ...found,
+      regions: config.regions.map((r) => r.id).filter((r) => rated.includes(r)),
       rating: rating && {
-        rank: ranked ? await rankOf(db, rating, config.minRankedRounds) : null,
+        rank: ranked ? await rankOf(db, region.id, rating, config.minRankedRounds) : null,
         ...ratingView(rating, config, now),
         nextTier: nextTier(rating.display, config.tiers),
       },
@@ -147,10 +180,14 @@ async function player(db: D1Database, config: SiteConfig, id: number, now: Date)
   };
 }
 
-/** Name search for the Discord bot's autocomplete and the site (#58). */
-async function playerSearch(db: D1Database, config: SiteConfig, search: string, now: Date) {
-  const rows = await searchPlayers(db, nameKey(search), config.playerSearchLimit);
+/**
+ * Name search for the Discord bot's autocomplete and the site (#58), with the region's ratings.
+ * With `?region=` sent (`onlyRated`), only players rated there.
+ */
+async function playerSearch(db: D1Database, config: SiteConfig, region: Region, onlyRated: boolean, search: string, now: Date) {
+  const rows = await searchPlayers(db, nameKey(search), region.id, onlyRated, config.playerSearchLimit);
   return {
+    region: region.id,
     players: rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -173,13 +210,13 @@ function ratingView(row: RatingRow, config: SiteConfig, now: Date) {
   };
 }
 
-async function tags(db: D1Database, config: SiteConfig, now: Date) {
+async function tags(db: D1Database, config: SiteConfig, region: Region, now: Date) {
   const lowest = config.tiers[0];
   const activeSince = isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * 24 * 60 * 60 * 1000));
   const candidates = lowest
-    ? await listTagCandidates(db, config.minRankedRounds, lowest.threshold, activeSince, config.rankTagsMaxNames)
+    ? await listTagCandidates(db, region.id, config.minRankedRounds, lowest.threshold, activeSince, config.rankTagsMaxNames)
     : [];
-  return rankTags(candidates, config, now);
+  return { region: region.id, ...rankTags(candidates, config, now) };
 }
 
 async function match(db: D1Database, id: number) {
@@ -223,14 +260,17 @@ export function matchView({ match, players, rounds, roundPlayers }: MatchDetail)
  * The Tourneys page: every tourney still to come, soonest first, and a page of past ones, newest
  * first, each lobby with its standings.
  */
-async function tourneys(db: D1Database, config: SiteConfig, pageParam: string | null) {
+async function tourneys(db: D1Database, config: SiteConfig, region: Region, pageParam: string | null) {
   const page = pageParam && /^[1-9]\d{0,5}$/.test(pageParam) ? Number(pageParam) : 1;
   const size = config.tourneysPageSize;
   // One more than a page, to know if there's a next one.
-  const [upcoming, past] = await Promise.all([page === 1 ? listUpcoming(db) : [], listPast(db, size + 1, (page - 1) * size)]);
+  const [upcoming, past] = await Promise.all([
+    page === 1 ? listUpcoming(db, region.id) : [],
+    listPast(db, region.id, size + 1, (page - 1) * size),
+  ]);
   const shown = [...upcoming, ...past.slice(0, size)];
   const views = await tourneyViews(db, shown);
-  return { page, pageSize: size, hasMore: past.length > size, upcoming: views.slice(0, upcoming.length), past: views.slice(upcoming.length) };
+  return { region: region.id, page, pageSize: size, hasMore: past.length > size, upcoming: views.slice(0, upcoming.length), past: views.slice(upcoming.length) };
 }
 
 async function tourney(db: D1Database, id: number) {

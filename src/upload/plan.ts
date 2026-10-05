@@ -18,6 +18,7 @@ export interface StoredCopy {
   /** Why it's rejected, for a rejected match. */
   rejection: { code: string; message: string } | null;
   uploadId: number;
+  region: string;
 }
 
 /** `rejection.code` of a match an admin rejected from the review queue. */

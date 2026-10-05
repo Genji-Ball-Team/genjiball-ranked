@@ -32,6 +32,8 @@ Ratings are always rebuildable from scratch: `recompute` rates the matches that 
 
 `src/rating/update.ts` keeps `ratings` and `rating_history` up to date. `src/rating/plan.ts` decides what to write (pure, like the engine) and `src/rating/store.ts` holds the queries.
 
+**Each region is rated apart** (#47). Its leaderboard is the `ratings` and `rating_history` rows whose `board` is the region id, with its own `rating_state` row. `rateNewMatches` and `recomputeRatings` work on one region: its matches, its players' ratings in it, its stale point and version. An EU match never moves an NA rating, and a player who plays in both has two independent ratings. Everything below happens per region.
+
 **Which matches count:** accepted ones (`status`), complete (with `MATCH_END`), or incomplete and started more than `ratingIncompleteGraceHours` ago: until then a longer copy may still arrive. `matches.rated_at` says which matches are in the ratings now.
 
 **A new match.** After an upload stores an accepted match, `rateNewMatches` looks at the matches that count and aren't rated yet:
@@ -47,7 +49,7 @@ A longer copy that replaces a rated match makes the ratings stale from it too, i
 
 **The recompute** (`recomputeRatings`) re-rates from the first stale match on. It starts each player from their last `rating_history` row before it (a history row holds the whole rating), which gives exactly what a recompute from scratch would, and writes only the history and ratings rows that differ. A match that no longer counts loses its history, and a player left with no rated match loses their ratings row. One run re-rates at most `ratingMatchesPerRun` matches (100 by default, about 0.5 ms of CPU each) and moves the stale point past them, so a long recompute continues on the next run.
 
-**The cron** (`[triggers]` in `wrangler.toml`, every 10 minutes) runs `updateRatings`: it rates the matches that became due (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute while the ratings are stale. That's 144 runs a day. With the default of 100 matches a run, a full recompute of the v1.3.2 logs (220 matches) takes 3 runs.
+**The cron** (`[triggers]` in `wrangler.toml`, every 10 minutes) runs `updateRatings`: it rates the matches that became due in each region (incomplete ones past their grace period, or any an upload failed to rate) and carries on the recompute of each region whose ratings are stale. The regions share one run's `ratingMatchesPerRun`, in the order of `regions`; a recompute that didn't fit carries on in the next run. That's 144 runs a day. With the default of 100 matches a run, a full recompute of the v1.3.2 logs (220 matches) takes 3 runs.
 
 The default fits the Workers Standard plan (30 s CPU an invocation; D1 includes 25 billion rows read and 50 million written a month). A day of recomputing at 100 a run reads about 3.6 million rows and writes up to about 230,000, far inside it. That would pass the free tier's 100,000 writes a day, so on the free plan set `RATING_MATCHES_PER_RUN = "10"` in `wrangler.toml`; the table below is for that setting, 1,440 re-rated matches a day. On the free tier:
 
@@ -106,4 +108,4 @@ With those settings, 329 players have 3+ rated rounds: 18 are Apprentice, 7 Mast
 
 `POST /api/admin/matches/:id/tournament` marks a match. Its rounds are damped `tournamentWeight` (3) times less, so it counts that many times as much. Afterwards nobody's display rating is more than `tournamentMaxChange` (200) points from where they started it, either way. The cap is the same both ways, so tournaments don't add points to the ladder.
 
-There is one leaderboard. Tourney matches are on it with ranked ones; they only count more. A match is a tournament once an admin links it to a tourney lobby (`POST /api/admin/lobbies/:id`, [api.md](api.md)), or marks it by hand with the route above. Unlinking it, or deleting the lobby, makes it a normal match again. Either way the ratings are recomputed from it.
+There is one leaderboard per region. Tourney matches are on it with ranked ones; they only count more. A tourney is played in one region, and only that region's matches can be linked to its lobbies. A match is a tournament once an admin links it to a tourney lobby (`POST /api/admin/lobbies/:id`, [api.md](api.md)), or marks it by hand with the route above. Unlinking it, or deleting the lobby, makes it a normal match again. Either way the ratings are recomputed from it.

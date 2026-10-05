@@ -1,6 +1,5 @@
 import { actionStatement, type ActionLog } from "../admin/store";
 import type { Config } from "../config";
-import { board } from "../rating/store";
 import { isoSeconds } from "../time";
 import { standings, type LogIdCount, type Standing, type StandingPlayerRow } from "./standings";
 
@@ -18,6 +17,8 @@ const pastStatuses = "('done', 'cancelled')";
 export interface TourneyRow {
   id: number;
   name: string;
+  /** The region it's played in (#47): its lobbies' matches are from there. */
+  region: string;
   startsAt: string;
   status: TourneyStatus;
   notes: string | null;
@@ -42,21 +43,25 @@ export interface LobbyRow {
   verifiedBy: string | null;
 }
 
-const tourneyColumns = "id, name, starts_at AS startsAt, status, notes";
+const tourneyColumns = "id, name, region, starts_at AS startsAt, status, notes";
 
-/** Tourneys still to come or being played, soonest first (index `tourneys_status_starts`). */
-export async function listUpcoming(db: D1Database): Promise<TourneyRow[]> {
+/** The region's tourneys still to come or being played, soonest first (index `tourneys_region_status_starts`). */
+export async function listUpcoming(db: D1Database, region: string): Promise<TourneyRow[]> {
   const { results } = await db
-    .prepare(`SELECT ${tourneyColumns} FROM tourneys WHERE status IN ${upcomingStatuses} ORDER BY starts_at, id`)
+    .prepare(`SELECT ${tourneyColumns} FROM tourneys WHERE region = ? AND status IN ${upcomingStatuses} ORDER BY starts_at, id`)
+    .bind(region)
     .all<TourneyRow>();
   return results;
 }
 
-/** Played and cancelled tourneys, newest first. */
-export async function listPast(db: D1Database, limit: number, offset: number): Promise<TourneyRow[]> {
+/** The region's played and cancelled tourneys, newest first. */
+export async function listPast(db: D1Database, region: string, limit: number, offset: number): Promise<TourneyRow[]> {
   const { results } = await db
-    .prepare(`SELECT ${tourneyColumns} FROM tourneys WHERE status IN ${pastStatuses} ORDER BY starts_at DESC, id DESC LIMIT ?1 OFFSET ?2`)
-    .bind(limit, offset)
+    .prepare(
+      `SELECT ${tourneyColumns} FROM tourneys WHERE region = ?3 AND status IN ${pastStatuses}
+       ORDER BY starts_at DESC, id DESC LIMIT ?1 OFFSET ?2`,
+    )
+    .bind(limit, offset, region)
     .all<TourneyRow>();
   return results;
 }
@@ -108,14 +113,14 @@ export async function readStandings(db: D1Database, matchIds: readonly number[])
       .prepare(
         `SELECT mp.match_id AS matchId, mp.log_id AS logId, mp.player_id AS playerId, p.name,
            (SELECT h.display FROM rating_history h
-            WHERE h.board = ?2 AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
            (SELECT h.display FROM rating_history h
-            WHERE h.board = ?2 AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
             ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
          FROM match_players mp JOIN matches m ON m.id = mp.match_id JOIN players p ON p.id = mp.player_id
          WHERE mp.match_id IN (SELECT value FROM json_each(?1)) ORDER BY mp.match_id, mp.log_id`,
       )
-      .bind(ids, board),
+      .bind(ids),
     db
       .prepare(
         `SELECT match_id AS matchId, winner_id AS logId, COUNT(*) AS n FROM rounds
@@ -147,6 +152,7 @@ export async function readStandings(db: D1Database, matchIds: readonly number[])
 
 export interface TourneyFields {
   name: string;
+  region: string;
   startsAt: string;
   status: TourneyStatus;
   notes: string | null;
@@ -155,8 +161,10 @@ export interface TourneyFields {
 export async function createTourney(db: D1Database, t: TourneyFields, log: ActionLog): Promise<TourneyRow> {
   const [inserted] = await db.batch<TourneyRow>([
     db
-      .prepare(`INSERT INTO tourneys (name, starts_at, status, notes, created_at) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING ${tourneyColumns}`)
-      .bind(t.name, t.startsAt, t.status, t.notes, log.at),
+      .prepare(
+        `INSERT INTO tourneys (name, starts_at, status, notes, created_at, region) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING ${tourneyColumns}`,
+      )
+      .bind(t.name, t.startsAt, t.status, t.notes, log.at, t.region),
     newRowActionStatement(db, log, "tourney"),
   ]);
   return inserted!.results[0]!;
@@ -164,7 +172,9 @@ export async function createTourney(db: D1Database, t: TourneyFields, log: Actio
 
 export async function updateTourney(db: D1Database, id: number, t: TourneyFields, log: ActionLog): Promise<void> {
   await db.batch([
-    db.prepare("UPDATE tourneys SET name = ?2, starts_at = ?3, status = ?4, notes = ?5 WHERE id = ?1").bind(id, t.name, t.startsAt, t.status, t.notes),
+    db
+      .prepare("UPDATE tourneys SET name = ?2, starts_at = ?3, status = ?4, notes = ?5, region = ?6 WHERE id = ?1")
+      .bind(id, t.name, t.startsAt, t.status, t.notes, t.region),
     actionStatement(db, log),
   ]);
 }

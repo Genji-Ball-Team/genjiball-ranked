@@ -126,7 +126,7 @@ beforeEach(async () => {
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
     db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
     db().prepare("INSERT INTO admins (id, name, token_hash) VALUES (1, 'Ada', ?)").bind(await sha256(adminToken)),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (1, 'Fealthy', ?, 'untrusted')").bind(await sha256("host-token")),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'Fealthy', ?, 'untrusted', 'eu')").bind(await sha256("host-token")),
   ]);
 });
 

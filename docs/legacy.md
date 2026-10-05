@@ -16,7 +16,7 @@ An admin imports them; hosts can't upload them (`422 legacy_log`).
 GENJIBALL_ADMIN_TOKEN=<admin token> npm run import:legacy -- https://test.genjiball.us <host id> path/to/logs
 ```
 
-- `<host id>` is the host whose lobbies the files are from (add one at `/admin` first). The import counts as from a trusted host.
+- `<host id>` is the host whose lobbies the files are from (add one at `/admin` first, with the region they hosted in as its home region: the matches go to that region's leaderboard). The import counts as from a trusted host.
 - The script sends the files oldest first, and leaves out a file whose `KILL` lines are the start of another file's: a shorter copy of the same match. Legacy logs have no `matchKey`, so this is the only way to tell copies apart. Each file is its own match, keyed `legacy-<hash of the file>`, and the same file twice is a `duplicate`.
 - The match's start time comes from the file name, read in the time zone of the computer running the script: run it in the host's.
 - Import to the test server first and spot-check the rounds. Then import the same files directly into `https://genjiball.us`, using a production admin token and the intended host's production ID (add that host at production `/admin` first if needed). Tokens and host IDs belong to each database, so don't reuse the test values. Never copy the test database over, since it also holds test uploads.

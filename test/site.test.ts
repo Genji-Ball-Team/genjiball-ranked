@@ -16,7 +16,7 @@ beforeEach(async () => {
   await db().batch([
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
     db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (1, 'trusted', ?, 'trusted')").bind(await sha256(token)),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'trusted', ?, 'trusted', 'eu')").bind(await sha256(token)),
   ]);
 });
 
@@ -194,7 +194,7 @@ describe("player search", () => {
           ? []
           : [
               db()
-                .prepare("INSERT INTO ratings (player_id, mu, sigma, display, rounds, wins, last_played_at) VALUES (?, 25, 8, ?, ?, 0, ?)")
+                .prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, wins, last_played_at) VALUES ('eu', ?, 25, 8, ?, ?, 0, ?)")
                 .bind(id, display, rounds, new Date().toISOString()),
             ]),
       ]),
@@ -314,8 +314,8 @@ describe("pages", () => {
 
 describe("server", () => {
   it("says whether this is the test server", async () => {
-    expect(await (await SELF.fetch("https://example.com/api/server")).json()).toEqual({ testServer: false });
+    expect(await (await SELF.fetch("https://example.com/api/server")).json()).toEqual({ testServer: false, regions: defaults.regions });
     const res = await handleSite(new Request("https://example.com/api/server"), db(), { ...defaults, testServer: true });
-    expect(await res!.json()).toEqual({ testServer: true });
+    expect(await res!.json()).toMatchObject({ testServer: true });
   });
 });

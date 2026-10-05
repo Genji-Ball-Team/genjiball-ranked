@@ -5,7 +5,7 @@ const db = () => env.DB;
 
 async function seedMatch(matchKey = "000000000001", lineCount = 10): Promise<number> {
   await db().batch([
-    db().prepare("INSERT OR IGNORE INTO hosts (id, name, token_hash, trust) VALUES (1, 'host', 'abc', 'trusted')"),
+    db().prepare("INSERT OR IGNORE INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'host', 'abc', 'trusted', 'eu')"),
     db().prepare("INSERT OR IGNORE INTO players (id, name) VALUES (1, 'Sparrow'), (2, 'Tidal')"),
   ]);
   const upload = await db()

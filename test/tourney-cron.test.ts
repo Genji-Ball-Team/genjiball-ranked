@@ -5,7 +5,7 @@ import worker from "../src/index";
 beforeEach(async () => {
   await env.DB.batch([
     env.DB.prepare("DELETE FROM screenshot_deletions"),
-    env.DB.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES ('ranked')"),
+    env.DB.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES ('eu'), ('na')"),
   ]);
 });
 
@@ -25,10 +25,13 @@ describe("tourney screenshot cron", () => {
   it("retries queued deletes even when rating work fails", async () => {
     const key = "cron-rating-failure.png";
     await pendingScreenshot(key);
-    await env.DB.prepare("DELETE FROM rating_state").run();
-
-    await expect(worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "*/10 * * * *" }), env))
-      .rejects.toThrow("rating_state has no row for ranked");
+    await env.DB.prepare("ALTER TABLE rating_state RENAME TO rating_state_away").run();
+    try {
+      await expect(worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "*/10 * * * *" }), env))
+        .rejects.toThrow("no such table: rating_state");
+    } finally {
+      await env.DB.prepare("ALTER TABLE rating_state_away RENAME TO rating_state").run();
+    }
     await expectRemoved(key);
   });
 

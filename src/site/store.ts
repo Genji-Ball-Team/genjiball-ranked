@@ -1,10 +1,11 @@
-import { board } from "../rating/store";
 import { workshopStringMax } from "./rankTags";
 
 /**
  * The public site's D1 queries (#14). Read-only, and each one reads through an index, so a page
  * view costs tens of rows (docs/database.md, "Free tier"). Only `accepted` and `void` matches are
- * public; a match in review or rejected doesn't exist here.
+ * public; a match in review or rejected doesn't exist here. Ratings are per region (#47): a region's
+ * leaderboard is the `ratings` rows whose `board` is its id, and a match's ratings are on its
+ * region's board (`h.board = m.region`).
  */
 
 const publicStatuses = "('accepted', 'void')";
@@ -32,7 +33,7 @@ export interface RatingRow {
 const ratingColumns = `r.player_id AS playerId, p.name, r.display, r.rounds, r.wins, r.last_played_at AS lastPlayedAt`;
 
 /** A leaderboard page: players with at least `minRounds` rated rounds, best first (index `ratings_board_display`). */
-export async function listLeaderboard(db: D1Database, minRounds: number, limit: number, offset: number): Promise<RatingRow[]> {
+export async function listLeaderboard(db: D1Database, board: string, minRounds: number, limit: number, offset: number): Promise<RatingRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
@@ -50,6 +51,7 @@ export async function listLeaderboard(db: D1Database, minRounds: number, limit: 
  */
 export async function listTagCandidates(
   db: D1Database,
+  board: string,
   minRounds: number,
   minDisplay: number,
   activeSince: string,
@@ -67,7 +69,7 @@ export async function listTagCandidates(
   return results;
 }
 
-export async function findRating(db: D1Database, playerId: number): Promise<RatingRow | null> {
+export async function findRating(db: D1Database, board: string, playerId: number): Promise<RatingRow | null> {
   return db
     .prepare(`SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.board = ?1 AND r.player_id = ?2`)
     .bind(board, playerId)
@@ -75,7 +77,7 @@ export async function findRating(db: D1Database, playerId: number): Promise<Rati
 }
 
 /** The player's place on the leaderboard, in the order `listLeaderboard` uses. */
-export async function rankOf(db: D1Database, rating: RatingRow, minRounds: number): Promise<number> {
+export async function rankOf(db: D1Database, board: string, rating: RatingRow, minRounds: number): Promise<number> {
   const row = await db
     .prepare(
       `SELECT COUNT(*) + 1 AS rank FROM ratings
@@ -84,6 +86,12 @@ export async function rankOf(db: D1Database, rating: RatingRow, minRounds: numbe
     .bind(board, minRounds, rating.display, rating.playerId)
     .first<{ rank: number }>();
   return row!.rank;
+}
+
+/** The regions the player has a rating in. */
+export async function listRatedRegions(db: D1Database, playerId: number): Promise<string[]> {
+  const { results } = await db.prepare("SELECT board FROM ratings WHERE player_id = ?").bind(playerId).all<{ board: string }>();
+  return results.map((r) => r.board);
 }
 
 export interface PlayerRow {
@@ -118,10 +126,11 @@ export interface PlayerSearchRow {
 /**
  * Players whose name or an old name contains `key` (a `nameKey`), at most `limit`: exact names
  * first, then names starting with it, then the rest, each by rating. A player counts once, by their
- * best-matching name, the current name winning a tie. Reads every alias once (a "contains" can't use
- * an index), then the players and ratings of the hits by their keys.
+ * best-matching name, the current name winning a tie. Ratings are the region's (`board`); with
+ * `onlyRated`, players with no rating there are left out. Reads every alias once (a "contains" can't
+ * use an index), then the players and ratings of the hits by their keys.
  */
-export async function searchPlayers(db: D1Database, key: string, limit: number): Promise<PlayerSearchRow[]> {
+export async function searchPlayers(db: D1Database, key: string, board: string, onlyRated: boolean, limit: number): Promise<PlayerSearchRow[]> {
   const { results } = await db
     .prepare(
       `SELECT id, name, display, rounds, lastPlayedAt, CASE WHEN alias = name THEN NULL ELSE alias END AS matchedAlias
@@ -133,13 +142,13 @@ export async function searchPlayers(db: D1Database, key: string, limit: number):
              CASE WHEN a.name_key = ?1 THEN 0 WHEN substr(a.name_key, 1, length(?1)) = ?1 THEN 1 ELSE 2 END AS score
            FROM aliases a JOIN players p ON p.id = a.player_id
            LEFT JOIN ratings r ON r.board = ?2 AND r.player_id = a.player_id
-           WHERE instr(a.name_key, ?1) > 0
+           WHERE instr(a.name_key, ?1) > 0 AND (?4 = 0 OR r.player_id IS NOT NULL)
          )
        )
        WHERE nth = 1
        ORDER BY score, display IS NULL, display DESC, id LIMIT ?3`,
     )
-    .bind(key, board, limit)
+    .bind(key, board, limit, onlyRated ? 1 : 0)
     .all<PlayerSearchRow>();
   return results;
 }
@@ -160,12 +169,12 @@ export interface PlayerMatchRow {
 }
 
 /**
- * The player's newest public matches. Newest by id, through index `match_players_player`, so the
+ * The player's newest public matches in the region. Newest by id, through index `match_players_player`, so the
  * page doesn't read every match the player was ever in; a match uploaded late can sort out of play
  * order, which the page shows by its date anyway. Group and sort on `mp.match_id`, not `m.id`:
  * then SQLite walks the index and stops at the limit instead of grouping the whole history.
  */
-export async function listPlayerMatches(db: D1Database, playerId: number, limit: number): Promise<PlayerMatchRow[]> {
+export async function listPlayerMatches(db: D1Database, board: string, playerId: number, limit: number): Promise<PlayerMatchRow[]> {
   const { results } = await db
     .prepare(
       `SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void, m.tournament, ${tourneyRef},
@@ -175,7 +184,7 @@ export async function listPlayerMatches(db: D1Database, playerId: number, limit:
           WHERE h.board = ?1 AND h.player_id = ?2 AND (h.played_at, h.match_id) < (m.played_at, m.id)
           ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
        FROM match_players mp JOIN matches m ON m.id = mp.match_id
-       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses}
+       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
        GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?3`,
     )
     .bind(board, playerId, limit)
@@ -192,6 +201,7 @@ export async function listPlayerMatches(db: D1Database, playerId: number, limit:
 
 export interface MatchRow {
   id: number;
+  region: string;
   playedAt: string;
   map: string | null;
   preset: string | null;
@@ -243,7 +253,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
   const [match, players, rounds, roundPlayers] = await db.batch([
     db
       .prepare(
-        `SELECT m.id, m.played_at AS playedAt, m.map, m.preset, m.game_version AS gameVersion, m.legacy, m.status = 'void' AS void,
+        `SELECT m.id, m.region, m.played_at AS playedAt, m.map, m.preset, m.game_version AS gameVersion, m.legacy, m.status = 'void' AS void,
            m.complete, m.tournament, ${tourneyRef}
          FROM matches m WHERE m.id = ?1 AND m.status IN ${publicStatuses}`,
       )
@@ -252,14 +262,14 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       .prepare(
         `SELECT mp.log_id AS logId, mp.player_id AS playerId, mp.name,
            (SELECT h.display FROM rating_history h
-            WHERE h.board = ?2 AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
            (SELECT h.display FROM rating_history h
-            WHERE h.board = ?2 AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
             ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
          FROM match_players mp JOIN matches m ON m.id = mp.match_id
          WHERE mp.match_id = ?1 AND m.status IN ${publicStatuses} ORDER BY mp.log_id`,
       )
-      .bind(id, board),
+      .bind(id),
     db
       .prepare(
         `SELECT r.id, r.number, r.result, r.winner_id AS winnerId, r.rated, r.broken
@@ -308,6 +318,7 @@ export type FeedMatchRow =
   | {
       id: number;
       removed: false;
+      region: string;
       playedAt: string;
       map: string | null;
       legacy: boolean;
@@ -329,22 +340,28 @@ export async function latestFeedSeq(db: D1Database): Promise<number> {
 
 /**
  * The match feed (#59): matches whose `feed_seq` is past `after`, oldest change first, at most
- * `limit`, each with its players and its change number. A match that stopped being public is only
- * its id, `removed`.
+ * `limit`, in `region` or every region, each with its players and its change number. A match that
+ * stopped being public is only its id, `removed`. Ratings are on the board of the match's region.
  * Reads through index `matches_feed`, so asking when nothing changed reads no match rows.
  */
-export async function listFeed(db: D1Database, after: number, limit: number): Promise<{ seq: number; match: FeedMatchRow }[]> {
-  const page = "SELECT id FROM matches WHERE feed_seq > ?1 ORDER BY feed_seq LIMIT ?2";
+export async function listFeed(
+  db: D1Database,
+  after: number,
+  region: string | null,
+  limit: number,
+): Promise<{ seq: number; match: FeedMatchRow }[]> {
+  const inRegion = "(?3 IS NULL OR region = ?3)";
+  const page = `SELECT id FROM matches WHERE feed_seq > ?1 AND ${inRegion} ORDER BY feed_seq LIMIT ?2`;
   const [matches, players] = await db.batch([
     db
       .prepare(
-        `SELECT m.id, m.feed_seq AS seq, m.status NOT IN ${publicStatuses} AS removed, m.played_at AS playedAt, m.map, m.legacy,
+        `SELECT m.id, m.feed_seq AS seq, m.status NOT IN ${publicStatuses} AS removed, m.region, m.played_at AS playedAt, m.map, m.legacy,
            m.status = 'void' AS void, m.complete, m.tournament, ${tourneyRef},
            (SELECT COUNT(*) FROM rounds r WHERE r.match_id = m.id) AS rounds,
            (SELECT COUNT(*) FROM rounds r WHERE r.match_id = m.id AND r.rated = 1) AS ratedRounds
-         FROM matches m WHERE m.feed_seq > ?1 ORDER BY m.feed_seq LIMIT ?2`,
+         FROM matches m WHERE m.feed_seq > ?1 AND ${inRegion} ORDER BY m.feed_seq LIMIT ?2`,
       )
-      .bind(after, limit),
+      .bind(after, limit, region),
     // A player who rejoined has two log ids: one row, with the name they last joined as.
     db
       .prepare(
@@ -354,17 +371,17 @@ export async function listFeed(db: D1Database, after: number, limit: number): Pr
            (SELECT COUNT(*) FROM rounds r JOIN round_players rp ON rp.round_id = r.id
             WHERE r.match_id = mp.match_id AND r.rated = 1 AND rp.player_id = mp.player_id AND rp.position = 1) AS wins,
            (SELECT h.display FROM rating_history h
-            WHERE h.board = ?3 AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
            (SELECT h.display FROM rating_history h
-            WHERE h.board = ?3 AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
             ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
          FROM match_players mp JOIN matches m ON m.id = mp.match_id
          WHERE mp.match_id IN (${page}) AND m.status IN ${publicStatuses}
          GROUP BY mp.match_id, mp.player_id ORDER BY mp.match_id, wins DESC, mp.player_id`,
       )
-      .bind(after, limit, board),
+      .bind(after, limit, region),
   ]);
-  type RawMatch = { id: number; seq: number; removed: number; playedAt: string; map: string | null; tourney: string | null; rounds: number; ratedRounds: number } & Record<
+  type RawMatch = { id: number; seq: number; removed: number; region: string; playedAt: string; map: string | null; tourney: string | null; rounds: number; ratedRounds: number } & Record<
     "legacy" | "void" | "complete" | "tournament",
     number
   >;

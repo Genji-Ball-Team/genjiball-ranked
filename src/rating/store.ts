@@ -7,8 +7,11 @@ import type { RatingWrites, StoredRating } from "./plan";
  * nothing is written (`isConflict`).
  */
 
-/** The leaderboard. There is one: tourney matches are on it too, marked `tournament` (docs/rating.md). */
-export const board = "ranked";
+/**
+ * Each region is a leaderboard of its own (#47): the `board` of `ratings`, `rating_history` and
+ * `rating_state` is the region id, and a region's ratings only read its own matches. Tourney matches
+ * are on their region's board, marked `tournament` (docs/rating.md).
+ */
 
 /** A match's place in play order. */
 export interface MatchRef {
@@ -39,22 +42,34 @@ export function compareRefs(a: MatchRef, b: MatchRef): number {
 
 const json = (value: unknown) => JSON.stringify(value);
 
-export async function readState(db: D1Database): Promise<RatingState> {
-  const row = await db
-    .prepare("SELECT version, stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = ?")
-    .bind(board)
-    .first<{ version: number; playedAt: string | null; id: number | null }>();
-  if (!row) throw new Error(`rating_state has no row for ${board}`);
+/** The region's rating state. A region added to the config gets its row here, the first time. */
+export async function readState(db: D1Database, board: string): Promise<RatingState> {
+  const read = () =>
+    db
+      .prepare("SELECT version, stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = ?")
+      .bind(board)
+      .first<{ version: number; playedAt: string | null; id: number | null }>();
+  let row = await read();
+  if (!row) {
+    await db.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES (?)").bind(board).run();
+    row = (await read())!;
+  }
   return { version: row.version, staleFrom: row.playedAt === null ? null : { playedAt: row.playedAt, id: row.id ?? 0 } };
 }
 
-/** Accepted matches that aren't rated, in play order (index `matches_unrated`). */
-export async function readUnrated(db: D1Database): Promise<CandidateMatch[]> {
+/** Whether any region's ratings are stale. */
+export async function anyStale(db: D1Database): Promise<boolean> {
+  return (await db.prepare("SELECT 1 FROM rating_state WHERE stale_played_at IS NOT NULL LIMIT 1").first()) !== null;
+}
+
+/** The region's accepted matches that aren't rated, in play order (index `matches_unrated`). */
+export async function readUnrated(db: D1Database, board: string): Promise<CandidateMatch[]> {
   const { results } = await db
     .prepare(
       `SELECT id, played_at AS playedAt, complete, tournament FROM matches
-       WHERE status = 'accepted' AND rated_at IS NULL ORDER BY played_at, id`,
+       WHERE region = ? AND status = 'accepted' AND rated_at IS NULL ORDER BY played_at, id`,
     )
+    .bind(board)
     .all<{ id: number; playedAt: string; complete: number; tournament: number }>();
   return results.map((m) => ({
     id: m.id,
@@ -65,21 +80,22 @@ export async function readUnrated(db: D1Database): Promise<CandidateMatch[]> {
   }));
 }
 
-/** The newest rated match (index `matches_rated`). */
-export async function readNewestRated(db: D1Database): Promise<MatchRef | null> {
+/** The region's newest rated match (index `matches_rated`). */
+export async function readNewestRated(db: D1Database, board: string): Promise<MatchRef | null> {
   return db
-    .prepare("SELECT id, played_at AS playedAt FROM matches WHERE rated_at IS NOT NULL ORDER BY played_at DESC, id DESC LIMIT 1")
+    .prepare("SELECT id, played_at AS playedAt FROM matches WHERE region = ? AND rated_at IS NOT NULL ORDER BY played_at DESC, id DESC LIMIT 1")
+    .bind(board)
     .first<MatchRef>();
 }
 
-/** Accepted matches from `from` on, in play order, at most `limit`. */
-export async function readAcceptedFrom(db: D1Database, from: MatchRef, limit: number): Promise<CandidateMatch[]> {
+/** The region's accepted matches from `from` on, in play order, at most `limit` (index `matches_region_status_played`). */
+export async function readAcceptedFrom(db: D1Database, board: string, from: MatchRef, limit: number): Promise<CandidateMatch[]> {
   const { results } = await db
     .prepare(
       `SELECT id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated, tournament FROM matches
-       WHERE status = 'accepted' AND (played_at, id) >= (?1, ?2) ORDER BY played_at, id LIMIT ?3`,
+       WHERE region = ?4 AND status = 'accepted' AND (played_at, id) >= (?1, ?2) ORDER BY played_at, id LIMIT ?3`,
     )
-    .bind(from.playedAt, from.id, limit)
+    .bind(from.playedAt, from.id, limit, board)
     .all<{ id: number; playedAt: string; complete: number; rated: number; tournament: number }>();
   return results.map((m) => ({
     id: m.id,
@@ -90,14 +106,14 @@ export async function readAcceptedFrom(db: D1Database, from: MatchRef, limit: nu
   }));
 }
 
-/** Rated matches that aren't accepted any more (voided, or replaced by a copy that isn't), from `from` up to `until`. */
-export async function readNoLongerAccepted(db: D1Database, from: MatchRef, until: MatchRef | null): Promise<number[]> {
+/** The region's rated matches that aren't accepted any more (voided, or replaced by a copy that isn't), from `from` up to `until`. */
+export async function readNoLongerAccepted(db: D1Database, board: string, from: MatchRef, until: MatchRef | null): Promise<number[]> {
   const { results } = await db
     .prepare(
-      `SELECT id FROM matches WHERE rated_at IS NOT NULL AND status != 'accepted' AND (played_at, id) >= (?1, ?2)
+      `SELECT id FROM matches WHERE region = ?5 AND rated_at IS NOT NULL AND status != 'accepted' AND (played_at, id) >= (?1, ?2)
        AND (?3 IS NULL OR (played_at, id) < (?3, ?4))`,
     )
-    .bind(from.playedAt, from.id, until?.playedAt ?? null, until?.id ?? null)
+    .bind(from.playedAt, from.id, until?.playedAt ?? null, until?.id ?? null, board)
     .all<{ id: number }>();
   return results.map((m) => m.id);
 }
@@ -125,7 +141,7 @@ export async function readRounds(db: D1Database, matchIds: readonly number[]): P
   return byMatch;
 }
 
-export async function readRatings(db: D1Database, playerIds: readonly number[]): Promise<Map<number, StoredRating>> {
+export async function readRatings(db: D1Database, board: string, playerIds: readonly number[]): Promise<Map<number, StoredRating>> {
   if (!playerIds.length) return new Map();
   const { results } = await db
     .prepare(
@@ -138,7 +154,7 @@ export async function readRatings(db: D1Database, playerIds: readonly number[]):
 }
 
 /** The stored history of these matches. */
-export async function readHistory(db: D1Database, matchIds: readonly number[]): Promise<HistoryEntry[]> {
+export async function readHistory(db: D1Database, board: string, matchIds: readonly number[]): Promise<HistoryEntry[]> {
   if (!matchIds.length) return [];
   const { results } = await db
     .prepare(
@@ -153,6 +169,7 @@ export async function readHistory(db: D1Database, matchIds: readonly number[]): 
 /** Each player's rating just before `from`: their last history row before it. */
 export async function readRatingsBefore(
   db: D1Database,
+  board: string,
   playerIds: readonly number[],
   from: MatchRef,
 ): Promise<Map<number, PlayerRating>> {
@@ -175,7 +192,7 @@ export async function readRatingsBefore(
  * Fails the batch it's in (NOT NULL on `version`) unless the version is still `version`, and
  * moves it on otherwise. Put it first in every batch that writes ratings.
  */
-export function lockStatement(db: D1Database, version: number): D1PreparedStatement {
+export function lockStatement(db: D1Database, board: string, version: number): D1PreparedStatement {
   return db
     .prepare("UPDATE rating_state SET version = CASE WHEN version = ?2 THEN version + 1 END WHERE board = ?1")
     .bind(board, version);
@@ -187,26 +204,27 @@ export function isConflict(error: unknown): boolean {
 }
 
 /**
- * Marks the ratings stale from the earliest of these matches, unless they're stale from earlier
- * already. With `onlyRated`, only matches that are rated count: for a batch that's changing them.
+ * Marks each region's ratings stale from the earliest of these matches in it, unless they're stale
+ * from earlier already. With `onlyRated`, only matches that are rated count: for a batch that's
+ * changing them.
  */
 export function staleFromMatchesStatement(db: D1Database, matchIds: readonly number[], now: string, onlyRated = false): D1PreparedStatement {
   return db
     .prepare(
-      `UPDATE rating_state SET version = version + 1, stale_since = coalesce(stale_since, ?3),
+      `UPDATE rating_state SET version = version + 1, stale_since = coalesce(stale_since, ?2),
          stale_played_at = CASE WHEN stale_played_at IS NULL OR (m.played_at, m.id) < (stale_played_at, stale_match_id)
            THEN m.played_at ELSE stale_played_at END,
          stale_match_id = CASE WHEN stale_played_at IS NULL OR (m.played_at, m.id) < (stale_played_at, stale_match_id)
            THEN m.id ELSE stale_match_id END
-       FROM (SELECT played_at, id FROM matches WHERE id IN (SELECT value FROM json_each(?2))
-             AND (?4 = 0 OR rated_at IS NOT NULL) ORDER BY played_at, id LIMIT 1) AS m
-       WHERE board = ?1`,
+       FROM (SELECT region, played_at, id, ROW_NUMBER() OVER (PARTITION BY region ORDER BY played_at, id) AS nth
+             FROM matches WHERE id IN (SELECT value FROM json_each(?1)) AND (?3 = 0 OR rated_at IS NOT NULL)) AS m
+       WHERE m.nth = 1 AND rating_state.board = m.region`,
     )
-    .bind(board, json(matchIds), now, onlyRated ? 1 : 0);
+    .bind(json(matchIds), now, onlyRated ? 1 : 0);
 }
 
-/** Marks the ratings stale from `from` (`fromStart` for everything). */
-export function staleFromStatement(db: D1Database, from: MatchRef, now: string): D1PreparedStatement {
+/** Marks the region's ratings stale from `from` (`fromStart` for everything); every region's with `board` null. */
+export function staleFromStatement(db: D1Database, board: string | null, from: MatchRef, now: string): D1PreparedStatement {
   return db
     .prepare(
       `UPDATE rating_state SET version = version + 1, stale_since = coalesce(stale_since, ?4),
@@ -214,13 +232,13 @@ export function staleFromStatement(db: D1Database, from: MatchRef, now: string):
            THEN ?2 ELSE stale_played_at END,
          stale_match_id = CASE WHEN stale_played_at IS NULL OR (?2, ?3) < (stale_played_at, stale_match_id)
            THEN ?3 ELSE stale_match_id END
-       WHERE board = ?1`,
+       WHERE ?1 IS NULL OR board = ?1`,
     )
     .bind(board, from.playedAt, from.id, now);
 }
 
 /** Moves the start of the stale range to `next`, or clears it when the recompute is done. */
-export function staleUntilStatement(db: D1Database, next: MatchRef | null, now: string): D1PreparedStatement {
+export function staleUntilStatement(db: D1Database, board: string, next: MatchRef | null, now: string): D1PreparedStatement {
   return next
     ? db
         .prepare("UPDATE rating_state SET stale_played_at = ?2, stale_match_id = ?3, recomputed_at = ?4 WHERE board = ?1")
@@ -239,7 +257,7 @@ export function ratedAtStatement(db: D1Database, matchIds: readonly number[], ra
 }
 
 /** The statements that write a plan: only the rows that changed. */
-export function writeStatements(db: D1Database, w: RatingWrites): D1PreparedStatement[] {
+export function writeStatements(db: D1Database, board: string, w: RatingWrites): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
   if (w.historyRemove.length) {
     statements.push(

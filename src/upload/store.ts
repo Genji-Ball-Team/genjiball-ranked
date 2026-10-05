@@ -10,10 +10,12 @@ export interface Host {
   id: number;
   name: string;
   trust: HostTrust;
+  /** The home region an admin set (#47): uploads without `X-Region` are played there. */
+  region: string | null;
 }
 
 export async function findHost(db: D1Database, tokenHash: string): Promise<Host | null> {
-  return db.prepare("SELECT id, name, trust FROM hosts WHERE token_hash = ?").bind(tokenHash).first<Host>();
+  return db.prepare("SELECT id, name, trust, region FROM hosts WHERE token_hash = ?").bind(tokenHash).first<Host>();
 }
 
 /** Uploads stored for the host since `since` (ISO), for the rate limit. */
@@ -34,7 +36,7 @@ export async function findStoredCopies(db: D1Database, hostId: number, matchKeys
   if (!matchKeys.length) return [];
   const { results } = await db
     .prepare(
-      `SELECT id, match_key AS matchKey, line_count AS lineCount, status, upload_id AS uploadId,
+      `SELECT id, match_key AS matchKey, line_count AS lineCount, status, upload_id AS uploadId, region,
          rejection_code AS rejectionCode, rejection_message AS rejectionMessage
        FROM matches WHERE host_id = ?1 AND match_key IN (SELECT value FROM json_each(?2))`,
     )
@@ -75,6 +77,8 @@ export async function findMatchStates(db: D1Database, hostId: number, matchKeys:
 
 export interface UploadWrite {
   hostId: number;
+  /** The region new matches are stored in. A longer copy keeps the stored match's. */
+  region: string;
   contentHash: string;
   /** gzip of the raw text. */
   rawLog: Uint8Array;
@@ -177,14 +181,14 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
     db
       .prepare(
         `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, legacy, status, rejection_code,
-           rejection_message, review_reasons, unranked, map, preset, played_at, complete)
+           rejection_message, review_reasons, unranked, map, preset, played_at, complete, region)
          SELECT ${uploadId.replace("?2", "?3")}, ?2, e.value ->> 'matchKey', e.value ->> 'lineCount', e.value ->> 'format',
            e.value ->> 'gameVersion', e.value ->> 'legacy', e.value ->> 'status', e.value ->> 'rejectionCode', e.value ->> 'rejectionMessage',
            e.value ->> 'reviewReasons', e.value ->> 'unranked', e.value ->> 'map', e.value ->> 'preset',
-           e.value ->> 'playedAt', e.value ->> 'complete'
+           e.value ->> 'playedAt', e.value ->> 'complete', ?4
          FROM json_each(?1) e`,
       )
-      .bind(json(w.rows.inserted), w.hostId, w.contentHash),
+      .bind(json(w.rows.inserted), w.hostId, w.contentHash, w.region),
 
     ...chunks(w.rows.players, w.chunkRows).map((rows) =>
       db

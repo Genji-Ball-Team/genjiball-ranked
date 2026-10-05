@@ -1,4 +1,4 @@
-import type { Config } from "../config";
+import { findRegion, type Config } from "../config";
 import { fail } from "../http";
 import type { Logger } from "../log";
 import type { UpdateConfig } from "../rating/update";
@@ -46,6 +46,13 @@ export function text(value: unknown, config: AdminConfig, field: string, max = c
   const trimmed = value.trim();
   if (trimmed.length > max) throw new BadRequest(`${field} is longer than ${max} characters`);
   return trimmed || null;
+}
+
+/** A region id from the config's `regions`. */
+export function regionField(value: unknown, config: AdminConfig, field: string): string {
+  const region = typeof value === "string" ? findRegion(config.regions, value) : null;
+  if (!region) throw new BadRequest(`${field} must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+  return region.id;
 }
 
 export function notAllowed(allow: string): Response {
