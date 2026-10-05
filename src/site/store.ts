@@ -351,8 +351,8 @@ export async function listFeed(
   region: string | null,
   limit: number,
 ): Promise<{ seq: number; match: FeedMatchRow }[]> {
-  // A match moved out of the region is listed there too, as removed (`feed_left_region`).
-  const inRegion = "(?3 IS NULL OR region = ?3 OR feed_left_region = ?3)";
+  // A match moved out of the region is listed there too, as removed (`feed_left_regions`).
+  const inRegion = "(?3 IS NULL OR region = ?3 OR instr(feed_left_regions, ',' || ?3 || ',') > 0)";
   const page = `SELECT id FROM matches WHERE feed_seq > ?1 AND ${inRegion} ORDER BY feed_seq LIMIT ?2`;
   const [matches, players] = await db.batch([
     db

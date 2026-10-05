@@ -28,7 +28,7 @@ const site = (() => {
 
   let regions = store.get("regions");
   const site = {
-    region: [param(), store.get("region"), guess()].find((id) => id && known(id)) ?? regions[0].id,
+    region: [param(), store.get("region"), guess()].find((id) => id && known(id)) ?? regions?.[0]?.id ?? "eu",
     // Set by a page that shows one match or tourney: the region is that one's, not the URL's.
     own: false,
     // Where the switch leads: this page in the other region. Pages that show one match or tourney
@@ -78,13 +78,16 @@ const site = (() => {
   }
 
   document.documentElement.dataset.region = site.region;
-  store.set("region", site.region);
   document.addEventListener("DOMContentLoaded", draw);
   site.server
     .then((server) => {
       regions = server.regions;
       store.set("regions", regions);
-      if (known(site.region)) return draw();
+      // Kept for the next page only once the server knows it, so a mistyped link isn't remembered.
+      if (known(site.region)) {
+        store.set("region", site.region);
+        return draw();
+      }
       // A region that's gone, or a mistyped link: the first region instead. A match or tourney page
       // shows its own region once it's loaded, so it stays.
       site.use(regions[0].id);

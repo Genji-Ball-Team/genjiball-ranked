@@ -296,6 +296,11 @@ describe("regions: admin", () => {
     expect((await get<Feed>(`matches?after=${cursor}&region=eu`)).matches).toEqual([{ id, removed: true }]);
     expect((await get<Feed>(`matches?after=${cursor}&region=na`)).matches).toMatchObject([{ id, removed: false, region: "na" }]);
     expect((await get<Feed>(`matches?after=${cursor}`)).matches).toMatchObject([{ id, removed: false, region: "na" }]);
+
+    // Back to EU before an NA reader asked: NA still gets the removal, EU the match.
+    expect((await admin(`matches/${id}/region`, { region: "eu" })).status).toBe(200);
+    expect((await get<Feed>(`matches?after=${cursor}&region=na`)).matches).toEqual([{ id, removed: true }]);
+    expect((await get<Feed>(`matches?after=${cursor}&region=eu`)).matches).toMatchObject([{ id, removed: false, region: "eu" }]);
   });
 
   it("refuses a move to the same region, to no region, or of a tourney lobby's match", async () => {
