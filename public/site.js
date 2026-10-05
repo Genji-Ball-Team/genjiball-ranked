@@ -310,10 +310,12 @@ async function matchPage() {
             const place = places[i].get(p.id);
             const cls = `r${r.rated ? "" : " unrated"}`;
             if (!place) return `<td class="${cls}"></td>`;
+            // A tooltip with the mouse; read out after the place with a screen reader.
             const tip = roundStats(place);
-            if (place.left) return `<td class="${cls} left" title="Left${tip}">L</td>`;
-            if (r.winner === p.id) return `<td class="${cls} first" title="Won${tip}"><span>1</span></td>`;
-            return `<td class="${cls}"${tip ? ` title="${tip.slice(2)}"` : ""}>${place.position ?? "–"}</td>`;
+            const sr = tip ? `<span class="sr">${tip}</span>` : "";
+            if (place.left) return `<td class="${cls} left" title="Left${tip}">L${sr}</td>`;
+            if (r.winner === p.id) return `<td class="${cls} first" title="Won${tip}"><span>1</span>${sr}</td>`;
+            return `<td class="${cls}"${tip ? ` title="${tip.slice(2)}"` : ""}>${place.position ?? "–"}${sr}</td>`;
           })
           .join("");
         return `<tr><td class="name"><a href="${playerLink(p.id)}">${esc(p.name)}</a></td>${cells}</tr>`;
@@ -326,7 +328,7 @@ async function matchPage() {
         <tbody>${rows}</tbody></table></div>`,
     );
     $("notes").innerHTML = [
-      m.rounds.length ? "Each numbered column is a round: where the player finished, or L if they left. Hover a place for that round's kills and deflects." : "No rounds.",
+      m.rounds.length ? "Each numbered column is a round: where the player finished, or L if they left. On a computer, hover a place for that round's kills and deflects." : "No rounds.",
       ...m.rounds.map(roundNote),
     ]
       .filter(Boolean)
