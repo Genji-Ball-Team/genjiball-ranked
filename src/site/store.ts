@@ -1,4 +1,5 @@
 import { workshopStringMax } from "./rankTags";
+import type { FormRound, StoredHistoryRow } from "./history";
 
 /**
  * The public site's D1 queries (#14). Read-only, and each one reads through an index, so a page
@@ -429,4 +430,47 @@ export async function listFeed(
           players: byMatch.get(m.id) ?? [],
         },
   }));
+}
+
+/**
+ * The player's rating history in a region (#17), in play order: one row per rated match that is
+ * public in the region now. A match in review or rejected since it was rated stays out until the
+ * recompute drops it; a voided one shows until then, as it's public. One row per match the player
+ * was rated in, through the primary key of `rating_history`: a few thousand at most.
+ */
+export async function listHistory(db: D1Database, board: string, playerId: number): Promise<StoredHistoryRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT h.match_id AS matchId, h.played_at AS playedAt, h.display AS rating, h.streak, h.best_streak AS bestStreak
+       FROM rating_history h JOIN matches m ON m.id = h.match_id
+       WHERE h.board = ?1 AND h.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
+       ORDER BY h.played_at, h.match_id`,
+    )
+    .bind(board, playerId)
+    .all<StoredHistoryRow>();
+  return results;
+}
+
+/**
+ * Recent form (#17): the player's newest `limit` rated rounds in the region, newest first, of
+ * matches public there now, with how many players were in each round's rated order.
+ */
+export async function listFormRounds(db: D1Database, board: string, playerId: number, limit: number): Promise<FormRound[]> {
+  const { results } = await db
+    .prepare(
+      `WITH newest AS MATERIALIZED (
+         SELECT r.id AS roundId, r.match_id AS matchId, h.played_at AS playedAt, r.number AS round, rp.position
+         FROM rating_history h JOIN matches m ON m.id = h.match_id
+           JOIN rounds r ON r.match_id = m.id JOIN round_players rp ON rp.round_id = r.id
+         WHERE h.board = ?1 AND h.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
+           AND r.rated = 1 AND rp.player_id = ?2 AND rp.position IS NOT NULL
+         ORDER BY h.played_at DESC, h.match_id DESC, r.number DESC LIMIT ?3
+       )
+       SELECT n.matchId, n.round, n.position,
+         (SELECT COUNT(*) FROM round_players x WHERE x.round_id = n.roundId AND x.position IS NOT NULL) AS players
+       FROM newest n ORDER BY n.playedAt DESC, n.matchId DESC, n.round DESC`,
+    )
+    .bind(board, playerId, limit)
+    .all<FormRound>();
+  return results;
 }

@@ -51,6 +51,25 @@ describe("rateRound", () => {
     expect(ratings.get(2)).toMatchObject({ rounds: 3, wins: 1 });
   });
 
+  it("counts win streaks: a round finished in another place ends one, a round left out doesn't", () => {
+    const ratings: Ratings = new Map();
+    rateRound(ratings, [1, 2, 3], config);
+    rateRound(ratings, [1, 3, 2], config);
+    rateRound(ratings, [2, 3], config); // 1 left this round: their streak goes on
+    rateRound(ratings, [1, 2, 3], config);
+    expect(ratings.get(1)).toMatchObject({ streak: 3, bestStreak: 3 });
+    rateRound(ratings, [3, 1, 2], config);
+    expect(ratings.get(1)).toMatchObject({ streak: 0, bestStreak: 3 });
+    expect(ratings.get(2)).toMatchObject({ streak: 0, bestStreak: 1 });
+    expect(ratings.get(3)).toMatchObject({ streak: 1, bestStreak: 1 });
+  });
+
+  it("carries a win streak from one match to the next, in play order", () => {
+    const { ratings } = recompute([match(2, [[1, 2], [1, 2]]), match(1, [[2, 1], [1, 2]])], config);
+    expect(ratings.get(1)).toMatchObject({ streak: 3, bestStreak: 3 });
+    expect(ratings.get(2)).toMatchObject({ streak: 0, bestStreak: 1 });
+  });
+
   it("with no damping, is exactly an OpenSkill game", () => {
     const undamped = { ...config, ratingRoundsPerMatch: 1, ratingTau: 0 };
     const ratings: Ratings = new Map();
@@ -175,6 +194,8 @@ describe("rateMatch", () => {
         display: displayRating(rating, config),
         rounds: rating.rounds,
         wins: rating.wins,
+        streak: rating.streak,
+        bestStreak: rating.bestStreak,
       });
       expect(rating.lastPlayedAt).toBe("2026-10-01T20:00:00Z");
     }

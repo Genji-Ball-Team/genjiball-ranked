@@ -33,6 +33,9 @@ crons = ["*/10 * * * *"]
 # Overrides for the defaults in src/config.ts. Leave a var out to use the default.
 [vars]
 LOG_LEVEL = "info"
+# Matches re-rated a cron run. The free plan's 100,000 rows written a day: a recompute all day at 5
+# writes about 28,800 and leaves room for a busy day of uploads (docs/rating.md, "Ratings in the database").
+RATING_MATCHES_PER_RUN = "5"
 
 # The test server (#37): the same Worker with its own D1, for playtests and trying changes before
 # they reach the real leaderboard. Deploy with `npm run deploy:test`. Nothing here touches the
@@ -57,3 +60,4 @@ crons = ["*/10 * * * *"]
 [env.test.vars]
 LOG_LEVEL = "debug"
 TEST_SERVER = "true"
+RATING_MATCHES_PER_RUN = "5"

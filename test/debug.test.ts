@@ -352,6 +352,12 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
     expect(result.summary).toMatchObject({ players: 4, changed: 0, identical: true });
   });
 
+  it("isn't identical when only a stored win streak is wrong", async () => {
+    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await db().prepare("UPDATE ratings SET best_streak = best_streak + 5 WHERE board = 'eu' AND player_id = ?").bind(await playerId("Alpha")).run();
+    expect((await dryRun("eu")).summary).toMatchObject({ changed: 0, identical: false });
+  });
+
   it("lists who would move, and by how much", async () => {
     await upload(matchLog(), tokens.eu, hoursAgo(1));
     const alpha = await playerId("Alpha");
@@ -451,7 +457,7 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
 });
 
 describe("diffRatings", () => {
-  const rating = (display: number, rounds = 10) => ({ mu: display / 100, sigma: 1, display, rounds, wins: 1, lastPlayedAt: "2026-10-01T00:00:00Z" });
+  const rating = (display: number, rounds = 10) => ({ mu: display / 100, sigma: 1, display, rounds, wins: 1, lastPlayedAt: "2026-10-01T00:00:00Z", streak: 0, bestStreak: 0 });
 
   it("ranks like the leaderboard and says who passes whom", () => {
     const before = new Map([[1, rating(1200)], [2, rating(1100)], [3, rating(1000, 2)]]);
@@ -471,5 +477,11 @@ describe("diffRatings", () => {
     expect(diffRatings(same, new Map(same), 3).summary).toMatchObject({ changed: 0, identical: true });
     const drifted = new Map([[1, { ...rating(1200), mu: 12.000001 }]]);
     expect(diffRatings(same, drifted, 3).summary).toMatchObject({ changed: 0, identical: false });
+  });
+
+  it("isn't identical when only a win streak differs", () => {
+    const same = new Map([[1, rating(1200)]]);
+    expect(diffRatings(same, new Map([[1, { ...rating(1200), streak: 3 }]]), 3).summary).toMatchObject({ changed: 0, identical: false });
+    expect(diffRatings(same, new Map([[1, { ...rating(1200), bestStreak: 9 }]]), 3).summary).toMatchObject({ changed: 0, identical: false });
   });
 });

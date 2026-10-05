@@ -1,10 +1,12 @@
 import { handleAdmin } from "./admin/handler";
+import { queryBudget } from "./budget";
 import { loadConfig, type Config } from "./config";
 import type { Env } from "./env";
 import { clearStaleLobbies, handleHostLobby } from "./lobby/handler";
 import { createLogger, type Logger } from "./log";
 import { isPrivate, isPublicRead, preflight, withPrivateHeaders, withPublicHeaders } from "./public";
 import { updateRatings } from "./rating/update";
+import { updateRecords } from "./records/update";
 import { handleSite } from "./site/handler";
 import { expireOld } from "./tourney/expiry";
 import { handleHostTourneyLobby, handleHostTourneys } from "./tourney/host";
@@ -28,24 +30,34 @@ export default {
   },
 
   // The cron in wrangler.toml: rates incomplete matches whose grace period has passed, and
-  // recomputes the ratings when they're stale (docs/rating.md). Also retries queued screenshot
+  // recomputes the ratings when they're stale (docs/rating.md). Then keeps the records pages up to
+  // date (src/records/update.ts, docs/database.md "Records"). Also retries queued screenshot
   // deletes and expires screenshots past screenshotKeepDays, when that's set (src/tourney/expiry.ts).
   // And deletes the live lobbies whose heartbeats stopped (src/lobby/handler.ts).
   async scheduled(controller, env): Promise<void> {
     const config = loadConfig(env);
     const log = createLogger(config.logLevel);
     const now = new Date(controller.scheduledTime);
+    // D1's queries an invocation, less what the cleanup keeps (stale lobbies, screenshots): the
+    // ratings and records count theirs and leave what might not fit to the next run.
+    const queries = queryBudget(env.DB, config.d1QueriesPerInvocation - config.cronCleanupQueries);
     try {
+      // One of the `cronCleanupQueries` kept back from the budget.
       await clearStaleLobbies(env.DB, config, now, log);
     } catch (error) {
       // Stale lobbies aren't listed anyway: the next run deletes them.
       log.error("stale lobby cleanup failed", { error: String(error) });
     }
     try {
-      await updateRatings(env.DB, config, now, log);
+      await updateRatings(queries.db, config, now, log, undefined, queries);
     } finally {
-      // Screenshot cleanup must keep retrying even when rating work fails.
-      await expireOld(env.DB, env.PROOFS, config, now, log);
+      try {
+        // Records follow the ratings, but don't wait for them to succeed.
+        await updateRecords(queries.db, config, now, log, queries);
+      } finally {
+        // Screenshot cleanup must keep retrying even when rating work fails.
+        await expireOld(env.DB, env.PROOFS, config, now, log);
+      }
     }
   },
 } satisfies ExportedHandler<Env>;

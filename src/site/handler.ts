@@ -6,6 +6,9 @@ import { isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
 import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
+import { noRecords, recordsView, type RecordsConfig } from "../records/stats";
+import { readRecords } from "../records/store";
+import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
@@ -15,6 +18,8 @@ import {
   findRating,
   latestFeedSeq,
   listFeed,
+  listFormRounds,
+  listHistory,
   listLeaderboard,
   listPlayerMatches,
   listRatedRegions,
@@ -32,13 +37,16 @@ import {
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
  * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
- * for `lobbiesCacheSeconds`.
+ * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, and
+ * the records page (#19), `/api/records`.
  *
- * Regions (#47): the leaderboard, a player's rating and matches, the rank tags, the Tourneys page
- * and the live lobbies show one region's, `?region=`, the first of `regions` without one.
+ * Regions (#47): the leaderboard, a player's rating, matches and history, the records, the rank tags,
+ * the Tourneys page and the live lobbies show one region's, `?region=`, the first of `regions` without one.
  */
 
 export type SiteConfig = RankTagsConfig &
+  HistoryConfig &
+  Pick<RecordsConfig, "recordsActivityDays"> &
   Pick<
     Config,
     | "leaderboardPageSize"
@@ -67,7 +75,7 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies"].includes(route ?? "");
+  const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies", "records"].includes(route ?? "");
   const region = regional ? regionParam(url, config) : null;
   if (region instanceof Response) return region;
   if (path.length === 1 && route === "leaderboard") {
@@ -102,6 +110,17 @@ export async function handleSite(
   if (path.length === 1 && route === "lobbies") {
     if (!isRead(request)) return notAllowed();
     return cached(await lobbies(db, config, region!, now), config.lobbiesCacheSeconds);
+  }
+  if (path.length === 1 && route === "records") {
+    if (!isRead(request)) return notAllowed();
+    return cached(await records(db, config, region!, now), config.publicCacheSeconds);
+  }
+  if (path.length === 3 && route === "players" && path[2] === "history") {
+    if (!isRead(request)) return notAllowed();
+    const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
+    const body = id === null ? null : await history(db, config, region!, id);
+    if (!body) return fail(404, "not_found", "No such player");
+    return cached(body, config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "tourneys") {
     if (!isRead(request)) return notAllowed();
@@ -204,6 +223,40 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
     },
     matches,
   };
+}
+
+/**
+ * A player's rating history in one region (#17): the graph (at most `ratingHistoryMaxPoints`
+ * points), the peak, the win streaks and the recent form. Compare (#16) asks once per player, so
+ * each answer is cached on its own URL.
+ */
+async function history(db: D1Database, config: SiteConfig, region: Region, requested: number) {
+  // A merged player's id answers for the player they were merged into (#8), like the player page.
+  const id = await canonicalPlayerId(db, requested);
+  if (id === null) return null;
+  const [found, rows] = await Promise.all([findPlayer(db, id), listHistory(db, region.id, id)]);
+  if (!found) return null;
+  const form = recentForm(await listFormRounds(db, region.id, id, config.recentFormRounds));
+  const peak = peakOf(rows);
+  const last = rows.at(-1);
+  const point = (row: (typeof rows)[number]) => ({ matchId: row.matchId, playedAt: row.playedAt, rating: row.rating });
+  return {
+    region: region.id,
+    player: { id: found.id, name: found.name },
+    matches: rows.length,
+    points: downsample(rows, config.ratingHistoryMaxPoints).map(point),
+    peak: peak && point(peak),
+    streak: last?.streak ?? 0,
+    bestStreak: last?.bestStreak ?? 0,
+    form,
+  };
+}
+
+/** The region's records page, as the cron last stored it; empty before the first refresh. */
+async function records(db: D1Database, config: SiteConfig, region: Region, now: Date) {
+  const stored = await readRecords(db, region.id);
+  if (stored) return { region: region.id, updatedAt: stored.refreshedAt, ...stored.body };
+  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, days: [], players: 0, topHosts: [] }, config, now) };
 }
 
 /**

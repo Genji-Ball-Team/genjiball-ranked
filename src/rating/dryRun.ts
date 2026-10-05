@@ -43,7 +43,7 @@ export const dryRunSql = {
   rounds: (matchIds: readonly number[]) => roundsSql(idList(matchIds)),
   /** The region's stored ratings. */
   ratings: (region: string) =>
-    `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, last_played_at AS lastPlayedAt FROM ratings WHERE board = '${region}'`,
+    `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt FROM ratings WHERE board = '${region}'`,
   names: (playerIds: readonly number[]) => `SELECT id, name FROM players WHERE id IN (${idList(playerIds)})`,
 };
 
