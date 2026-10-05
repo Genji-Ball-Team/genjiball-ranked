@@ -15,7 +15,7 @@
     "cf-typegen": "wrangler types --include-runtime false",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run && node --test test/*.node.mjs",
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "repository": {

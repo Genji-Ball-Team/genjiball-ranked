@@ -303,6 +303,29 @@ describe("regions: admin", () => {
     expect((await get<Feed>(`matches?after=${cursor}&region=eu`)).matches).toMatchObject([{ id, removed: false, region: "eu" }]);
   });
 
+  it("keeps the old region's removal when a match stops being public before it moves", async () => {
+    await uploadOk(matchLog(), tokens.eu, hoursAgo(1));
+    const id = await matchId("000000000001");
+    const { cursor } = await get<{ cursor: number }>("matches?after=latest");
+    await db().prepare("UPDATE matches SET status = 'review' WHERE id = ?").bind(id).run();
+    expect((await admin(`matches/${id}/region`, { region: "na" })).status).toBe(200);
+
+    type Feed = { matches: { id: number; removed: boolean }[] };
+    expect((await get<Feed>(`matches?after=${cursor}&region=eu`)).matches).toEqual([{ id, removed: true }]);
+    await db().prepare("UPDATE matches SET status = 'accepted' WHERE id = ?").bind(id).run();
+    expect((await get<Feed>(`matches?after=${cursor}&region=eu`)).matches).toEqual([{ id, removed: true }]);
+    expect((await get<Feed>(`matches?after=${cursor}&region=na`)).matches).toMatchObject([{ id, removed: false }]);
+  });
+
+  it("doesn't list a moved match that was never public", async () => {
+    await db().prepare("UPDATE hosts SET trust = 'untrusted' WHERE id = 1").run();
+    await uploadOk(matchLog(), tokens.eu, hoursAgo(1));
+    const id = await matchId("000000000001");
+    expect((await admin(`matches/${id}/region`, { region: "na" })).status).toBe(200);
+    expect(await db().prepare("SELECT feed_seq FROM matches WHERE id = ?").bind(id).first("feed_seq")).toBeNull();
+    expect((await get<{ matches: unknown[] }>("matches?after=0")).matches).toEqual([]);
+  });
+
   it("refuses a move to the same region, to no region, or of a tourney lobby's match", async () => {
     await uploadOk(matchLog(), tokens.eu, hoursAgo(1));
     const id = await matchId("000000000001");
