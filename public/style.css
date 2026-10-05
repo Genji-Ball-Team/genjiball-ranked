@@ -173,6 +173,7 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 #history .facts small { color: var(--muted); font-weight: 400; }
 .graph { position: relative; margin-top: 1rem; touch-action: pan-y; }
 .graph svg { display: block; overflow: visible; cursor: crosshair; }
+.graph svg:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
 .graph text { fill: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; text-anchor: end; }
 .graph text.end { text-anchor: start; }
 .graph text.end[text-anchor="end"] { text-anchor: end; }

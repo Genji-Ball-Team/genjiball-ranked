@@ -232,23 +232,23 @@ function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
           <circle class="last" cx="${last.x}" cy="${last.y}" r="4.5"/></g>`;
       })
       .join("");
-    box.innerHTML = `<svg width="${width}" height="${height}" role="img" aria-label="${esc(label)}">
+    box.innerHTML = `<svg width="${width}" height="${height}" role="img" tabindex="0" aria-label="${esc(`${label} Arrow keys step through the points${one ? ", Enter opens a point's match" : ""}.`)}">
         <defs><linearGradient id="graph-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
         <g class="grid-lines">${grid.join("")}</g>${tierLines}${marks}
         <text class="end" x="${pad.left}" y="${height - 6}">${esc(ends[0])}</text>
         <text class="end" x="${width - pad.right}" y="${height - 6}" text-anchor="end">${esc(ends[1])}</text>
         <g class="cursor" hidden><line y1="${pad.top}" y2="${height - pad.bottom}"/>${series.map((s) => `<circle r="5" style="--series:${s.color}"/>`).join("")}</g>
-      </svg><div class="tip" hidden></div>`;
+      </svg><div class="tip" hidden></div><p class="sr" aria-live="polite"></p>`;
     const svg = box.querySelector("svg");
     const cursor = svg.querySelector(".cursor");
     const dots = cursor.querySelectorAll("circle");
     const tip = box.querySelector(".tip");
+    const said = box.querySelector("[aria-live]");
     let picked = [];
     // With one player, a mouse click opens the match under the cursor; a tap shows its point first, a
     // second tap on it opens it.
     let open = false;
-    const show = (e) => {
-      const px = Math.min(Math.max(e.clientX - svg.getBoundingClientRect().left, pad.left), width - pad.right);
+    const showAt = (px) => {
       // One player: the point nearest the pointer. Over time: each player's rating then, from their
       // last match before the pointer (-1 before their first).
       picked = one
@@ -292,6 +292,27 @@ function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
         tip.style.left = `${cx + 12 + tip.offsetWidth > width ? cx - 12 - tip.offsetWidth : cx + 12}px`;
       }
     };
+    const show = (e) => showAt(Math.min(Math.max(e.clientX - svg.getBoundingClientRect().left, pad.left), width - pad.right));
+    // The keyboard steps through the points, each read out as the tooltip says it.
+    const stops = [...new Set(lines.flat().map((p) => p.x))].sort((a, b) => a - b);
+    let stop = -1;
+    svg.addEventListener("keydown", (e) => {
+      const keys = { ArrowLeft: stop - 1, ArrowRight: stop + 1, Home: 0, End: stops.length - 1 };
+      if (e.key in keys) {
+        e.preventDefault();
+        stop = Math.min(stops.length - 1, Math.max(0, stop < 0 ? stops.length - 1 : keys[e.key]));
+        showAt(stops[stop]);
+        said.textContent = tip.textContent.replace(/\s+/g, " ").trim();
+      } else if ((e.key === "Enter" || e.key === " ") && one && stop >= 0) {
+        e.preventDefault();
+        location.href = `/match?id=${lines[0][picked[0]].matchId}`;
+      }
+    });
+    svg.addEventListener("blur", () => {
+      cursor.setAttribute("hidden", "");
+      tip.hidden = true;
+      stop = -1;
+    });
     svg.addEventListener("pointermove", show);
     svg.addEventListener("pointerdown", (e) => {
       const before = tip.hidden ? -1 : picked[0];
