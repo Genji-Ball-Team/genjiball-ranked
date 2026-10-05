@@ -9,6 +9,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <script src="/region.js"></script>
 </head>
 <body data-page="leaderboard">
   <header class="top">
@@ -17,10 +18,10 @@
   </header>
   <main>
     <div class="title-row">
-      <h1>Leaderboard</h1>
+      <h1 id="heading">Leaderboard</h1>
       <label class="find"><input id="find" type="search" placeholder="Find a player" aria-label="Find a player" autocomplete="off"></label>
     </div>
-    <p class="lede">Every rated round of Genji Ball, ranked and <a href="/tourneys">tourney</a> matches on one board, from the matches hosts upload. Ratings change after each uploaded match.</p>
+    <p class="lede">Every rated round of Genji Ball in <span id="region-name">this region</span>, ranked and <a href="/tourneys">tourney</a> matches on one board, from the matches hosts upload. Ratings change after each uploaded match. Each region has its own board.</p>
     <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span>Rounds</span><span>Won</span></div>
     <ol id="list" class="ladder" aria-busy="true" data-loading>
       <li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li>

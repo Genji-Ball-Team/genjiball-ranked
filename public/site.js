@@ -1,5 +1,6 @@
 // The site's pages (#14, #44). Each page is static HTML that fills itself from the public read API
-// (docs/api.md, "Site"). `<body data-page>` says which page this is.
+// (docs/api.md, "Site"). `<body data-page>` says which page this is. Each shows one region's data
+// (#48): `site.region`, from region.js.
 "use strict";
 
 const $ = (id) => document.getElementById(id);
@@ -9,6 +10,12 @@ const dateTime = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "
 const winRate = (wins, rounds) => (rounds ? `${Math.round((100 * wins) / rounds)}%` : "–");
 const idParam = () => new URLSearchParams(location.search).get("id") ?? "";
 const siteName = "Genji Ball Ranked";
+const inRegion = (region = site.region) => `region=${encodeURIComponent(region)}`;
+// A player page in this page's region: their rating there, also when the link is shared.
+const playerLink = (id, region = site.region) => `/player?id=${id}&${inRegion(region)}`;
+const title = (what) => (document.title = `${what} – ${siteName}`);
+// A region's name, in HTML: region.js fills it in once a first visit has the names.
+const regionName = (id) => `<span data-region-label="${esc(id)}">${esc(site.label(id))}</span>`;
 
 // The log's map codes (GenjiBall-CE docs/ranked-log.md, MATCH_START).
 const mapNames = { "workshop-island-night": "Workshop Island Night", other: "Another map" };
@@ -78,7 +85,7 @@ function ladder(players) {
       floor ||= p.rating <= 0;
       const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
       const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
-      return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="/player?id=${p.id}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
+      return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
         <span class="pos num">${p.rank}</span>
         <span class="who"><b>${esc(p.name)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
         <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
@@ -97,7 +104,7 @@ async function allPlayers() {
   everyone ??= (async () => {
     const players = [];
     for (let page = 1; ; page++) {
-      const d = await api(`leaderboard?page=${page}`);
+      const d = await api(`leaderboard?${inRegion()}&page=${page}`);
       players.push(...d.players);
       if (!d.hasMore) return players;
     }
@@ -111,16 +118,20 @@ async function allPlayers() {
 async function leaderboardPage() {
   const box = $("list");
   const page = Number(new URLSearchParams(location.search).get("page")) || 1;
+  const short = site.short(site.region);
+  title(`${short} leaderboard`);
+  $("heading").textContent = `${short} leaderboard`;
+  $("region-name").innerHTML = regionName(site.region);
   let shown;
   try {
-    const d = await api(`leaderboard?page=${page}`);
+    const d = await api(`leaderboard?${inRegion()}&page=${page}`);
     shown = () => {
       loaded(box, d.players.length ? ladder(d.players) : '<li class="empty">No one has enough rated rounds for the leaderboard yet.</li>');
       $("prev").hidden = page <= 1;
       $("next").hidden = !d.hasMore;
     };
-    $("prev").href = `?page=${page - 1}`;
-    $("next").href = `?page=${page + 1}`;
+    $("prev").href = `?${inRegion()}&page=${page - 1}`;
+    $("next").href = `?${inRegion()}&page=${page + 1}`;
     shown();
   } catch (error) {
     showError(box, error, "leaderboard");
@@ -133,7 +144,7 @@ async function leaderboardPage() {
       const found = (await allPlayers()).filter((p) => p.name.toLowerCase().includes(query));
       if (e.target.value.trim().toLowerCase() !== query) return; // typed on meanwhile
       $("prev").hidden = $("next").hidden = true;
-      loaded(box, found.length ? ladder(found) : `<li class="empty">No one on the leaderboard is called “${esc(e.target.value.trim())}”.</li>`);
+      loaded(box, found.length ? ladder(found) : `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(e.target.value.trim())}”.</li>`);
     } catch (error) {
       showError(box, error, "leaderboard");
     }
@@ -161,16 +172,23 @@ function progress(r) {
 
 async function playerPage() {
   try {
-    const { player: p, matches } = await api(`players/${encodeURIComponent(idParam())}`);
+    const { player: p, matches } = await api(`players/${encodeURIComponent(idParam())}?${inRegion()}`);
     const r = p.rating;
-    document.title = `${p.name} – ${siteName}`;
+    const here = regionName(site.region);
+    title(`${p.name} (${site.short(site.region)})`);
     $("name").textContent = p.name;
     $("tier").innerHTML = r ? chip(r.tier) : "";
     const others = p.aliases.filter((a) => a !== p.name);
+    // A rating in another region is a separate one: a link to it, not a mix on this page.
+    const elsewhere = p.regions
+      .filter((id) => id !== site.region)
+      .map((id) => `<a href="${playerLink(p.id, id)}">${regionName(id)}</a>`)
+      .join(" and ");
     $("about").innerHTML = [
       r?.inactiveSince && `Inactive since ${esc(date(r.inactiveSince))}: still on the leaderboard, but no rank tag in game.`,
-      r && !r.rank && "Not on the leaderboard yet: it takes a few more rated rounds.",
-      !r && "No rated rounds yet.",
+      r && !r.rank && `Not on the ${here} leaderboard yet: it takes a few more rated rounds.`,
+      !r && `No rated rounds in ${here}${elsewhere ? "" : " yet"}.`,
+      elsewhere && `${r ? "Also rated" : "Rated"} in ${elsewhere}.`,
       others.length && `Also played as ${others.map(esc).join(", ")}.`,
     ]
       .filter(Boolean)
@@ -197,7 +215,7 @@ async function playerPage() {
                 <span class="id num">#${m.id}</span></a></li>`;
             })
             .join("")
-        : '<li class="empty">No matches yet.</li>',
+        : `<li class="empty">No matches in ${here} yet.</li>`,
     );
   } catch (error) {
     $("name").textContent = error.message === "not_found" ? "Player not found" : "Player";
@@ -215,14 +233,24 @@ function roundNote(r) {
   return "";
 }
 
+// A match or tourney is in one region: the page takes its region, and the switch leads to the other
+// region's list.
+function ownRegion(list) {
+  site.own = true;
+  site.link = (id) => `${list}?region=${encodeURIComponent(id)}`;
+}
+
 async function matchPage() {
+  ownRegion("/");
   try {
     const { match: m } = await api(`matches/${encodeURIComponent(idParam())}`);
-    document.title = `Match ${m.id} – ${siteName}`;
+    site.use(m.region);
+    title(`Match ${m.id} (${site.short(m.region)})`);
     $("name").textContent = `Match ${m.id}`;
     $("flags").innerHTML = matchFlags(m) + (m.complete ? "" : '<span class="chip plain" title="The log ends before the match did">Unfinished</span>');
     $("facts").innerHTML = [
       m.tourney && `<a href="/tourney?id=${m.tourney.id}">${esc(m.tourney.name)}</a>, ${esc(m.tourney.lobby)}`,
+      regionName(m.region),
       ...[dateTime(m.playedAt), mapName(m.map), m.preset && `${m.preset} preset`, `Game version ${m.gameVersion}`].filter(Boolean).map(esc),
     ]
       .filter(Boolean)
@@ -246,7 +274,7 @@ async function matchPage() {
             return `<td class="${cls}">${place.position ?? "–"}</td>`;
           })
           .join("");
-        return `<tr><td class="name"><a href="/player?id=${p.id}">${esc(p.name)}</a></td>
+        return `<tr><td class="name"><a href="${playerLink(p.id)}">${esc(p.name)}</a></td>
           <td class="won">${p.wins}</td><td class="delta">${change(p.ratingBefore, p.ratingAfter)}</td>${cells}</tr>`;
       })
       .join("");
@@ -337,17 +365,20 @@ function pastItem(t) {
 
 async function tourneysPage() {
   const page = Number(new URLSearchParams(location.search).get("page")) || 1;
+  const short = site.short(site.region);
+  title(`${short} tourneys`);
+  $("heading").textContent = `${short} tourneys`;
   try {
-    const d = await api(`tourneys?page=${page}`);
+    const d = await api(`tourneys?${inRegion()}&page=${page}`);
     if (d.upcoming.length) {
       $("upcoming-section").hidden = false;
       $("upcoming").innerHTML = d.upcoming.map(upcomingItem).join("");
     }
-    loaded($("past"), d.past.length ? d.past.map(pastItem).join("") : '<li class="empty">No tourney has been played yet.</li>');
+    loaded($("past"), d.past.length ? d.past.map(pastItem).join("") : `<li class="empty">No ${esc(short)} tourney has been played yet.</li>`);
     $("prev").hidden = page <= 1;
     $("next").hidden = !d.hasMore;
-    $("prev").href = `?page=${page - 1}`;
-    $("next").href = `?page=${page + 1}`;
+    $("prev").href = `?${inRegion()}&page=${page - 1}`;
+    $("next").href = `?${inRegion()}&page=${page + 1}`;
   } catch (error) {
     showError($("past"), error, "tourney list");
   }
@@ -358,7 +389,7 @@ function standingsTable(l) {
     .map(
       (s) => `<tr${s.place === 1 ? ' class="first"' : ""}>
         <td class="place num">${s.place}</td>
-        <td class="name"><a href="/player?id=${s.id}">${esc(s.name)}</a></td>
+        <td class="name"><a href="${playerLink(s.id)}">${esc(s.name)}</a></td>
         <td class="num">${s.wins}</td><td class="num">${s.kills}</td>
         <td class="num muted">${s.ratingBefore === null ? "–" : rating(s.ratingBefore)}</td>
         <td class="delta">${change(s.ratingBefore, s.ratingAfter)}</td></tr>`,
@@ -375,7 +406,7 @@ function lobbySection(t, l) {
   const title = t.lobbies.length > 1 || !l.standings.length ? `<h2>${esc(l.label)}</h2>` : "";
   const flags = l.standings.length ? verifiedChip(l.verified) + (l.void ? ' <span class="chip bad" title="Doesn\'t count for ratings">Void</span>' : "") : "";
   const podium = won.length
-    ? `<p class="podium">${trophy()}<span><small>Winner</small><b>${won.map((s) => `<a href="/player?id=${s.id}">${esc(s.name)}</a>`).join(" & ")}</b>
+    ? `<p class="podium">${trophy()}<span><small>Winner</small><b>${won.map((s) => `<a href="${playerLink(s.id)}">${esc(s.name)}</a>`).join(" & ")}</b>
         <small>${won[0].wins} rounds won, ${won[0].kills} kills</small></span></p>`
     : "";
   const proof = l.screenshot
@@ -410,14 +441,20 @@ function enlarge(src, alt) {
 }
 
 async function tourneyPage() {
+  ownRegion("/tourneys");
   try {
     const { tourney: t } = await api(`tourneys/${encodeURIComponent(idParam())}`);
-    document.title = `${t.name} – ${siteName}`;
+    site.use(t.region);
+    title(`${t.name} (${site.short(t.region)})`);
     $("name").textContent = t.name;
     $("flags").innerHTML = statusChip[t.status] ?? "";
-    $("facts").innerHTML = [dateTime(t.startsAt) + (t.status === "scheduled" ? `, ${until(t.startsAt)}` : ""), t.lobbies.length && lobbyCount(t.lobbies.length)]
+    $("facts").innerHTML = [
+      esc(dateTime(t.startsAt) + (t.status === "scheduled" ? `, ${until(t.startsAt)}` : "")),
+      regionName(t.region),
+      t.lobbies.length && esc(lobbyCount(t.lobbies.length)),
+    ]
       .filter(Boolean)
-      .map((f) => `<li>${esc(f)}</li>`)
+      .map((f) => `<li>${f}</li>`)
       .join("");
     $("notes").textContent = t.notes ?? "";
     const upcoming = t.status === "scheduled" || t.status === "live";
@@ -504,7 +541,7 @@ function searchSheet() {
       results.innerHTML = found.length
         ? found
             .map(
-              (p) => `<li><a href="/player?id=${p.id}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
+              (p) => `<li><a href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
                 <span class="pos num">${p.rank}</span><b>${esc(p.name)}</b>${chip(p.tier)}<span class="rating num">${rating(p.rating)}</span></a></li>`,
             )
             .join("")
@@ -529,6 +566,7 @@ function backButton() {
 }
 
 const page = document.body.dataset.page;
+if (["leaderboard", "player", "tourneys"].includes(page)) site.pin();
 tabBar(page);
 backButton();
 ({ leaderboard: leaderboardPage, player: playerPage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();

@@ -7,6 +7,7 @@
   <title>Admin – Genji Ball Ranked</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/region.js"></script>
 </head>
 <body class="admin">
   <header class="top">
@@ -97,14 +98,16 @@
     function button(parent, label, onClick) { const b = document.createElement("button"); b.textContent = label; b.onclick = onClick; parent.append(b, " "); }
 
     // Regions (#47) come from /api/server. A select's data-regions says what else it offers:
-    // "all" (every region), "none" (no home region) or "pick" (a region must be chosen).
+    // "all" (every region), "none" (no home region) or "pick" (a region must be chosen). The match
+    // filter and a new tourney start on the header's region (#48).
     let regions = [];
     async function loadRegions() {
-      ({ regions } = await (await fetch("/api/server")).json());
+      ({ regions } = await site.server);
       for (const select of document.querySelectorAll("select[data-regions]")) {
         const extra = { all: ["", "all"], none: ["", "none"], pick: ["", "choose…"] }[select.dataset.regions];
         select.replaceChildren(new Option(extra[1], extra[0]), ...regions.map((r) => new Option(r.label, r.id)));
       }
+      $("match-region").value = $("tourney-region").value = site.region;
     }
     const regionLabel = (id) => regions.find((r) => r.id === id)?.label ?? id ?? "none";
 
@@ -305,6 +308,7 @@
         return `${res.tourney.name} is scheduled. Add its lobbies below.`;
       });
     };
+    site.pin();
     if (token) signIn();
   </script>
 </body>
