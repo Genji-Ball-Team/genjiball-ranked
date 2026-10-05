@@ -244,6 +244,9 @@ function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
     const dots = cursor.querySelectorAll("circle");
     const tip = box.querySelector(".tip");
     let picked = [];
+    // With one player, a mouse click opens the match under the cursor; a tap shows its point first, a
+    // second tap on it opens it.
+    let open = false;
     const show = (e) => {
       const px = Math.min(Math.max(e.clientX - svg.getBoundingClientRect().left, pad.left), width - pad.right);
       // One player: the point nearest the pointer. Over time: each player's rating then, from their
@@ -290,14 +293,18 @@ function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
       }
     };
     svg.addEventListener("pointermove", show);
-    svg.addEventListener("pointerdown", show);
+    svg.addEventListener("pointerdown", (e) => {
+      const before = tip.hidden ? -1 : picked[0];
+      show(e);
+      open = e.pointerType === "mouse" || picked[0] === before;
+    });
     svg.addEventListener("pointerleave", (e) => {
       if (e.pointerType !== "mouse") return;
       cursor.setAttribute("hidden", "");
       tip.hidden = true;
     });
     svg.addEventListener("click", () => {
-      if (one && picked.length && matchMedia("(hover: hover)").matches) location.href = `/match?id=${lines[0][picked[0]].matchId}`;
+      if (one && open && picked.length) location.href = `/match?id=${lines[0][picked[0]].matchId}`;
     });
   };
   draw();
