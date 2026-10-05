@@ -306,3 +306,26 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
   }
   return statements;
 }
+
+/**
+ * Takes a match off a region's board, for a match moved to another region: deletes its history
+ * there, and sets each of its players' ratings on the board back to their last remaining history
+ * row (or deletes the rating, with none left). Later matches are left to the recompute, so put
+ * `staleFromMatchesStatement` for the match before these, while it's still in the region.
+ */
+export function leaveBoardStatements(db: D1Database, board: string, matchId: number): D1PreparedStatement[] {
+  const players = "SELECT player_id FROM match_players WHERE match_id = ?2";
+  const latest = `SELECT h.mu, h.sigma, h.display, h.rounds, h.wins, h.played_at FROM rating_history h
+    WHERE h.board = ratings.board AND h.player_id = ratings.player_id ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1`;
+  const hasHistory = "EXISTS (SELECT 1 FROM rating_history h WHERE h.board = ratings.board AND h.player_id = ratings.player_id)";
+  return [
+    db.prepare("DELETE FROM rating_history WHERE board = ?1 AND match_id = ?2").bind(board, matchId),
+    db
+      .prepare(
+        `UPDATE ratings SET (mu, sigma, display, rounds, wins, last_played_at) = (${latest})
+         WHERE board = ?1 AND player_id IN (${players}) AND ${hasHistory}`,
+      )
+      .bind(board, matchId),
+    db.prepare(`DELETE FROM ratings WHERE board = ?1 AND player_id IN (${players}) AND NOT ${hasHistory}`).bind(board, matchId),
+  ];
+}

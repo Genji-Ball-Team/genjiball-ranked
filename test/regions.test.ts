@@ -257,6 +257,48 @@ describe("regions: admin", () => {
     expect(logged.results.map((r) => JSON.parse(r.detail))).toEqual([{ from: null, to: "na" }, { from: "na", to: null }]);
   });
 
+  it("moves a match to the other region: its ratings leave the old leaderboard and it's rated in the new one", async () => {
+    await uploadOk(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(6));
+    await uploadOk(matchLog({ key: "000000000002", players: ["Alpha", "Bravo", "Echo", "Foxtrot"] }), tokens.eu, hoursAgo(5));
+    await uploadOk(matchLog({ key: "000000000003" }), tokens.eu, hoursAgo(4));
+    await uploadOk(matchLog({ key: "000000000004", players: ["Alpha", "Golf", "Hotel", "India"] }), tokens.na, hoursAgo(3));
+    await uploadOk(matchLog({ key: "000000000005", players: ["Kilo", "Lima", "Mike", "November"] }), tokens.eu, hoursAgo(2));
+
+    // The middle EU match: later EU matches are recomputed without it.
+    const middle = await matchId("000000000002");
+    const res = await admin(`matches/${middle}/region`, { region: "na" });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(await res.json()).toMatchObject({ match: { id: middle, region: "na" } });
+    // The newest EU match, whose players played nowhere else.
+    expect((await admin(`matches/${await matchId("000000000005")}/region`, { region: "na" })).status).toBe(200);
+    while ((await readState(db(), "eu")).staleFrom || (await readState(db(), "na")).staleFrom) {
+      await updateRatings(db(), defaults, new Date(), log);
+    }
+
+    for (const region of ["eu", "na"]) {
+      const { stored, expected } = await regionRatings(region);
+      expect(stored, region).toEqual(expected);
+    }
+    const euPlayers = await db().prepare("SELECT p.name FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.board = 'eu' ORDER BY p.name").all<{ name: string }>();
+    expect(euPlayers.results.map((r) => r.name)).toEqual(["Alpha", "Bravo", "Charlie", "Delta"]);
+    expect(await db().prepare("SELECT COUNT(*) AS n FROM rating_history WHERE board = 'eu' AND match_id = ?").bind(middle).first("n")).toBe(0);
+    const logged = await db().prepare("SELECT detail FROM admin_actions WHERE action = 'match_region' ORDER BY id").first<{ detail: string }>();
+    expect(JSON.parse(logged!.detail)).toEqual({ from: "eu", to: "na" });
+  });
+
+  it("refuses a move to the same region, to no region, or of a tourney lobby's match", async () => {
+    await uploadOk(matchLog(), tokens.eu, hoursAgo(1));
+    const id = await matchId("000000000001");
+    expect((await admin(`matches/${id}/region`, { region: "eu" })).status).toBe(409);
+    expect((await admin(`matches/${id}/region`, { region: "asia" })).status).toBe(400);
+    expect((await admin("matches/999/region", { region: "na" })).status).toBe(404);
+    const { tourney } = (await (await admin("tourneys", { name: "Cup", region: "eu", startsAt: "2026-12-01T19:00:00Z" })).json()) as { tourney: { id: number } };
+    const { lobby } = (await (await admin(`tourneys/${tourney.id}/lobbies`, { label: "Lobby 1" })).json()) as { lobby: { id: number } };
+    expect((await admin(`lobbies/${lobby.id}`, { matchId: id })).status).toBe(200);
+    expect((await admin(`matches/${id}/region`, { region: "na" })).status).toBe(409);
+    expect(await db().prepare("SELECT region FROM matches WHERE id = ?").bind(id).first("region")).toBe("eu");
+  });
+
   it("filters the match list by region", async () => {
     await uploadOk(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
     await uploadOk(matchLog({ key: "000000000002" }), tokens.na, hoursAgo(1));

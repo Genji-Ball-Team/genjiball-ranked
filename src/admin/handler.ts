@@ -16,6 +16,7 @@ import {
   listActions,
   listHosts,
   listMatches,
+  moveMatch,
   setHostRegion,
   setHostTrust,
   setMatchState,
@@ -78,6 +79,10 @@ export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bu
         if (method !== "GET") return notAllowed("GET");
         const match = await findMatch(db, id);
         return match ? Response.json({ match }) : fail(404, "not_found", "No such match");
+      }
+      if (id !== null && path.length === 3 && path[2] === "region") {
+        if (method !== "POST") return notAllowed("POST");
+        return await changeMatchRegion(ctx, id, await body(request));
       }
       if (id !== null && path.length === 3 && path[2] === "tournament") {
         if (method !== "POST") return notAllowed("POST");
@@ -223,6 +228,46 @@ async function changeMatch(ctx: Context, matchId: number, action: MatchAction, d
     ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
   }
   return Response.json({ match: { ...match, ...transition.to }, ratingsStale });
+}
+
+/**
+ * `POST /api/admin/matches/:id/region` with `{ "region": "na" }`: moves a match hosted in the other
+ * region than it was uploaded as. Its ratings leave the old region's leaderboard and it's rated in
+ * the new one, then the ratings are brought up to date as far as one run goes, like a void. A match
+ * in a tourney lobby stays: unlink it first (the tourney is in one region).
+ */
+async function changeMatchRegion(ctx: Context, matchId: number, data: Record<string, unknown>): Promise<Response> {
+  const region = regionField(data.region, ctx.config, "region");
+  const match = await findMatch(ctx.db, matchId);
+  if (!match) return fail(404, "not_found", "No such match");
+  if (match.region === region) return fail(409, "conflict", `The match is already in ${region}`);
+  if (await ctx.db.prepare("SELECT id FROM tourney_lobbies WHERE match_id = ?").bind(matchId).first()) {
+    return fail(409, "conflict", "Unlink the match from its tourney lobby before moving it to another region");
+  }
+
+  try {
+    await moveMatch(ctx.db, matchId, match.region, region, {
+      adminId: ctx.admin.id,
+      action: "match_region",
+      matchId,
+      hostId: match.hostId,
+      detail: { from: match.region, to: region },
+      at: isoSeconds(ctx.now),
+    });
+  } catch (error) {
+    if (isStale(error)) return changedMeanwhile();
+    throw error;
+  }
+  ctx.log.info("admin: match region", { admin: ctx.admin.id, match: matchId, from: match.region, to: region });
+
+  let ratingsStale = true;
+  try {
+    if (match.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, [match.region, region]);
+    ratingsStale = await anyStale(ctx.db);
+  } catch (error) {
+    ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
+  }
+  return Response.json({ match: { ...match, region, rated: false }, ratingsStale });
 }
 
 /**
