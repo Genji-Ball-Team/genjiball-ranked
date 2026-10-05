@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#090b10">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Records – Genji Ball Ranked</title>
+  <meta name="description" content="Genji Ball's ranked records, how much is played, and the hosts who host the most.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/region.js"></script>
+</head>
+<body data-page="records">
+  <header class="top">
+    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
+    <nav><a href="/">Leaderboard</a><a href="/records" aria-current="page">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
+  </header>
+  <main>
+    <h1 id="heading">Records</h1>
+    <p class="lede">The bests of every accepted match in <span id="region-name">this region</span>. <span id="updated"></span></p>
+    <ol id="records" class="records" aria-busy="true" data-loading>
+      <li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li>
+    </ol>
+    <section id="activity-section" hidden>
+      <h2>Activity</h2>
+      <dl id="activity-figures" class="figures"></dl>
+      <div id="activity" class="bars"></div>
+    </section>
+    <section id="hosts-section" hidden>
+      <h2>Top hosts</h2>
+      <ol id="hosts" class="hosts"></ol>
+    </section>
+  </main>
+  <footer>Genji Ball is an Overwatch custom game. Play ranked on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</footer>
+  <script src="/banner.js"></script>
+  <script src="/site.js"></script>
+</body>
+</html>

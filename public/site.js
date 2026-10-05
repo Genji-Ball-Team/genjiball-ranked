@@ -691,6 +691,78 @@ async function comparePage() {
   render();
 }
 
+// Records (#19)
+
+const playedOn = (r) => (r.matchId ? `<a href="/match?id=${r.matchId}">${esc(date(r.playedAt))}</a>` : "");
+
+// The records, in the order the page shows them: what it is, the value as shown, and where it was set.
+const recordList = [
+  { key: "highestRating", label: "Highest rating", show: (r) => rating(r.value), where: (r) => `after the match of ${playedOn(r)}` },
+  { key: "winStreak", label: "Longest win streak", show: (r) => r.value, where: () => "rated rounds won in a row" },
+  { key: "matchWins", label: "Most rounds won in a match", show: (r) => r.value, where: (r) => playedOn(r) },
+  { key: "matchKills", label: "Most kills in a match", show: (r) => r.value, where: (r) => playedOn(r) },
+  { key: "roundDeflects", label: "Most deflects in a round", show: (r) => r.value, where: (r) => `round ${r.round}, ${playedOn(r)}` },
+  { key: "fastestDeflect", label: "Fastest deflect", show: (r) => Math.round(r.value), where: (r) => `ball speed, round ${r.round}, ${playedOn(r)}` },
+  { key: "mostWins", label: "Most rounds won", show: (r) => r.value, where: () => "rated rounds, all time" },
+  { key: "mostRounds", label: "Most rounds played", show: (r) => r.value, where: () => "rated rounds, all time" },
+];
+
+// Rated rounds a day, as bars, oldest first. Each bar's tooltip has the day's matches and players too.
+function activityBars(perDay) {
+  const most = Math.max(1, ...perDay.map((d) => d.rounds));
+  const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  const bars = perDay
+    .map((d) => {
+      const what = `${day(d.date)}: ${count(d.rounds, "rated round")}, ${count(d.matches, "match", "matches")}, ${count(d.players, "player")}`;
+      return `<li tabindex="0" aria-label="${esc(what)}"><span class="bar${d.rounds ? "" : " none"}" style="height:${((100 * d.rounds) / most).toFixed(1)}%"></span>
+        <span class="tip" aria-hidden="true"><b class="num">${d.rounds}</b> rounds<small>${esc(day(d.date))} · ${count(d.matches, "match", "matches")} · ${count(d.players, "player")}</small></span></li>`;
+    })
+    .join("");
+  return `<ol class="days">${bars}</ol>
+    <p class="axis" aria-hidden="true"><span>${esc(day(perDay[0].date))}</span><span>Rated rounds a day, most ${most}</span><span>Today</span></p>`;
+}
+
+async function recordsPage() {
+  const short = site.short(site.region);
+  title(`${short} records`);
+  $("heading").textContent = `${short} records`;
+  $("region-name").innerHTML = regionName(site.region);
+  try {
+    const d = await api(`records?${inRegion()}`);
+    $("updated").textContent = d.updatedAt ? `Updated ${dateTime(d.updatedAt)}, about every hour.` : "";
+    const set = recordList.filter((r) => d.records[r.key]);
+    loaded(
+      $("records"),
+      set.length
+        ? set
+            .map(({ key, label, show, where }) => {
+              const r = d.records[key];
+              return `<li><span class="what">${label}</span><b class="num">${show(r)}</b>
+                <span class="who"><a href="${playerLink(r.player.id)}">${esc(r.player.name)}</a><small>${where(r)}</small></span></li>`;
+            })
+            .join("")
+        : `<li class="empty">${d.updatedAt ? `No records in ${regionName(site.region)} yet: they come with the first matches.` : "The records are being counted. Check back in an hour."}</li>`,
+    );
+    const a = d.activity;
+    if (a.perDay.length) {
+      $("activity-section").hidden = false;
+      $("activity-figures").innerHTML = `<div><dt>Matches</dt><dd class="num">${a.matches}</dd></div>
+        <div><dt>Rated rounds</dt><dd class="num">${a.rounds}</dd></div>
+        <div><dt>Players</dt><dd class="num">${a.players}</dd></div>
+        <div><dt>Over</dt><dd class="num">${a.days} days</dd></div>`;
+      $("activity").innerHTML = activityBars(a.perDay);
+    }
+    if (d.topHosts.length) {
+      $("hosts-section").hidden = false;
+      $("hosts").innerHTML = d.topHosts
+        .map((h, i) => `<li><span class="pos num">${i + 1}</span><b>${esc(h.name)}</b><span class="num">${count(h.matches, "match", "matches")}</span></li>`)
+        .join("");
+    }
+  } catch (error) {
+    showError($("records"), error, "records");
+  }
+}
+
 // Match
 
 function roundNote(r) {
@@ -988,6 +1060,7 @@ async function tourneyPage() {
 // the inner pages. Hidden by the stylesheet above phone widths, where the header does the same job.
 const icons = {
   board: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  records: '<path d="m12 3.5 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>',
   find: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
   trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4.5a3 3 0 0 0 3.5 4M16 6h3.5a3 3 0 0 1-3.5 4M12 13v4M9.5 17h5v3h-5z"/>',
   // Discord's logo (simpleicons.org).
@@ -1003,11 +1076,12 @@ function tabBar(page) {
   bar.setAttribute("aria-label", "Sections");
   bar.innerHTML =
     tab("/", "board", "Leaderboard", page === "leaderboard") +
+    tab("/records", "records", "Records", page === "records") +
     tab("/tourneys", "trophy", "Tourneys", page === "tourneys" || page === "tourney") +
     tab("/?find", "find", "Find a player", false) +
     tab("https://discord.gg/sv9VVjh5pT", "discord", "Discord", false);
   document.body.append(bar);
-  bar.children[2].addEventListener("click", (e) => {
+  bar.children[3].addEventListener("click", (e) => {
     e.preventDefault();
     searchSheet().showModal();
   });
@@ -1078,7 +1152,7 @@ function backButton() {
 }
 
 const page = document.body.dataset.page;
-if (["leaderboard", "player", "compare", "tourneys"].includes(page)) site.pin();
+if (["leaderboard", "player", "compare", "records", "tourneys"].includes(page)) site.pin();
 tabBar(page);
 backButton();
-({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();
+({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, records: recordsPage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();
