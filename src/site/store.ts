@@ -293,3 +293,100 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
     roundPlayers: (roundPlayers!.results as (Omit<RoundPlayerRow, "left"> & { left: number })[]).map((rp) => ({ ...rp, left: rp.left === 1 })),
   };
 }
+
+export interface FeedPlayerRow {
+  id: number;
+  name: string;
+  /** Rated rounds the player finished in this match, and won. */
+  rounds: number;
+  wins: number;
+  ratingAfter: number | null;
+  ratingBefore: number | null;
+}
+
+export type FeedMatchRow =
+  | {
+      id: number;
+      removed: false;
+      playedAt: string;
+      map: string | null;
+      legacy: boolean;
+      void: boolean;
+      complete: boolean;
+      tournament: boolean;
+      tourney: TourneyRef | null;
+      rounds: number;
+      ratedRounds: number;
+      players: FeedPlayerRow[];
+    }
+  | { id: number; removed: true };
+
+/** The newest change number of the match feed: where a reader starting now begins. */
+export async function latestFeedSeq(db: D1Database): Promise<number> {
+  const row = await db.prepare("SELECT coalesce(max(feed_seq), 0) AS seq FROM matches").first<{ seq: number }>();
+  return row!.seq;
+}
+
+/**
+ * The match feed (#59): matches whose `feed_seq` is past `after`, oldest change first, at most
+ * `limit`, each with its players and its change number. A match that stopped being public is only
+ * its id, `removed`.
+ * Reads through index `matches_feed`, so asking when nothing changed reads no match rows.
+ */
+export async function listFeed(db: D1Database, after: number, limit: number): Promise<{ seq: number; match: FeedMatchRow }[]> {
+  const page = "SELECT id FROM matches WHERE feed_seq > ?1 ORDER BY feed_seq LIMIT ?2";
+  const [matches, players] = await db.batch([
+    db
+      .prepare(
+        `SELECT m.id, m.feed_seq AS seq, m.status NOT IN ${publicStatuses} AS removed, m.played_at AS playedAt, m.map, m.legacy,
+           m.status = 'void' AS void, m.complete, m.tournament, ${tourneyRef},
+           (SELECT COUNT(*) FROM rounds r WHERE r.match_id = m.id) AS rounds,
+           (SELECT COUNT(*) FROM rounds r WHERE r.match_id = m.id AND r.rated = 1) AS ratedRounds
+         FROM matches m WHERE m.feed_seq > ?1 ORDER BY m.feed_seq LIMIT ?2`,
+      )
+      .bind(after, limit),
+    // A player who rejoined has two log ids: one row, with the name they last joined as.
+    db
+      .prepare(
+        `SELECT mp.match_id AS matchId, mp.player_id AS id, mp.name, max(mp.log_id) AS logId,
+           (SELECT COUNT(*) FROM rounds r JOIN round_players rp ON rp.round_id = r.id
+            WHERE r.match_id = mp.match_id AND r.rated = 1 AND rp.player_id = mp.player_id AND rp.position IS NOT NULL) AS rounds,
+           (SELECT COUNT(*) FROM rounds r JOIN round_players rp ON rp.round_id = r.id
+            WHERE r.match_id = mp.match_id AND r.rated = 1 AND rp.player_id = mp.player_id AND rp.position = 1) AS wins,
+           (SELECT h.display FROM rating_history h
+            WHERE h.board = ?3 AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+           (SELECT h.display FROM rating_history h
+            WHERE h.board = ?3 AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
+            ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
+         FROM match_players mp JOIN matches m ON m.id = mp.match_id
+         WHERE mp.match_id IN (${page}) AND m.status IN ${publicStatuses}
+         GROUP BY mp.match_id, mp.player_id ORDER BY mp.match_id, wins DESC, mp.player_id`,
+      )
+      .bind(after, limit, board),
+  ]);
+  type RawMatch = { id: number; seq: number; removed: number; playedAt: string; map: string | null; tourney: string | null; rounds: number; ratedRounds: number } & Record<
+    "legacy" | "void" | "complete" | "tournament",
+    number
+  >;
+  const byMatch = new Map<number, FeedPlayerRow[]>();
+  for (const p of players!.results as (FeedPlayerRow & { matchId: number })[]) {
+    const list = byMatch.get(p.matchId) ?? [];
+    list.push({ id: p.id, name: p.name, rounds: p.rounds, wins: p.wins, ratingAfter: p.ratingAfter, ratingBefore: p.ratingAfter === null ? null : p.ratingBefore });
+    byMatch.set(p.matchId, list);
+  }
+  return (matches!.results as RawMatch[]).map(({ seq, ...m }) => ({
+    seq,
+    match: m.removed === 1
+      ? { id: m.id, removed: true }
+      : {
+          ...m,
+          removed: false,
+          legacy: m.legacy === 1,
+          void: m.void === 1,
+          complete: m.complete === 1,
+          tournament: m.tournament === 1,
+          tourney: m.tourney === null ? null : (JSON.parse(m.tourney) as TourneyRef),
+          players: byMatch.get(m.id) ?? [],
+        },
+  }));
+}

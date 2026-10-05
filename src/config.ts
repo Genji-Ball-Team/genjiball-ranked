@@ -196,6 +196,8 @@ export const defaults = {
    * use an index), so one letter isn't allowed to match half the players.
    */
   playerSearchMinLength: 2,
+  /** Most matches one read of the match feed (`/api/matches?after=`) answers. */
+  matchFeedLimit: 20,
   /** How long a browser may keep a public read (leaderboard, player, match), in seconds. */
   publicCacheSeconds: 60,
 };

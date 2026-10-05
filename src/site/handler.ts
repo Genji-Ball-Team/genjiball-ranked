@@ -10,6 +10,8 @@ import {
   findMatchDetail,
   findPlayer,
   findRating,
+  latestFeedSeq,
+  listFeed,
   listLeaderboard,
   listPlayerMatches,
   listTagCandidates,
@@ -21,7 +23,7 @@ import {
 
 /**
  * The public read API behind the site's pages (#14, docs/api.md "Site"): `/api/leaderboard`,
- * `/api/players/:id`, `/api/players?search=` and `/api/matches/:id`. No token; browsers may cache an answer for
+ * `/api/players/:id`, `/api/players?search=` and `/api/matches/:id`, and the match feed `/api/matches?after=` (#59). No token; browsers may cache an answer for
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
@@ -31,7 +33,7 @@ import {
 export type SiteConfig = RankTagsConfig &
   Pick<
     Config,
-    "leaderboardPageSize" | "playerRecentMatches" | "playerSearchLimit" | "playerSearchMinLength" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer" | "tourneysPageSize" | "screenshotCacheSeconds"
+    "leaderboardPageSize" | "matchFeedLimit" | "playerRecentMatches" | "playerSearchLimit" | "playerSearchMinLength" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer" | "tourneysPageSize" | "screenshotCacheSeconds"
   >;
 
 /** Answers a site route, or returns null when the path isn't one. */
@@ -65,6 +67,12 @@ export async function handleSite(
     }
     return cached(await playerSearch(db, config, search, now), config.publicCacheSeconds);
   }
+  if (path.length === 1 && route === "matches") {
+    if (!isRead(request)) return notAllowed();
+    const body = await feed(db, config, url.searchParams.get("after"), url.searchParams.get("limit"));
+    if (!body) return fail(400, "bad_request", `after must be a cursor from this feed, 0 or latest; limit 1 to ${config.matchFeedLimit}`);
+    return cached(body, config.publicCacheSeconds);
+  }
   if (path.length === 1 && route === "tourneys") {
     if (!isRead(request)) return notAllowed();
     return cached(await tourneys(db, config, url.searchParams.get("page")), config.publicCacheSeconds);
@@ -95,6 +103,26 @@ async function leaderboard(db: D1Database, config: SiteConfig, pageParam: string
     pageSize: size,
     hasMore: rows.length > size,
     players: rows.slice(0, size).map((row, i) => ({ rank: offset + i + 1, ...ratingView(row, config, now) })),
+  };
+}
+
+/**
+ * The match feed: public matches changed after the cursor, oldest change first. `after=latest`
+ * gives no matches and the current cursor, to start from now. Null when a parameter is malformed.
+ */
+async function feed(db: D1Database, config: SiteConfig, afterParam: string | null, limitParam: string | null) {
+  const limit = limitParam === null ? config.matchFeedLimit : /^[1-9]\d{0,5}$/.test(limitParam) ? Number(limitParam) : 0;
+  if (limit < 1 || limit > config.matchFeedLimit) return null;
+  if (afterParam === "latest") return { cursor: await latestFeedSeq(db), hasMore: false, matches: [] };
+  if (afterParam === null || !/^(0|[1-9]\d{0,15})$/.test(afterParam)) return null;
+  const after = Number(afterParam);
+  // One more than asked for, to know if there's more.
+  const rows = await listFeed(db, after, limit + 1);
+  const shown = rows.slice(0, limit);
+  return {
+    cursor: shown.at(-1)?.seq ?? after,
+    hasMore: rows.length > limit,
+    matches: shown.map((row) => row.match),
   };
 }
 
