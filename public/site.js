@@ -170,7 +170,141 @@ function progress(r) {
     <p><span class="num">${to - r.rating}</span> to ${chip(r.nextTier)}</p>`;
 }
 
+const ordinal = (n) => {
+  const rules = new Intl.PluralRules("en", { type: "ordinal" });
+  return `${n}${{ one: "st", two: "nd", few: "rd" }[rules.select(n)] ?? "th"}`;
+};
+
+// The rating graph (#17): the display rating after each match, in play order, one point a match.
+// The tier lines are the player's own tier and the next one, when the graph reaches them. Hover or
+// touch shows a point; a click opens its match. Drawn at the box's width, again when it changes.
+function ratingGraph(box, h, r) {
+  const points = h.points;
+  const tiers = [r?.tier, r?.nextTier].filter(Boolean);
+  const draw = () => {
+    const width = box.clientWidth;
+    const height = width < 480 ? 180 : 240;
+    const pad = { top: 18, right: 12, bottom: 26, left: 40 };
+    const ratings = points.map((p) => p.rating);
+    let lo = Math.min(...ratings);
+    let hi = Math.max(...ratings);
+    for (const t of tiers) if (t.threshold >= lo - 50 && t.threshold <= hi + 50) [lo, hi] = [Math.min(lo, t.threshold), Math.max(hi, t.threshold)];
+    const span = Math.max(hi - lo, 40);
+    lo = Math.max(0, lo - span * 0.08);
+    hi += span * 0.08;
+    const x = (i) => pad.left + (points.length > 1 ? (i / (points.length - 1)) * (width - pad.left - pad.right) : (width - pad.left - pad.right) / 2);
+    const y = (v) => pad.top + (1 - (v - lo) / (hi - lo)) * (height - pad.top - pad.bottom);
+    const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.rating).toFixed(1)}`).join("");
+    const area = `${line}L${x(points.length - 1).toFixed(1)},${height - pad.bottom}L${x(0).toFixed(1)},${height - pad.bottom}Z`;
+    // A few round ratings on the left, as faint grid lines.
+    const step = [10, 25, 50, 100, 200, 250, 500].find((s) => (hi - lo) / s <= 4) ?? 1000;
+    const grid = [];
+    for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+      grid.push(`<line x1="${pad.left}" x2="${width - pad.right}" y1="${y(v)}" y2="${y(v)}"/><text x="${pad.left - 8}" y="${y(v)}" dy=".32em">${v}</text>`);
+    }
+    const tierLines = tiers
+      .filter((t) => t.threshold > lo && t.threshold < hi)
+      .map(
+        (t) => `<g class="tier-line" style="${tierStyle(t)}"><line x1="${pad.left}" x2="${width - pad.right}" y1="${y(t.threshold)}" y2="${y(t.threshold)}"/>
+          <text x="${pad.left + 6}" y="${y(t.threshold)}" dy="-.45em">${esc(t.label)} ${t.threshold}</text></g>`,
+      )
+      .join("");
+    const peak = h.peak && points.findIndex((p) => p.matchId === h.peak.matchId);
+    // Both ends on one day: their times say more.
+    const sameDay = date(points[0].playedAt) === date(points.at(-1).playedAt);
+    const ends = [points[0], points.at(-1)].map((p) => (sameDay ? dateTime : date)(p.playedAt));
+    box.innerHTML = `<svg width="${width}" height="${height}" role="img" aria-label="${esc(graphLabel(h))}">
+        <defs><linearGradient id="graph-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+        <g class="grid-lines">${grid.join("")}</g>${tierLines}
+        <path class="area" d="${area}"/><path class="line" d="${line}"/>
+        ${peak >= 0 ? `<circle class="peak" cx="${x(peak)}" cy="${y(h.peak.rating)}" r="4.5"/>` : ""}
+        <circle class="last" cx="${x(points.length - 1)}" cy="${y(points.at(-1).rating)}" r="4.5"/>
+        <text class="end" x="${pad.left}" y="${height - 6}">${esc(ends[0])}</text>
+        <text class="end" x="${width - pad.right}" y="${height - 6}" text-anchor="end">${esc(ends[1])}</text>
+        <g class="cursor" hidden><line y1="${pad.top}" y2="${height - pad.bottom}"/><circle r="5"/></g>
+      </svg><div class="tip" hidden></div>`;
+    const svg = box.querySelector("svg");
+    const cursor = svg.querySelector(".cursor");
+    const tip = box.querySelector(".tip");
+    let at = -1;
+    const show = (e) => {
+      const px = e.clientX - svg.getBoundingClientRect().left;
+      const i = points.length > 1 ? Math.round(((px - pad.left) / (width - pad.left - pad.right)) * (points.length - 1)) : 0;
+      at = Math.min(points.length - 1, Math.max(0, i));
+      const p = points[at];
+      cursor.hidden = tip.hidden = false;
+      cursor.querySelector("line").setAttribute("x1", x(at));
+      cursor.querySelector("line").setAttribute("x2", x(at));
+      cursor.querySelector("circle").setAttribute("cx", x(at));
+      cursor.querySelector("circle").setAttribute("cy", y(p.rating));
+      const before = at ? points[at - 1].rating : null;
+      tip.innerHTML = `<b class="num">${rating(p.rating)}</b>${before === null ? "" : ` <span class="${p.rating >= before ? "up" : "down"}">${p.rating >= before ? "+" : "−"}${Math.abs(p.rating - before)}</span>`}
+        <small>${esc(date(p.playedAt))} · Match #${p.matchId}${at === peak ? " · Peak" : ""}</small>`;
+      tip.style.left = `${Math.min(Math.max(x(at), 70), width - 70)}px`;
+      tip.style.top = `${y(p.rating)}px`;
+    };
+    svg.addEventListener("pointermove", show);
+    svg.addEventListener("pointerdown", show);
+    svg.addEventListener("pointerleave", (e) => {
+      if (e.pointerType === "mouse") cursor.hidden = tip.hidden = true;
+    });
+    svg.addEventListener("click", () => {
+      if (at >= 0 && matchMedia("(hover: hover)").matches) location.href = `/match?id=${points[at].matchId}`;
+    });
+  };
+  draw();
+  let width = box.clientWidth;
+  new ResizeObserver(() => {
+    if (box.clientWidth !== width) (width = box.clientWidth), draw();
+  }).observe(box);
+}
+
+// What the graph shows, for screen readers.
+function graphLabel(h) {
+  const first = h.points[0];
+  const last = h.points.at(-1);
+  return `Rating over ${count(h.matches, "match", "matches")}, from ${rating(first.rating)} on ${date(first.playedAt)} to ${rating(last.rating)} on ${date(last.playedAt)}${h.peak ? `, peak ${rating(h.peak.rating)} on ${date(h.peak.playedAt)}` : ""}.`;
+}
+
+// Recent form (#17): the last rated rounds, oldest first so they read like the graph, each its place.
+function formList(form) {
+  return [...form.results]
+    .reverse()
+    .map((f) => {
+      const won = f.position === 1;
+      const what = `${won ? "Won" : `${ordinal(f.position)} of ${f.players}`}, round ${f.round} of match #${f.matchId}`;
+      return `<li><a class="${won ? "won" : ""}" href="/match?id=${f.matchId}" title="${what}"><span class="num">${f.position}</span><span class="sr">${what}</span></a></li>`;
+    })
+    .join("");
+}
+
+function historySection(h, r) {
+  if (!h.points.length) return;
+  $("history").hidden = false;
+  const fact = (label, value) => `<span>${label} <b class="num">${value}</b></span>`;
+  $("history-facts").innerHTML = [
+    h.peak && fact("Peak", `${rating(h.peak.rating)}<small> on ${esc(date(h.peak.playedAt))}</small>`),
+    fact("Rated matches", h.matches),
+    h.points.length < h.matches && `<span class="muted">${h.points.length} of them shown</span>`,
+  ]
+    .filter(Boolean)
+    .join("");
+  ratingGraph($("graph"), h, r);
+  const f = h.form;
+  $("form-facts").innerHTML = f.rounds
+    ? [
+        fact(`Last ${f.rounds} rated rounds`, `${f.wins} won`),
+        fact("Average place", f.averagePosition.toFixed(1)),
+        fact("Win streak", h.streak),
+        fact("Best", h.bestStreak),
+      ].join("")
+    : "";
+  $("form").innerHTML = formList(f);
+}
+
 async function playerPage() {
+  // The rating history is its own request: the page shows without it if it fails.
+  const history = api(`players/${encodeURIComponent(idParam())}/history?${inRegion()}`).catch(() => null);
   try {
     const { player: p, matches } = await api(`players/${encodeURIComponent(idParam())}?${inRegion()}`);
     const r = p.rating;
@@ -217,6 +351,8 @@ async function playerPage() {
             .join("")
         : `<li class="empty">No matches in ${here} yet.</li>`,
     );
+    const h = await history;
+    if (h) historySection(h, r);
   } catch (error) {
     $("name").textContent = error.message === "not_found" ? "Player not found" : "Player";
     showError($("matches"), error, "player");
