@@ -214,13 +214,15 @@ export const defaults = {
 
   /**
    * Live lobbies (#11): how often the host tool sends a heartbeat while a ranked lobby is open, in
-   * seconds. The heartbeat's answer says this, so the host tool follows the server. Each heartbeat is
-   * one row written: a lobby open an hour is 60 (docs/database.md, "Free tier").
+   * seconds. The heartbeat's answer says this, so the host tool follows the server. A heartbeat of an
+   * open lobby is one row written, opening one two, closing one: a lobby open an hour is about 62
+   * (docs/database.md, "Live lobbies").
    */
   lobbyHeartbeatSeconds: 60,
   /**
-   * Shortest time between two heartbeats of one host, in seconds. A sooner one gets 429 and writes
-   * nothing, so a host tool gone wrong can't cost more than 2 rows a minute.
+   * Shortest time between a host's heartbeat and its last heartbeat or close, in seconds. A sooner one
+   * gets 429 and writes nothing. A close keeps the row, so a host tool gone wrong, even one closing
+   * and reopening in a loop, can't cost more than 6 rows a minute.
    */
   lobbyHeartbeatMinSeconds: 30,
   /** A lobby with no heartbeat for this long is gone: it isn't listed, and the cron deletes it. Three missed heartbeats. */

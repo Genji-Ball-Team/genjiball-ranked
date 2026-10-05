@@ -109,11 +109,11 @@ The host tool calls this now and then to show a match's status after an admin ac
 
 The host tool says a ranked lobby is open, so the site can list it (#11, Genji-Ball-Team/genjiball-host-tool#6). `Authorization: Bearer <host token>`, as for an upload. One lobby per host. Code: `src/lobby/`.
 
-**Heartbeat: `PUT`**, every `lobbyHeartbeatSeconds` (60) while a ranked match log is active. Body `{ "players": 6, "name": "Kenzo's ranked" }`: `players` 0 to `lobbyPlayersMax` (12), `name` optional (spaces around it dropped, at most `lobbyNameMaxLength`, 64, characters; left out or empty: `null`). Each heartbeat sends both again: one left out is cleared. The region is an upload's: `X-Region`, else the host's home region, else `422 no_region` ([Regions](#regions)).
+**Heartbeat: `PUT`**, every `lobbyHeartbeatSeconds` (60) while a ranked match log is active. Body `{ "players": 6, "name": "Kenzo's ranked" }`: `players` 0 to `lobbyPlayersMax` (12), `name` optional (spaces around it dropped, at most `lobbyNameMaxLength`, 64, characters; left out or empty: `null`). `players` is required. Each heartbeat sends the name again: left out, it's cleared. The region is an upload's: `X-Region`, else the host's home region, else `422 no_region` ([Regions](#regions)).
 
-`200 { "lobby": { "region": "eu", "name": "Kenzo's ranked", "players": 6, "openedAt": "2026-10-05T20:00:00Z", "seenAt": "2026-10-05T20:14:00Z" }, "heartbeatSeconds": 60, "ttlSeconds": 180 }`. Send the next heartbeat after `heartbeatSeconds`. A lobby with no heartbeat for `lobbyTtlSeconds` (180) is gone; the next heartbeat opens a new one (`openedAt` starts again), as does a heartbeat in another region.
+`200 { "lobby": { "region": "eu", "name": "Kenzo's ranked", "players": 6, "openedAt": "2026-10-05T20:00:00Z", "seenAt": "2026-10-05T20:14:00Z" }, "heartbeatSeconds": 60, "ttlSeconds": 180 }`. Send the next heartbeat after `heartbeatSeconds`. A lobby with no heartbeat for `lobbyTtlSeconds` (180) is gone; the next heartbeat opens a new one (`openedAt` starts again), as does a heartbeat in another region or after a close.
 
-**Close: `DELETE`**, when the match ends, the game closes or the host switches it off. `200 { "closed": true }`, `false` when no lobby was open.
+**Close: `DELETE`**, when the match ends, the game closes or the host switches it off. `200 { "closed": true }`, `false` when no lobby was open. The lobby leaves the list at once, but the next heartbeat still waits `lobbyHeartbeatMinSeconds` from the close.
 
 | Status | `error` | When |
 |---|---|---|
@@ -122,7 +122,7 @@ The host tool says a ranked lobby is open, so the site can list it (#11, Genji-B
 | 403 | `revoked` | The token was revoked. Its lobby isn't listed any more |
 | 405 | `method_not_allowed` | Not a `PUT` or `DELETE` |
 | 422 | `no_region` | No `X-Region`, and the host has no home region. Nothing was stored |
-| 429 | `rate_limited` | A heartbeat less than `lobbyHeartbeatMinSeconds` (30) after the last one. Nothing was written; a change waits for the next heartbeat |
+| 429 | `rate_limited` | A heartbeat less than `lobbyHeartbeatMinSeconds` (30) after the last heartbeat or close. Nothing was written; a change waits for the next heartbeat |
 
 Tourney lobbies (#25) will add an optional `tourneyLobbyId` to the heartbeat; until then the list's `tourney` is always `null`.
 

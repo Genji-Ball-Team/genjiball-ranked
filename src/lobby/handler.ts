@@ -3,15 +3,17 @@ import { fail } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
 import { authHost, hostRegion, readLimited } from "../upload/handler";
-import { deleteLobby, deleteStaleLobbies, upsertLobby } from "./store";
+import { closeLobby, deleteStaleLobbies, upsertLobby } from "./store";
 
 /**
  * `/api/host/lobby`: the host tool says a ranked lobby is open (#11, Genji-Ball-Team/genjiball-host-tool#6).
  * `Authorization: Bearer <host token>`, as for an upload.
  *
  * - `PUT`: a heartbeat, every `lobbyHeartbeatSeconds` while the lobby is open. Body
- *   `{ "players": 6, "name": "..." }` (`name` optional). `X-Region` as for an upload. One row written.
- * - `DELETE`: the lobby closed (the match ended, the game closed, the host switched it off).
+ *   `{ "players": 6, "name": "..." }` (`name` optional). `X-Region` as for an upload. One row written. At most one every
+ *   `lobbyHeartbeatMinSeconds` (429 otherwise), counted from the last heartbeat or close.
+ * - `DELETE`: the lobby closed (the match ended, the game closed, the host switched it off). The row
+ *   stays, marked closed, so closing and reopening can't get round the rate limit.
  *
  * A lobby whose heartbeats stop is gone after `lobbyTtlSeconds`. The site lists them with
  * `GET /api/lobbies?region=` (src/site/handler.ts).
@@ -40,7 +42,7 @@ export async function handleHostLobby(request: Request, db: D1Database, config: 
   if (host instanceof Response) return host;
 
   if (request.method === "DELETE") {
-    const closed = await deleteLobby(db, host.id);
+    const closed = await closeLobby(db, host.id, isoSeconds(now));
     log.debug("lobby closed", { host: host.id, closed });
     return Response.json({ closed });
   }
@@ -50,7 +52,7 @@ export async function handleHostLobby(request: Request, db: D1Database, config: 
   const body = await readHeartbeat(request, config);
   if (typeof body === "string") return fail(400, "bad_request", body);
 
-  const lobby = await upsertLobby(db, {
+  const { lobby, rowsWritten } = await upsertLobby(db, {
     hostId: host.id,
     region: region.id,
     ...body,
@@ -64,11 +66,11 @@ export async function handleHostLobby(request: Request, db: D1Database, config: 
       "Retry-After": String(config.lobbyHeartbeatMinSeconds),
     });
   }
-  log.debug("lobby heartbeat", { host: host.id, ...lobby });
+  log.debug("lobby heartbeat", { host: host.id, rowsWritten, ...lobby });
   return Response.json({ lobby, heartbeatSeconds: config.lobbyHeartbeatSeconds, ttlSeconds: config.lobbyTtlSeconds });
 }
 
-/** On the cron: deletes the lobbies whose heartbeats stopped. They're already not listed. */
+/** On the cron: deletes the lobbies whose heartbeats stopped or that were closed, once past the TTL. */
 export async function clearStaleLobbies(db: D1Database, config: Pick<Config, "lobbyTtlSeconds">, now: Date, log: Logger): Promise<void> {
   const deleted = await deleteStaleLobbies(db, secondsBefore(now, config.lobbyTtlSeconds));
   if (deleted) log.debug("stale lobbies deleted", { deleted });

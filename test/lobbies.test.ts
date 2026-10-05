@@ -2,9 +2,11 @@ import { createScheduledController, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import worker from "../src/index";
-import { handleHostLobby } from "../src/lobby/handler";
+import { handleHostLobby, secondsBefore } from "../src/lobby/handler";
 import { createLogger } from "../src/log";
 import { handleSite } from "../src/site/handler";
+import { upsertLobby } from "../src/lobby/store";
+import { isoSeconds } from "../src/time";
 import { sha256 } from "../src/upload/handler";
 
 const db = () => env.DB;
@@ -162,6 +164,27 @@ describe("PUT /api/host/lobby (heartbeat)", () => {
     expect(await db().prepare("SELECT count(*) AS n FROM live_lobbies").first("n")).toBe(1);
   });
 
+  it("writes one row for a heartbeat of an open lobby in the same region", async () => {
+    const at = (now: Date, region = "eu") =>
+      upsertLobby(db(), {
+        hostId: 1,
+        region,
+        name: null,
+        players: 4,
+        now: isoSeconds(now),
+        staleBefore: secondsBefore(now, defaults.lobbyTtlSeconds),
+        tooSoonAfter: secondsBefore(now, defaults.lobbyHeartbeatMinSeconds),
+      });
+    const opened = await at(t0);
+    expect(opened.lobby).not.toBeNull();
+    const refreshed = await at(later(60));
+    expect(refreshed.lobby).toMatchObject({ seenAt: "2026-10-05T20:01:00Z", openedAt: "2026-10-05T20:00:00Z" });
+    expect(refreshed.rowsWritten).toBe(1);
+    // Another region rewrites the region index too.
+    expect((await at(later(120), "na")).rowsWritten).toBeGreaterThan(1);
+    expect((await at(later(130))).rowsWritten).toBe(0);
+  });
+
   it("rate limits a heartbeat sooner than lobbyHeartbeatMinSeconds, writing nothing", async () => {
     await heartbeat(tokens.eu, { players: 4 });
     const res = await heartbeat(tokens.eu, { players: 5 }, later(defaults.lobbyHeartbeatMinSeconds - 1));
@@ -208,11 +231,29 @@ describe("DELETE /api/host/lobby (close)", () => {
     expect((await handleHostLobby(request("DELETE", null), db(), defaults, log)).status).toBe(401);
   });
 
-  it("lets a closed lobby open again at once", async () => {
+  const close = (now: Date) => handleHostLobby(request("DELETE", tokens.eu), db(), defaults, log, now);
+  const min = defaults.lobbyHeartbeatMinSeconds;
+
+  it("opens a new lobby after a close, once lobbyHeartbeatMinSeconds have passed since the close", async () => {
     await heartbeat(tokens.eu, { players: 4 });
-    await handleHostLobby(request("DELETE", tokens.eu), db(), defaults, log, later(5));
-    const res = await heartbeat(tokens.eu, { players: 4 }, later(10));
-    expect(await res.json()).toMatchObject({ lobby: { openedAt: "2026-10-05T20:00:10Z" } });
+    await close(later(5));
+    expect((await heartbeat(tokens.eu, { players: 4 }, later(5 + min - 1))).status).toBe(429);
+    expect((await list("", later(10))).body.lobbies).toEqual([]);
+    const res = await heartbeat(tokens.eu, { players: 4 }, later(5 + min));
+    expect(await res.json()).toMatchObject({ lobby: { openedAt: "2026-10-05T20:00:35Z" } });
+    expect((await list("", later(5 + min))).body.lobbies).toHaveLength(1);
+  });
+
+  it("rate limits a close and reopen loop", async () => {
+    expect((await heartbeat(tokens.eu, { players: 4 })).status).toBe(200);
+    const statuses: number[] = [];
+    for (let i = 1; i <= 5; i += 1) {
+      await close(later(i * 2 - 1));
+      statuses.push((await heartbeat(tokens.eu, { players: 4 }, later(i * 2))).status);
+    }
+    expect(statuses).toEqual([429, 429, 429, 429, 429]);
+    // A close of a closed lobby writes nothing.
+    expect(await (await close(later(11))).json()).toEqual({ closed: false });
   });
 });
 
@@ -245,6 +286,16 @@ describe("GET /api/lobbies", () => {
 describe("cron", () => {
   beforeEach(async () => {
     await db().prepare("INSERT OR IGNORE INTO rating_state (board) VALUES ('eu'), ('na')").run();
+  });
+
+  it("deletes a closed lobby once the close is past the TTL", async () => {
+    await heartbeat(tokens.eu, { players: 4 });
+    await handleHostLobby(request("DELETE", tokens.eu), db(), defaults, log, later(60));
+    const run = (now: Date) => worker.scheduled(createScheduledController({ scheduledTime: now, cron: "*/10 * * * *" }), env);
+    await run(later(60 + defaults.lobbyTtlSeconds - 1));
+    expect(await db().prepare("SELECT count(*) AS n FROM live_lobbies").first("n")).toBe(1);
+    await run(later(60 + defaults.lobbyTtlSeconds));
+    expect(await db().prepare("SELECT count(*) AS n FROM live_lobbies").first("n")).toBe(0);
   });
 
   it("deletes the lobbies whose heartbeats stopped and keeps the others", async () => {
