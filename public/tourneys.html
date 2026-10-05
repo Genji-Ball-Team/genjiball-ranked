@@ -9,6 +9,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
+  <script src="/region.js"></script>
 </head>
 <body data-page="tourneys">
   <header class="top">
@@ -16,8 +17,8 @@
     <nav><a href="/">Leaderboard</a><a href="/tourneys" aria-current="page">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
   </header>
   <main>
-    <h1>Tourneys</h1>
-    <p class="lede">Tourney matches count on the same <a href="/">leaderboard</a> as ranked ones, and more than a normal match. Sign up and ask about the next one on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</p>
+    <h1 id="heading">Tourneys</h1>
+    <p class="lede">Tourney matches count on their region's <a href="/">leaderboard</a>, like ranked ones, and more than a normal match. Sign up and ask about the next one on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</p>
     <section id="upcoming-section" hidden>
       <h2>Coming up</h2>
       <ol id="upcoming" class="events"></ol>

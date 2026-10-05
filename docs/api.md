@@ -159,7 +159,7 @@ Lobby mutations return `409 conflict` if another edit, replacement, expiry or lo
 
 ## Site: `/api/leaderboard`, `/api/players/:id`, `/api/players?search=`, `/api/matches/:id`, `/api/matches?after=`, `/api/tourneys`
 
-What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
+What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). The pages show one region too, with the same `?region=` in their URL (#48): without it, the last region the browser viewed, else a guess from its time zone (the Americas: `na`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
 The leaderboard, a player's rating and matches, and the Tourneys page are one region's: `?region=eu` ([Regions](#regions)), the first of `regions` without it, `400 bad_request` for one that isn't a region. Their answers say which (`region`). A match and a tourney have their own `region`.
 
