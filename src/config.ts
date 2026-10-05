@@ -71,6 +71,11 @@ export const defaults = {
   adminListLimit: 100,
   /** Longest host name or reason an admin can enter, in characters. */
   adminTextMaxLength: 200,
+  /**
+   * Longest display name an admin can give a player (`POST /api/admin/players/:id/name`), in
+   * characters. Game names are far shorter; the rank tags leave out names over 128.
+   */
+  playerNameMaxLength: 64,
 
   /**
    * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at

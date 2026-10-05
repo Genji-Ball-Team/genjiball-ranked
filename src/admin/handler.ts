@@ -23,12 +23,14 @@ import {
   setTournament,
 } from "./store";
 import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type AdminConfig, type Context } from "./request";
+import { handlePlayerAdmin } from "./players";
 import { handleTourneyAdmin } from "./tourneys";
 import { dryRunParse, recomputeRegion } from "./debug";
 
 /**
  * `/api/admin/*`: hosts, the review queue, voiding matches, the action log (#7, docs/api.md), the
- * legacy log import (#13), tourneys (#24, `./tourneys.ts`) and the debug tools (#33, `./debug.ts`).
+ * legacy log import (#13), tourneys (#24, `./tourneys.ts`), the debug tools (#33, `./debug.ts`) and
+ * merging players (#8, `./players.ts`).
  * Every request needs `Authorization: Bearer <admin token>`; every change is logged in
  * `admin_actions` in the same transaction.
  */
@@ -102,6 +104,10 @@ export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bu
     }
     if (path.length === 1 && path[0] === "legacy-import") {
       return method === "POST" ? await importLegacy(ctx, request) : notAllowed("POST");
+    }
+    if (path[0] === "players" || path[0] === "merges") {
+      const answer = await handlePlayerAdmin(ctx, request, path, id);
+      if (answer) return answer;
     }
     if (path[0] === "tourneys" || path[0] === "lobbies") {
       const answer = await handleTourneyAdmin(ctx, request, path);

@@ -68,6 +68,22 @@
       <tbody id="hosts"></tbody>
     </table></div>
 
+    <h2>Players</h2>
+    <p class="muted">When a player changes name, merge the old name into the new one (or back): both names, their matches and ratings become one player. A merge can be undone. It only joins names; it doesn't tell who is behind an account.</p>
+    <form class="row" id="player-form">
+      <input id="player-search" placeholder="Name or old name" required minlength="2">
+      <button class="primary">Find players</button>
+    </form>
+    <div class="scroll"><table class="data">
+      <thead><tr><th>Id</th><th>Name</th><th>All names</th><th>Actions</th></tr></thead>
+      <tbody id="players"></tbody>
+    </table></div>
+    <h3>Merges</h3>
+    <div class="scroll"><table class="data">
+      <thead><tr><th>Id</th><th>Merged</th><th>Into</th><th>Names moved</th><th>By</th><th>Undone</th><th>Actions</th></tr></thead>
+      <tbody id="merges"></tbody>
+    </table></div>
+
     <h2>Action log</h2>
     <div class="scroll"><table class="data">
       <thead><tr><th>When</th><th>Admin</th><th>Action</th><th>Match</th><th>Host</th><th>Detail</th></tr></thead>
@@ -281,8 +297,42 @@
       }
     }
 
+    // Players (#8): merge two names of one player, undo a merge, set the display name.
+    async function loadPlayers() {
+      const search = $("player-search").value.trim();
+      const body = $("players"); body.replaceChildren();
+      if (search.length < 2) return;
+      const { players } = await api(`players?search=${encodeURIComponent(search)}`);
+      if (!players.length) { const tr = body.insertRow(); cell(tr, "None.").colSpan = 4; }
+      for (const p of players) {
+        const tr = body.insertRow();
+        cell(tr, p.id); cell(tr, p.name); cell(tr, p.aliases.join(", "));
+        const actions = cell(tr, "");
+        button(actions, "Merge into…", () => {
+          const into = Number(prompt(`Merge ${p.name} (${p.id}) into which player id? ${p.name}'s names and matches become that player's.`) ?? "");
+          if (!Number.isSafeInteger(into) || into < 1) return;
+          act(`merge ${p.id}`, async () => `${p.name} merged into player ${into}.` + staleNote(await post(`players/${p.id}/merge`, { into })));
+        });
+        button(actions, "Set name", () => { const name = prompt("Display name (uploads won't change it)", p.name); if (name) act(`name ${p.id}`, () => post(`players/${p.id}/name`, { name }).then(() => `Player ${p.id} is ${name}.`)); });
+        button(actions, "Name from logs", () => act(`name ${p.id}`, () => post(`players/${p.id}/name`, { name: null }).then((r) => `Player ${p.id} is ${r.player.name}.`)));
+      }
+    }
+
+    async function loadMerges() {
+      const { merges } = await api("merges");
+      const body = $("merges"); body.replaceChildren();
+      for (const m of merges) {
+        const tr = body.insertRow();
+        cell(tr, m.id); cell(tr, `${m.from.name} (${m.from.id})`); cell(tr, `${m.into.name} (${m.into.id})`); cell(tr, m.aliases.join(", "));
+        cell(tr, `${m.mergedBy}, ${m.mergedAt}`); cell(tr, m.undoneAt ? `${m.undoneBy}, ${m.undoneAt}` : "");
+        const actions = cell(tr, "");
+        if (!m.undoneAt) button(actions, "Undo", () => confirm(`Undo merge ${m.id}? ${m.from.name} gets their names and matches back.`) &&
+          act(`undo merge ${m.id}`, async () => `Merge ${m.id} undone.` + staleNote(await post(`merges/${m.id}/undo`, {}))));
+      }
+    }
+
     async function loadAll() {
-      try { await Promise.all([loadMatches(), loadTourneys(), loadHosts(), loadActions()]); } catch (e) { say(e.message, true); }
+      try { await Promise.all([loadMatches(), loadTourneys(), loadHosts(), loadPlayers(), loadMerges(), loadActions()]); } catch (e) { say(e.message, true); }
     }
 
     async function signIn() {
@@ -311,6 +361,7 @@
         return `Host ${res.host.name} created. Copy the token now: it isn't shown again.`;
       });
     };
+    $("player-form").onsubmit = (e) => { e.preventDefault(); loadPlayers().catch((err) => say(err.message, true)); };
     $("tourney-form").onsubmit = (e) => {
       e.preventDefault();
       act("schedule tourney", async () => {

@@ -240,7 +240,7 @@ export async function setTournament(
 
 /** Whether a batch failed because the row changed after the handler read it. */
 export function isStale(error: unknown): boolean {
-  return /NOT NULL constraint failed: (hosts\.trust|matches\.status|matches\.tournament)/.test(String(error));
+  return /NOT NULL constraint failed: (hosts\.trust|matches\.status|matches\.tournament|players\.name)/.test(String(error));
 }
 
 export function actionStatement(db: D1Database, log: ActionLog): D1PreparedStatement {

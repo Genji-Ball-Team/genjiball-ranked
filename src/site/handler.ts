@@ -173,8 +173,11 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
   };
 }
 
-/** A player in one region: their rating and matches there, and the regions they have a rating in. */
-async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date) {
+/**
+ * A player in one region: their rating and matches there, and the regions they have a rating in.
+ * A player an admin merged into another (#8) answers as that one, so old links keep working.
+ */
+async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
   const [found, rating, matches, rated] = await Promise.all([
     findPlayer(db, id),
     findRating(db, region.id, id),
@@ -182,11 +185,14 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
     listRatedRegions(db, id),
   ]);
   if (!found) return null;
+  if (found.mergedInto !== null) return player(db, config, region, found.mergedInto, now);
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
   return {
     region: region.id,
     player: {
-      ...found,
+      id: found.id,
+      name: found.name,
+      aliases: found.aliases,
       regions: config.regions.map((r) => r.id).filter((r) => rated.includes(r)),
       rating: rating && {
         rank: ranked ? await rankOf(db, region.id, rating, config.minRankedRounds) : null,

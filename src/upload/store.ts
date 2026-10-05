@@ -116,7 +116,8 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       .bind(w.hostId, w.contentHash, w.rawLog, w.rawSize, w.fileName, w.now),
 
     // Players: a name seen for the first time is a new player with that name as their alias. Every
-    // player has at least one alias, so the players without one are the ones just inserted.
+    // player who isn't merged into another (#8) has at least one alias, so the players without one
+    // are the ones just inserted.
     db
       .prepare(
         `INSERT INTO players (name, created_at)
@@ -129,10 +130,11 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
         `INSERT INTO aliases (player_id, name, name_key, first_seen_at, last_seen_at)
          SELECT p.id, p.name, e.value ->> 'key', ?2, ?2
          FROM players p JOIN json_each(?1) e ON e.value ->> 'name' = p.name
-         WHERE NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
+         WHERE p.merged_into IS NULL AND NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
       )
       .bind(json(w.rows.names), w.playedAt),
-    // Known names: last seen, and the spelling seen most recently becomes the display name.
+    // Known names: last seen, and the spelling seen most recently becomes the display name, unless
+    // an admin set the name (`name_fixed`).
     db
       .prepare(
         `UPDATE aliases SET name = e.value ->> 'name', last_seen_at = ?2
@@ -143,7 +145,7 @@ export async function writeUpload(db: D1Database, w: UploadWrite): Promise<numbe
       .prepare(
         `UPDATE players SET name = a.name
          FROM aliases a JOIN json_each(?1) e ON a.name_key = e.value ->> 'key'
-         WHERE a.player_id = players.id AND a.last_seen_at = ?2`,
+         WHERE a.player_id = players.id AND a.last_seen_at = ?2 AND players.name_fixed = 0`,
       )
       .bind(json(w.rows.names), w.playedAt),
 

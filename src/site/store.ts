@@ -46,8 +46,10 @@ export async function listLeaderboard(db: D1Database, board: string, minRounds: 
 
 /**
  * Who may get a rank tag, best first: at least `minRounds` rated rounds, a display rating of at
- * least `minDisplay` (the lowest tier) and a rated round since `activeSince`. Names the Workshop
- * can't hold are left out here, so they don't use up the `limit` (index `ratings_board_display`).
+ * least `minDisplay` (the lowest tier) and a rated round since `activeSince`. `name` is the name the
+ * player was last seen with in a log, which is what the game shows: the display name, unless an
+ * admin set another one (#8). Names the Workshop can't hold are left out here, so they don't use up the
+ * `limit` (index `ratings_board_display`).
  */
 export async function listTagCandidates(
   db: D1Database,
@@ -59,10 +61,15 @@ export async function listTagCandidates(
 ): Promise<RatingRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
-       WHERE r.board = ?1 AND r.display >= ?2 AND r.rounds >= ?3 AND r.last_played_at >= ?4
-         AND length(p.name) BETWEEN 1 AND ?6 AND instr(p.name, '{') = 0 AND instr(p.name, '}') = 0
-       ORDER BY r.display DESC, r.player_id LIMIT ?5`,
+      `SELECT * FROM (
+         SELECT r.player_id AS playerId, r.display, r.rounds, r.wins, r.last_played_at AS lastPlayedAt,
+           CASE WHEN p.name_fixed = 0 THEN p.name ELSE coalesce((SELECT a.name FROM aliases a WHERE a.player_id = p.id
+             ORDER BY a.last_seen_at DESC, a.id DESC LIMIT 1), p.name) END AS name
+         FROM ratings r JOIN players p ON p.id = r.player_id
+         WHERE r.board = ?1 AND r.display >= ?2 AND r.rounds >= ?3 AND r.last_played_at >= ?4
+       )
+       WHERE length(name) BETWEEN 1 AND ?6 AND instr(name, '{') = 0 AND instr(name, '}') = 0
+       ORDER BY display DESC, playerId LIMIT ?5`,
     )
     .bind(board, minDisplay, minRounds, activeSince, limit, workshopStringMax)
     .all<RatingRow>();
@@ -98,17 +105,19 @@ export interface PlayerRow {
   id: number;
   name: string;
   aliases: string[];
+  /** The player an admin merged this one into (#8), or null. */
+  mergedInto: number | null;
 }
 
 export async function findPlayer(db: D1Database, id: number): Promise<PlayerRow | null> {
   const row = await db
     .prepare(
-      `SELECT p.id, p.name,
+      `SELECT p.id, p.name, p.merged_into AS mergedInto,
          (SELECT json_group_array(name) FROM (SELECT a.name FROM aliases a WHERE a.player_id = p.id ORDER BY a.last_seen_at DESC)) AS aliases
        FROM players p WHERE p.id = ?`,
     )
     .bind(id)
-    .first<{ id: number; name: string; aliases: string }>();
+    .first<{ id: number; name: string; mergedInto: number | null; aliases: string }>();
   return row && { ...row, aliases: JSON.parse(row.aliases) as string[] };
 }
 
