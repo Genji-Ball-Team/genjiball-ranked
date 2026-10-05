@@ -714,7 +714,7 @@ function activityBars(perDay) {
   const bars = perDay
     .map((d) => {
       const what = `${day(d.date)}: ${count(d.rounds, "rated round")}, ${count(d.matches, "match", "matches")}, ${count(d.players, "player")}`;
-      return `<li tabindex="0" aria-label="${esc(what)}"><span class="bar${d.rounds ? "" : " none"}" style="height:${((100 * d.rounds) / most).toFixed(1)}%"></span>
+      return `<li><span class="bar${d.rounds ? "" : " none"}" role="img" tabindex="0" aria-label="${esc(what)}" style="height:${((100 * d.rounds) / most).toFixed(1)}%"></span>
         <span class="tip" aria-hidden="true"><b class="num">${d.rounds}</b> rounds<small>${esc(day(d.date))} · ${count(d.matches, "match", "matches")} · ${count(d.players, "player")}</small></span></li>`;
     })
     .join("");

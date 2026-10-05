@@ -277,18 +277,18 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .records .skeleton, .records .empty { grid-column: 1 / -1; }
 .bars { margin-top: 1.5rem; }
 .days { list-style: none; display: flex; align-items: end; gap: 2px; height: 9rem; margin: 0; padding: 0; border-bottom: 1px solid var(--border); }
-.days li { position: relative; flex: 1; height: 100%; display: flex; align-items: end; outline: none; }
+.days li { position: relative; flex: 1; height: 100%; display: flex; align-items: end; }
 .days .bar { width: 100%; min-height: 2px; border-radius: 4px 4px 0 0; background: var(--accent); opacity: .85; }
 .days .bar.none { background: var(--line); opacity: 1; }
-.days li:hover .bar, .days li:focus-visible .bar { opacity: 1; filter: brightness(1.15); }
-.days li:focus-visible { box-shadow: 0 0 0 2px var(--accent); border-radius: 3px; }
+.days li:hover .bar, .days .bar:focus-visible { opacity: 1; filter: brightness(1.15); }
+.days .bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .days .tip {
   display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 2; white-space: nowrap;
   padding: .35rem .6rem; border-radius: 6px; background: var(--raised); border: 1px solid var(--border); font-size: .85rem; pointer-events: none;
 }
 .days li:first-child .tip, .days li:nth-child(2) .tip, .days li:nth-child(3) .tip { left: 0; transform: none; }
 .days li:nth-last-child(-n+3) .tip { left: auto; right: 0; transform: none; }
-.days li:hover .tip, .days li:focus-visible .tip { display: block; }
+.days li:hover .tip, .days li:focus-within .tip { display: block; }
 .days .tip b { font-size: 1.05rem; font-stretch: var(--narrow); }
 .days .tip small { display: block; color: var(--muted); }
 .bars .axis { display: flex; justify-content: space-between; margin: .4rem 0 0; color: var(--faint); font-size: .75rem; }
