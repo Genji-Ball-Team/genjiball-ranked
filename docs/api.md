@@ -6,7 +6,7 @@ What the server offers the host tool ([genjiball-host-tool](https://github.com/G
 
 EU and NA play apart (#47). Every match belongs to the region it was hosted in, and each region has its own ratings, leaderboard, rank tags and tourneys; a player who plays in both has a rating in each. Players and their names are shared. The regions are `regions` in `src/config.ts`: `eu` (Europe) and `na` (North America). `GET /api/server` lists them (`{ testServer, regions: [{ id, label }] }`).
 
-- **Uploads** say their region with `X-Region`, or get the host's home region, which an admin sets. Neither: `422 no_region`. The Workshop can't read the server region, so the log doesn't say it.
+- **Uploads** and **live lobby heartbeats** say their region with `X-Region`, or get the host's home region, which an admin sets. Neither: `422 no_region`. The Workshop can't read the server region, so the log doesn't say it.
 - **Reads** of regional data take `?region=` and answer for the first region without it.
 - Matches stored before regions were all put in `eu` (`migrations/0011_regions.sql`).
 
@@ -105,6 +105,27 @@ The host tool calls this now and then to show a match's status after an admin ac
 
 `200 { "matches": [{ "matchKey": "482913507226", "matchId": 812, "status": "accepted", "rejection": null, "reviewReasons": [] }] }`, with `status`, `rejection` and `reviewReasons` as in an upload's answer. `matchId` is the match's id on the site (`/match?id=812`, `/api/matches/:id`), which a longer copy keeps; only `accepted` and `void` matches are public there. A key the host has no match for is left out. The errors are an upload's (`401`, `403`, `405`), and `400 bad_request` for over `hostMatchKeysMax` (50) keys.
 
+## Live lobby: `PUT /api/host/lobby`, `DELETE /api/host/lobby`
+
+The host tool says a ranked lobby is open, so the site can list it (#11, Genji-Ball-Team/genjiball-host-tool#6). `Authorization: Bearer <host token>`, as for an upload. One lobby per host. Code: `src/lobby/`.
+
+**Heartbeat: `PUT`**, every `lobbyHeartbeatSeconds` (60) while a ranked match log is active. Body `{ "players": 6, "name": "Kenzo's ranked" }`: `players` 0 to `lobbyPlayersMax` (12), `name` optional (spaces around it dropped, at most `lobbyNameMaxLength`, 64, characters; left out or empty: `null`). `players` is required. Each heartbeat sends the name again: left out, it's cleared. The region is an upload's: `X-Region`, else the host's home region, else `422 no_region` ([Regions](#regions)).
+
+`200 { "lobby": { "region": "eu", "name": "Kenzo's ranked", "players": 6, "openedAt": "2026-10-05T20:00:00Z", "seenAt": "2026-10-05T20:14:00Z" }, "heartbeatSeconds": 60, "ttlSeconds": 180 }`. Send the next heartbeat after `heartbeatSeconds`. A lobby with no heartbeat for `lobbyTtlSeconds` (180) is gone; the next heartbeat opens a new one (`openedAt` starts again), as does a heartbeat in another region or after a close.
+
+**Close: `DELETE`**, when the match ends, the game closes or the host switches it off. `200 { "closed": true }`, `false` when no lobby was open. The lobby leaves the list at once, but the next heartbeat still waits `lobbyHeartbeatMinSeconds` from the close.
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `bad_request` | The body isn't a JSON object, `players` or `name` is wrong, the body is over `lobbyBodyMaxBytes` (1 KB), or `X-Region` isn't one of `regions` |
+| 401 | `unauthorized` | No token, or an unknown one |
+| 403 | `revoked` | The token was revoked. Its lobby isn't listed any more |
+| 405 | `method_not_allowed` | Not a `PUT` or `DELETE` |
+| 422 | `no_region` | No `X-Region`, and the host has no home region. Nothing was stored |
+| 429 | `rate_limited` | A heartbeat less than `lobbyHeartbeatMinSeconds` (30) after the last heartbeat or close. Nothing was written; a change waits for the next heartbeat |
+
+Tourney lobbies (#25) will add an optional `tourneyLobbyId` to the heartbeat; until then the list's `tourney` is always `null`.
+
 ## Admin: `/api/admin/*`
 
 For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/`. Every request needs `Authorization: Bearer <admin token>`; without a valid, unrevoked one it's `401 unauthorized`. Every change is written to `admin_actions` (who, what, when, which match or host) in the same transaction.
@@ -157,11 +178,11 @@ Lobby mutations return `409 conflict` if another edit, replacement, expiry or lo
 | 405 | `method_not_allowed` | Wrong method. `Allow` says which |
 | 409 | `conflict` | The action doesn't fit the status (voiding a match in review, un-revoking a host), or another admin changed it at the same time |
 
-## Site: `/api/leaderboard`, `/api/players/:id`, `/api/players?search=`, `/api/matches/:id`, `/api/matches?after=`, `/api/tourneys`
+## Site: `/api/leaderboard`, `/api/players/:id`, `/api/players?search=`, `/api/matches/:id`, `/api/matches?after=`, `/api/tourneys`, `/api/lobbies`
 
-What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). The pages show one region too, with the same `?region=` in their URL (#48): without it, the last region the browser viewed, else a guess from its time zone (the Americas: `na`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
+What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). The pages show one region too, with the same `?region=` in their URL (#48): without it, the last region the browser viewed, else a guess from its time zone (the Americas: `na`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s; the live lobbies `lobbiesCacheSeconds`, 15 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
-The leaderboard, a player's rating and matches, and the Tourneys page are one region's: `?region=eu` ([Regions](#regions)), the first of `regions` without it, `400 bad_request` for one that isn't a region. Their answers say which (`region`). A match and a tourney have their own `region`.
+The leaderboard, a player's rating and matches, the Tourneys page and the live lobbies are one region's: `?region=eu` ([Regions](#regions)), the first of `regions` without it, `400 bad_request` for one that isn't a region. Their answers say which (`region`). A match and a tourney have their own `region`.
 
 Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, color, threshold }` (RGB 0–255; `threshold` the display rating the tier starts at) or `null`: a player needs `minRankedRounds` (3) rated rounds for a tier. `inactiveSince` is when they last played, once that's over `inactiveAfterDays` (30) ago, else `null`; inactive players stay on the leaderboard.
 
@@ -174,6 +195,7 @@ Ratings are the display ratings ([rating.md](rating.md)). `tier` is `{ label, co
 | `GET /api/matches?after=<cursor>&limit=20&region=eu` | The match feed, for posting results (the Discord bot, any community tool): `{ cursor, hasMore, matches }`. Public matches (of the region, with `?region=`; every region without it) that changed after `cursor`, oldest change first, at most `limit` (1 to `matchFeedLimit`, 20; 20 when left out). Send the answer's `cursor` as `after` next time; with `hasMore`, ask again straight away. `after=0` starts from the first match, `after=latest` gives no matches and the current cursor, to start from now. A match is listed again when it changes in a way a post shows: accepted from review, a longer copy, voided or unvoided, rated (an incomplete match is rated after `ratingIncompleteGraceHours`), linked to a tourney. A later recompute that moves its ratings doesn't list it again. Each match: `id, removed` (`false`), `region, playedAt, map, legacy, void, complete, tournament, tourney` (as in `/api/matches/:id`), `rounds, ratedRounds` (counts) and `players`: `id, name, rounds, wins` (in rated rounds), `ratingBefore, ratingAfter` (`null` while the match isn't rated for them), most wins first. A match that stopped being public (unvoided back to rejected) is listed once as `{ id, removed: true }`: take its post down. `400 bad_request` for a missing or malformed `after` or `limit` |
 | `GET /api/tourneys?region=eu&page=1` | `{ region, page, pageSize, hasMore, upcoming, past }`: the region's tourneys. `upcoming`: every `scheduled` or `live` tourney, soonest first (page 1 only). `past`: `done` and `cancelled` ones, newest first, `tourneysPageSize` (10) a page. Each tourney: `id, name, region, startsAt, status, notes, lobbies`. Each lobby: `id, label, matchId` (`null` until its match is linked and public), `void, screenshot` (its URL or `null`), `screenshotExpired` (deleted to stay inside the storage caps), `verified`, and `standings`: `place, id, name, wins, kills, ratingBefore, ratingAfter`, most rounds won first, ties broken by kills, the same wins and kills sharing a place. Wins count every `WIN` round, rated or not; kills every `KILL` that isn't a player killing themselves |
 | `GET /api/tourneys/:id` | `{ tourney }`, as in the list |
+| `GET /api/lobbies?region=eu` | `{ region, lobbies }`: the region's ranked lobbies open now ([Live lobby](#live-lobby-put-apihostlobby-delete-apihostlobby)), longest open first. Each: `hostName, name` (`null` when the host gave none), `players, openedAt, seenAt` (the last heartbeat, within `lobbyTtlSeconds`), `tourney` (`null` until #25). A revoked host's lobby isn't listed. Poll it no more often than every `lobbiesCacheSeconds` (15 s) |
 | `GET /api/screenshots/:key` | A verify screenshot currently belonging to a lobby (the `screenshot` URL), cached for `screenshotCacheSeconds` (1 h): a key is never reused. Removed or expired keys return `404`, including while their R2 deletion is being retried; an already cached copy can remain until its cache lifetime ends |
 
 ## Rank tags: `GET /api/rank-tags?region=eu`

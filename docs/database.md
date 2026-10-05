@@ -22,6 +22,7 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC. `region`: its lobbies' matches are from there |
 | `tourney_lobbies` | lobby of a tourney | Its match (`match_id`, unique: a match is in one lobby) and verify screenshot (`screenshot_key` in R2, `verified_by`/`verified_at`). Linking a match sets `matches.tournament` |
 | `screenshot_deletions` | screenshot awaiting R2 deletion | Keeps its key and byte count until R2 deletion succeeds; failed deletes remain accounted for and are retried |
+| `live_lobbies` | host with a lobby open or just closed | From the host tool's heartbeats (#11): `region`, `name`, `players`, `opened_at`, `seen_at` (last heartbeat), `closed_at` (closed by the host; the row stays for the rate limit). Not listed once closed or `seen_at` is `lobbyTtlSeconds` old; the cron deletes it once that's past the TTL. Indexed by `region` only, and a heartbeat in the same region doesn't SET it: one row written ([below](#live-lobbies)) |
 | `rating_state` | region | Whether the region's ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)). A region added to the config gets its row the first time it's rated |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
@@ -103,3 +104,22 @@ Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the
 **Regions** (#47) split the same matches and players between two leaderboards: the writes above don't change, and a player who plays in both regions has two `ratings` rows. The rating reads a region's matches through `matches_region_status_played`, `matches_unrated` and `matches_rated` (all keyed by region first), and the cron's `ratingMatchesPerRun` is shared between the regions, so a recompute costs what it did with one leaderboard.
 
 **Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The exception is the **name search** (`/api/players?search=`, for the Discord bot's autocomplete): a "contains" match can't use an index, so each search reads every alias once, plus the players and ratings of the hits. The v1.3.2 logs hold about 1,450 names, so a search reads about 1,500 rows: 1,000 searches a day is 1.5 million, 30% of the limit. The bot waits for a pause in typing before it asks, and `playerSearchMinLength` can go up if searches get too many. The **match feed** reads through `matches_feed`: a bot asking every 2 minutes while nothing changed reads about one row a time, 720 a day; each listed match reads its rounds and players, a few hundred rows. The cost to watch is a **rating recompute** (#6): it reads every rated `round_players` row of the matches it re-rates, about 200 a match, and a full one would read about 3 million rows after a year at this rate, most of a day's reads. So a new match is rated incrementally, and a recompute starts at the first changed match, from the players' `rating_history` just before it, not from scratch. It re-rates `ratingMatchesPerRun` matches a run (about 2,000 rows read) and writes only the history and ratings rows that changed, so a late upload only rewrites the later matches of the players it moved ([rating.md](rating.md), "Ratings in the database").
+
+### Live lobbies
+
+`live_lobbies` (#11) has one row per host, written by the host tool's heartbeat (`PUT /api/host/lobby`, [api.md](api.md)). Settings in `src/config.ts`: `lobbyHeartbeatSeconds` (60), `lobbyHeartbeatMinSeconds` (30), `lobbyTtlSeconds` (180).
+
+Rows written, as D1 reports them (`meta.rows_written`, checked in `test/lobbies.test.ts`):
+
+| Operation | Rows |
+|---|---|
+| Heartbeat of an open lobby, same region (an `UPDATE` that doesn't SET `region`) | 1 |
+| Heartbeat that opens a lobby: first one, after a close or the TTL, or in another region (the upsert, which rewrites the `region` index) | 2 |
+| Close (`closed_at` set, row kept) | 1 |
+| Cron delete of a stale or closed row | 1 |
+
+SQLite rewrites an index entry for every indexed column a `SET` names, even to the same value, so the refresh mustn't name `region`.
+
+- **Writes.** A lobby open an hour is 2 + 59 + 1 ≈ 62 rows. Busy week (above): 10 lobbies a day, 4 hours each, is **about 2,400 rows a day, 2.4% of the limit**, about 47% with the uploads. A heartbeat less than `lobbyHeartbeatMinSeconds` after the last heartbeat or close gets `429` and writes nothing. A close keeps the row (and its time), so closing and reopening doesn't get round it: per 30 s a host writes at most a heartbeat (2 rows when it reopens) and a close (1), **6 rows a minute, 8,640 a day (8.6%)**. A tool that only sends heartbeats too fast writes 2 a minute, 2,880 a day. Revoke a token that misbehaves.
+- **Cleanup.** A closed lobby, or one past `lobbyTtlSeconds`, isn't listed. The cron (every 10 minutes) deletes the rows whose last heartbeat or close is past the TTL (by then past the rate limit's window too): one statement that reads the table (one row per host) and writes one row per deleted lobby. A host's next heartbeat reuses its row anyway, so the table never holds more rows than there are hosts.
+- **Reads.** `GET /api/lobbies?region=` reads the region's rows through the index and a host each: about 10 rows with 5 lobbies open. A browser polling every `lobbiesCacheSeconds` (15 s) is 240 reads an hour, about 2,400 rows: 100 hours of the page open a day is 240,000 rows, 5% of the limit. A heartbeat reads the host and its row (twice when it opens a lobby).

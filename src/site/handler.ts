@@ -1,5 +1,7 @@
 import { findRegion, type Config, type Region } from "../config";
 import { fail } from "../http";
+import { secondsBefore } from "../lobby/handler";
+import { listLiveLobbies } from "../lobby/store";
 import { isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
@@ -28,10 +30,11 @@ import {
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
- * and the verify screenshots, `/api/screenshots/:key`.
+ * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
+ * for `lobbiesCacheSeconds`.
  *
- * Regions (#47): the leaderboard, a player's rating and matches, the rank tags and the Tourneys page
- * show one region's, `?region=`, the first of `regions` without one.
+ * Regions (#47): the leaderboard, a player's rating and matches, the rank tags, the Tourneys page
+ * and the live lobbies show one region's, `?region=`, the first of `regions` without one.
  */
 
 export type SiteConfig = RankTagsConfig &
@@ -48,6 +51,8 @@ export type SiteConfig = RankTagsConfig &
     | "tourneysPageSize"
     | "screenshotCacheSeconds"
     | "regions"
+    | "lobbyTtlSeconds"
+    | "lobbiesCacheSeconds"
   >;
 
 /** Answers a site route, or returns null when the path isn't one. */
@@ -61,7 +66,7 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "rank-tags", "tourneys", "players"].includes(route ?? "");
+  const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies"].includes(route ?? "");
   const region = regional ? regionParam(url, config) : null;
   if (region instanceof Response) return region;
   if (path.length === 1 && route === "leaderboard") {
@@ -92,6 +97,10 @@ export async function handleSite(
     const body = await feed(db, config, feedRegion, url.searchParams.get("after"), url.searchParams.get("limit"));
     if (!body) return fail(400, "bad_request", `after must be a cursor from this feed, 0 or latest; limit 1 to ${config.matchFeedLimit}`);
     return cached(body, config.publicCacheSeconds);
+  }
+  if (path.length === 1 && route === "lobbies") {
+    if (!isRead(request)) return notAllowed();
+    return cached(await lobbies(db, config, region!, now), config.lobbiesCacheSeconds);
   }
   if (path.length === 1 && route === "tourneys") {
     if (!isRead(request)) return notAllowed();
@@ -132,6 +141,15 @@ async function leaderboard(db: D1Database, config: SiteConfig, region: Region, p
     hasMore: rows.length > size,
     players: rows.slice(0, size).map((row, i) => ({ rank: offset + i + 1, ...ratingView(row, config, now) })),
   };
+}
+
+/**
+ * The region's open ranked lobbies, longest open first: those with a heartbeat in the last
+ * `lobbyTtlSeconds`. `tourney` is the tourney lobby it's for, once #25 lets a heartbeat say so.
+ */
+async function lobbies(db: D1Database, config: SiteConfig, region: Region, now: Date) {
+  const rows = await listLiveLobbies(db, region.id, secondsBefore(now, config.lobbyTtlSeconds));
+  return { region: region.id, lobbies: rows.map((row) => ({ ...row, tourney: null })) };
 }
 
 /**
