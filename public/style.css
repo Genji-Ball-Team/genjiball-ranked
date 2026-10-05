@@ -294,7 +294,7 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
   gap: .1rem 1rem; align-items: baseline; padding: .9rem 0; border-bottom: 1px solid var(--line);
 }
 .records .what { grid-area: what; color: var(--muted); font-size: .875rem; }
-.records > li > b { grid-area: value; align-self: center; font-size: 2.25rem; font-weight: 700; font-stretch: var(--narrow); line-height: 1; color: var(--gold); }
+.records > li > b { grid-area: value; align-self: center; font-size: 2.25rem; font-weight: 700; font-stretch: var(--narrow); line-height: 1; color: var(--gold); text-align: right; }
 .records .who { grid-area: who; min-width: 0; }
 .records .who a { font-weight: 600; font-stretch: var(--narrow); font-size: 1.15rem; text-decoration: none; overflow-wrap: anywhere; }
 .records .who a:hover { text-decoration: underline; }

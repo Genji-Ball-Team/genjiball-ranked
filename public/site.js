@@ -55,11 +55,14 @@ function countUp(els) {
     const [, digits, rest] = /^(\d+)(.*)$/s.exec(el.textContent) ?? [];
     const to = Number(digits);
     if (!to) continue;
+    // Held at its final width while it counts, so what's beside it doesn't move.
+    el.style.minWidth = `${el.getBoundingClientRect().width}px`;
     const start = performance.now();
     const tick = (now) => {
       const t = Math.min(1, (now - start) / 700);
       el.textContent = `${Math.round(to * (1 - (1 - t) ** 3))}${rest}`;
       if (t < 1) requestAnimationFrame(tick);
+      else el.style.minWidth = "";
     };
     tick(start);
   }
