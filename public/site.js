@@ -783,10 +783,15 @@ async function livePage() {
   $("region-name").innerHTML = regionName(site.region);
   const box = $("lobbies");
   let timer;
+  // Each ask is numbered: an answer that comes back after a newer ask started is dropped, and only
+  // the newest ask sets the next timer, so there's never more than one.
+  let asked = 0;
   const refresh = async () => {
     clearTimeout(timer);
+    const ask = ++asked;
     try {
       const { lobbies } = await api(`lobbies?${inRegion()}`);
+      if (ask !== asked) return;
       loaded(
         box,
         lobbies.length
@@ -804,6 +809,7 @@ async function livePage() {
       );
       $("checked").textContent = `Checked ${new Date().toLocaleTimeString(undefined, { timeStyle: "short" })}.`;
     } catch (error) {
+      if (ask !== asked) return;
       showError(box, error, "lobby list");
     }
     // Only while the page is in view: a background tab doesn't ask.
