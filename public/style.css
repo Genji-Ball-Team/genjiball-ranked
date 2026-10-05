@@ -298,6 +298,22 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .hosts b { font-weight: 600; font-stretch: var(--narrow); font-size: 1.05rem; overflow-wrap: anywhere; }
 .hosts li > span:last-child { color: var(--soft); }
 
+/* Live lobbies (#20): one row a lobby, a pulsing dot for "open now". */
+.lobbies { list-style: none; margin: 2rem 0 0; padding: 0; border-top: 1px solid var(--line); }
+.lobbies li:not(.skeleton, .empty) {
+  display: grid; grid-template-columns: .75rem minmax(0, 1fr) 5rem 6rem; gap: 1rem; align-items: center;
+  padding: .9rem .5rem; border-bottom: 1px solid var(--line);
+}
+.lobbies .dot { width: .6rem; height: .6rem; border-radius: 50%; background: var(--bad); box-shadow: 0 0 0 4px rgb(239 107 107 / .18); }
+.lobbies .what { display: flex; flex-direction: column; min-width: 0; }
+.lobbies .what b { font-weight: 600; font-size: 1.2rem; font-stretch: var(--narrow); overflow-wrap: anywhere; }
+.lobbies small { color: var(--muted); font-size: .825rem; }
+.lobbies .count, .lobbies .since { display: flex; flex-direction: column; text-align: right; line-height: 1.2; }
+.lobbies .count b, .lobbies .since b { font-size: 1.35rem; font-weight: 650; font-stretch: var(--narrow); }
+.lobbies .empty { color: var(--soft); max-width: 38rem; line-height: 1.6; }
+.lobbies .empty b { display: block; color: var(--fg); font-weight: 600; margin-bottom: .35rem; }
+.lobbies .empty a { color: var(--fg); text-decoration-color: var(--accent); text-underline-offset: 3px; }
+
 .history { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .history a {
   display: grid; grid-template-columns: 9rem minmax(0, 1fr) 7rem 3.5rem; gap: 1rem; align-items: baseline;
@@ -435,7 +451,6 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
   .tabbar svg { width: 1.45rem; height: 1.45rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .tabbar a[aria-current] { color: var(--fg); }
   .tabbar a[aria-current] svg { stroke: var(--accent); }
-  .tabbar svg .fill { fill: currentColor; stroke: none; }
   .tabbar a:active { transform: scale(.92); }
   .sheet[open] {
     display: flex; flex-direction: column; position: fixed; inset: 0; width: 100%; height: 100%;
@@ -503,6 +518,7 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
   .standings .name { max-width: 9rem; }
   .standings .extra { display: none; }
   .rivals { grid-template-columns: minmax(0, 1fr); }
+  .lobbies li:not(.skeleton, .empty) { grid-template-columns: .6rem minmax(0, 1fr) auto auto; gap: .75rem; padding-left: 0; padding-right: 0; }
   /* The phone search is the sheet, but compare adds players with its own. */
   body:has(.tabbar) .picker .find { display: block; }
   .versus th, .versus td { padding-left: .3rem; padding-right: .3rem; white-space: normal; }
@@ -534,4 +550,6 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
   @keyframes sheet-out { to { transform: translateY(100%); } }
   @keyframes fade-in { from { opacity: 0; } }
   @keyframes fill { from { transform: scaleX(0); } }
+  .lobbies .dot { animation: pulse 2s ease-out infinite; }
+  @keyframes pulse { 70%, 100% { box-shadow: 0 0 0 8px rgb(239 107 107 / 0); } }
 }
