@@ -8,7 +8,7 @@ EU and NA play apart (#47). Every match belongs to the region it was hosted in, 
 
 - **Uploads** say their region with `X-Region`, or get the host's home region, which an admin sets. Neither: `422 no_region`. The Workshop can't read the server region, so the log doesn't say it.
 - **Reads** of regional data take `?region=` and answer for the first region without it.
-- Matches stored before regions were all put in `eu` (`migrations/0010_regions.sql`).
+- Matches stored before regions were all put in `eu` (`migrations/0011_regions.sql`).
 
 ## Upload a log: `POST /api/upload`
 
