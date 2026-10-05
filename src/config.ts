@@ -189,6 +189,13 @@ export const defaults = {
   rankTagsMaxNames: 500,
   /** How long the rank tags may be cached, in seconds. Tags only need to change about once a day. */
   rankTagsCacheSeconds: 60 * 60,
+  /** Most players a name search (`/api/players?search=`) answers. 25 is what Discord's autocomplete shows. */
+  playerSearchLimit: 25,
+  /**
+   * Fewest characters a name search takes. Each search reads every alias (a "contains" match can't
+   * use an index), so one letter isn't allowed to match half the players.
+   */
+  playerSearchMinLength: 2,
   /** How long a browser may keep a public read (leaderboard, player, match), in seconds. */
   publicCacheSeconds: 60,
 };

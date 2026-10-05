@@ -1,6 +1,7 @@
 import type { Config } from "../config";
 import { fail } from "../http";
 import { isoSeconds } from "../time";
+import { nameKey } from "../upload/plan";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
 import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
 import { rankTags, type RankTagsConfig } from "./rankTags";
@@ -13,13 +14,14 @@ import {
   listPlayerMatches,
   listTagCandidates,
   rankOf,
+  searchPlayers,
   type MatchDetail,
   type RatingRow,
 } from "./store";
 
 /**
  * The public read API behind the site's pages (#14, docs/api.md "Site"): `/api/leaderboard`,
- * `/api/players/:id` and `/api/matches/:id`. No token; browsers may cache an answer for
+ * `/api/players/:id`, `/api/players?search=` and `/api/matches/:id`. No token; browsers may cache an answer for
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
@@ -29,7 +31,7 @@ import {
 export type SiteConfig = RankTagsConfig &
   Pick<
     Config,
-    "leaderboardPageSize" | "playerRecentMatches" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer" | "tourneysPageSize" | "screenshotCacheSeconds"
+    "leaderboardPageSize" | "playerRecentMatches" | "playerSearchLimit" | "playerSearchMinLength" | "publicCacheSeconds" | "rankTagsCacheSeconds" | "testServer" | "tourneysPageSize" | "screenshotCacheSeconds"
   >;
 
 /** Answers a site route, or returns null when the path isn't one. */
@@ -54,6 +56,14 @@ export async function handleSite(
   if (path.length === 1 && route === "rank-tags") {
     if (!isRead(request)) return notAllowed();
     return cached(await tags(db, config, now), config.rankTagsCacheSeconds);
+  }
+  if (path.length === 1 && route === "players") {
+    if (!isRead(request)) return notAllowed();
+    const search = (url.searchParams.get("search") ?? "").trim();
+    if ([...search].length < config.playerSearchMinLength) {
+      return fail(400, "bad_request", `search needs at least ${config.playerSearchMinLength} characters`);
+    }
+    return cached(await playerSearch(db, config, search, now), config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "tourneys") {
     if (!isRead(request)) return notAllowed();
@@ -106,6 +116,20 @@ async function player(db: D1Database, config: SiteConfig, id: number, now: Date)
       },
     },
     matches,
+  };
+}
+
+/** Name search for the Discord bot's autocomplete and the site (#58). */
+async function playerSearch(db: D1Database, config: SiteConfig, search: string, now: Date) {
+  const rows = await searchPlayers(db, nameKey(search), config.playerSearchLimit);
+  return {
+    players: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      rating: row.display,
+      tier: row.display === null ? null : standing({ ...row, display: row.display }, config, now).tier,
+      matchedAlias: row.matchedAlias,
+    })),
   };
 }
 

@@ -177,6 +177,87 @@ describe("player", () => {
   });
 });
 
+describe("player search", () => {
+  type Search = { players: { id: number; name: string; rating: number | null; tier: { label: string } | null; matchedAlias: string | null }[] };
+
+  /** Players straight into D1: each with its current name, old names (seen earlier) and rating. */
+  async function seed(list: { id: number; name: string; old?: string[]; display?: number; rounds?: number }[]) {
+    await db().batch(
+      list.flatMap(({ id, name, old = [], display, rounds = 10 }) => [
+        db().prepare("INSERT INTO players (id, name) VALUES (?, ?)").bind(id, name),
+        ...[name, ...old].map((alias, i) =>
+          db()
+            .prepare("INSERT INTO aliases (player_id, name, name_key, first_seen_at, last_seen_at) VALUES (?1, ?2, ?3, ?4, ?4)")
+            .bind(id, alias, alias.toLowerCase(), `2026-09-${String(20 - i).padStart(2, "0")}T00:00:00Z`),
+        ),
+        ...(display === undefined
+          ? []
+          : [
+              db()
+                .prepare("INSERT INTO ratings (player_id, mu, sigma, display, rounds, wins, last_played_at) VALUES (?, 25, 8, ?, ?, 0, ?)")
+                .bind(id, display, rounds, new Date().toISOString()),
+            ]),
+      ]),
+    );
+  }
+
+  const search = (text: string) => get<Search>(`players?search=${encodeURIComponent(text)}`);
+
+  it("puts exact names first, then names starting with the text, then the rest, each by rating", async () => {
+    await seed([
+      { id: 1, name: "Kenzo", display: 1200 },
+      { id: 2, name: "Kenzo2", display: 1700 },
+      { id: 3, name: "kenzoni", display: 1400 },
+      { id: 4, name: "BigKenzo", display: 1900 },
+      { id: 5, name: "Unrated Kenzo" },
+      { id: 6, name: "Alpha", display: 2000 },
+    ]);
+    const { players: found } = await search("KENZO");
+    expect(found.map((p) => p.id)).toEqual([1, 2, 3, 4, 5]);
+    expect(found[0]).toEqual({ id: 1, name: "Kenzo", rating: 1200, tier: null, matchedAlias: null });
+    expect(found[1]!.tier?.label).toBe("Master");
+    expect(found[4]).toMatchObject({ rating: null, tier: null });
+  });
+
+  it("finds a player by an old name, saying which, and lists them once", async () => {
+    await seed([
+      { id: 1, name: "Newname", old: ["Kenzo", "Kenzo old"], display: 1500 },
+      { id: 2, name: "Kenzo fan", old: ["kenzo fan 2"], display: 1300 },
+    ]);
+    const { players: found } = await search("kenzo");
+    expect(found.map((p) => [p.id, p.name, p.matchedAlias])).toEqual([
+      [1, "Newname", "Kenzo"],
+      [2, "Kenzo fan", null],
+    ]);
+  });
+
+  it("gives no tier below minRankedRounds", async () => {
+    await seed([{ id: 1, name: "Rookie", display: 1700, rounds: defaults.minRankedRounds - 1 }]);
+    expect((await search("rook")).players[0]).toMatchObject({ rating: 1700, tier: null });
+  });
+
+  it("answers at most playerSearchLimit players, cached", async () => {
+    await seed([1, 2, 3, 4].map((id) => ({ id, name: `Player ${id}`, display: 1000 + id })));
+    const res = await handleSite(new Request("https://example.com/api/players?search=player"), db(), { ...defaults, playerSearchLimit: 3 });
+    expect(res!.headers.get("Cache-Control")).toBe(`public, max-age=${defaults.publicCacheSeconds}`);
+    expect(((await res!.json()) as Search).players.map((p) => p.id)).toEqual([4, 3, 2]);
+  });
+
+  it("needs playerSearchMinLength characters", async () => {
+    await seed([{ id: 1, name: "K" }]);
+    for (const path of ["players", "players?search=", "players?search=%20k%20"]) {
+      const res = await SELF.fetch(`https://example.com/api/${path}`);
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: "bad_request" });
+    }
+    expect((await search("zz")).players).toEqual([]);
+  });
+
+  it("only answers GET", async () => {
+    expect((await SELF.fetch("https://example.com/api/players?search=ab", { method: "POST" })).status).toBe(405);
+  });
+});
+
 describe("match", () => {
   type MatchBody = {
     match: {

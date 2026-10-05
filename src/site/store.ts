@@ -104,6 +104,46 @@ export async function findPlayer(db: D1Database, id: number): Promise<PlayerRow 
   return row && { ...row, aliases: JSON.parse(row.aliases) as string[] };
 }
 
+export interface PlayerSearchRow {
+  id: number;
+  name: string;
+  /** The display rating, or null with no rated round. */
+  display: number | null;
+  rounds: number;
+  lastPlayedAt: string | null;
+  /** The old name that matched, when the current name matched less well (or not at all). */
+  matchedAlias: string | null;
+}
+
+/**
+ * Players whose name or an old name contains `key` (a `nameKey`), at most `limit`: exact names
+ * first, then names starting with it, then the rest, each by rating. A player counts once, by their
+ * best-matching name, the current name winning a tie. Reads every alias once (a "contains" can't use
+ * an index), then the players and ratings of the hits by their keys.
+ */
+export async function searchPlayers(db: D1Database, key: string, limit: number): Promise<PlayerSearchRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, name, display, rounds, lastPlayedAt, CASE WHEN alias = name THEN NULL ELSE alias END AS matchedAlias
+       FROM (
+         SELECT *, ROW_NUMBER() OVER (PARTITION BY id ORDER BY score, alias = name DESC, aliasSeenAt DESC) AS nth
+         FROM (
+           SELECT a.player_id AS id, p.name, a.name AS alias, a.last_seen_at AS aliasSeenAt,
+             r.display, coalesce(r.rounds, 0) AS rounds, r.last_played_at AS lastPlayedAt,
+             CASE WHEN a.name_key = ?1 THEN 0 WHEN substr(a.name_key, 1, length(?1)) = ?1 THEN 1 ELSE 2 END AS score
+           FROM aliases a JOIN players p ON p.id = a.player_id
+           LEFT JOIN ratings r ON r.board = ?2 AND r.player_id = a.player_id
+           WHERE instr(a.name_key, ?1) > 0
+         )
+       )
+       WHERE nth = 1
+       ORDER BY score, display IS NULL, display DESC, id LIMIT ?3`,
+    )
+    .bind(key, board, limit)
+    .all<PlayerSearchRow>();
+  return results;
+}
+
 export interface PlayerMatchRow {
   id: number;
   playedAt: string;
