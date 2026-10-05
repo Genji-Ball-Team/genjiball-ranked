@@ -61,6 +61,11 @@ mark { background: none; color: var(--fg); text-decoration: underline 2px var(--
   margin: 0; padding: .55rem 1.25rem; text-align: center; font-size: .9rem; font-weight: 600;
   background: var(--bad); color: var(--bg);
 }
+/* While the region's ratings are being recomputed (banner.js): a note, not a warning. */
+.updating-banner {
+  margin: 0; padding: .45rem 1.25rem; text-align: center; font-size: .85rem;
+  background: var(--raised); color: var(--soft); border-bottom: 1px solid var(--border);
+}
 
 /* Header: wordmark left, a few plain links right. */
 .top {

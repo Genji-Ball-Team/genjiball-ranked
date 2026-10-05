@@ -314,8 +314,19 @@ describe("pages", () => {
 
 describe("server", () => {
   it("says whether this is the test server", async () => {
-    expect(await (await SELF.fetch("https://example.com/api/server")).json()).toEqual({ testServer: false, regions: defaults.regions });
+    expect(await (await SELF.fetch("https://example.com/api/server")).json()).toEqual({
+      testServer: false,
+      regions: defaults.regions,
+      ratingsUpdating: [],
+    });
     const res = await handleSite(new Request("https://example.com/api/server"), db(), { ...defaults, testServer: true });
     expect(await res!.json()).toMatchObject({ testServer: true });
+  });
+
+  it("lists the regions whose ratings are being recomputed", async () => {
+    await db().prepare("INSERT OR IGNORE INTO rating_state (board) VALUES ('eu'), ('na')").run();
+    await db().prepare("UPDATE rating_state SET stale_played_at = '', stale_match_id = 0 WHERE board = 'na'").run();
+    const res = await handleSite(new Request("https://example.com/api/server"), db(), defaults);
+    expect(await res!.json()).toMatchObject({ ratingsUpdating: ["na"] });
   });
 });

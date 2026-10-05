@@ -11,6 +11,7 @@ import { signupSummary } from "../tourney/signups";
 import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
 import { noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
+import { staleRegions } from "../rating/store";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
@@ -42,7 +43,8 @@ import {
  * and head-to-head records (#18): `/api/head-to-head?a=&b=`. No token; browsers may cache an answer for
  * `publicCacheSeconds`. Also the rank tags the host tool builds the game's code from (#9):
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
- * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
+ * (#37), and which regions' ratings are being
+ * recomputed, for the banners on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
  * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
  * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, their
  * round stats for compare (#16), `/api/players/:id/stats`, and
@@ -95,7 +97,9 @@ export async function handleSite(
   }
   if (path.length === 1 && route === "server") {
     if (!isRead(request)) return notAllowed();
-    return cached({ testServer: config.testServer, regions: config.regions }, config.publicCacheSeconds);
+    const stale = await staleRegions(db);
+    const ratingsUpdating = config.regions.map((r) => r.id).filter((id) => stale.includes(id));
+    return cached({ testServer: config.testServer, regions: config.regions, ratingsUpdating }, config.publicCacheSeconds);
   }
   if (path.length === 1 && route === "rank-tags") {
     if (!isRead(request)) return notAllowed();
