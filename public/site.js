@@ -10,7 +10,9 @@ const dateTime = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "
 const winRate = (wins, rounds) => (rounds ? `${Math.round((100 * wins) / rounds)}%` : "–");
 const idParam = () => new URLSearchParams(location.search).get("id") ?? "";
 const siteName = "Genji Ball Ranked";
-const inRegion = () => `region=${encodeURIComponent(site.region)}`;
+const inRegion = (region = site.region) => `region=${encodeURIComponent(region)}`;
+// A player page in this page's region: their rating there, also when the link is shared.
+const playerLink = (id, region = site.region) => `/player?id=${id}&${inRegion(region)}`;
 const title = (what) => (document.title = `${what} – ${siteName}`);
 // A region's name, in HTML: region.js fills it in once a first visit has the names.
 const regionName = (id) => `<span data-region-label="${esc(id)}">${esc(site.label(id))}</span>`;
@@ -83,7 +85,7 @@ function ladder(players) {
       floor ||= p.rating <= 0;
       const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
       const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
-      return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="/player?id=${p.id}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
+      return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
         <span class="pos num">${p.rank}</span>
         <span class="who"><b>${esc(p.name)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
         <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
@@ -180,7 +182,7 @@ async function playerPage() {
     // A rating in another region is a separate one: a link to it, not a mix on this page.
     const elsewhere = p.regions
       .filter((id) => id !== site.region)
-      .map((id) => `<a href="/player?id=${p.id}&region=${encodeURIComponent(id)}">${regionName(id)}</a>`)
+      .map((id) => `<a href="${playerLink(p.id, id)}">${regionName(id)}</a>`)
       .join(" and ");
     $("about").innerHTML = [
       r?.inactiveSince && `Inactive since ${esc(date(r.inactiveSince))}: still on the leaderboard, but no rank tag in game.`,
@@ -272,7 +274,7 @@ async function matchPage() {
             return `<td class="${cls}">${place.position ?? "–"}</td>`;
           })
           .join("");
-        return `<tr><td class="name"><a href="/player?id=${p.id}">${esc(p.name)}</a></td>
+        return `<tr><td class="name"><a href="${playerLink(p.id)}">${esc(p.name)}</a></td>
           <td class="won">${p.wins}</td><td class="delta">${change(p.ratingBefore, p.ratingAfter)}</td>${cells}</tr>`;
       })
       .join("");
@@ -387,7 +389,7 @@ function standingsTable(l) {
     .map(
       (s) => `<tr${s.place === 1 ? ' class="first"' : ""}>
         <td class="place num">${s.place}</td>
-        <td class="name"><a href="/player?id=${s.id}">${esc(s.name)}</a></td>
+        <td class="name"><a href="${playerLink(s.id)}">${esc(s.name)}</a></td>
         <td class="num">${s.wins}</td><td class="num">${s.kills}</td>
         <td class="num muted">${s.ratingBefore === null ? "–" : rating(s.ratingBefore)}</td>
         <td class="delta">${change(s.ratingBefore, s.ratingAfter)}</td></tr>`,
@@ -404,7 +406,7 @@ function lobbySection(t, l) {
   const title = t.lobbies.length > 1 || !l.standings.length ? `<h2>${esc(l.label)}</h2>` : "";
   const flags = l.standings.length ? verifiedChip(l.verified) + (l.void ? ' <span class="chip bad" title="Doesn\'t count for ratings">Void</span>' : "") : "";
   const podium = won.length
-    ? `<p class="podium">${trophy()}<span><small>Winner</small><b>${won.map((s) => `<a href="/player?id=${s.id}">${esc(s.name)}</a>`).join(" & ")}</b>
+    ? `<p class="podium">${trophy()}<span><small>Winner</small><b>${won.map((s) => `<a href="${playerLink(s.id)}">${esc(s.name)}</a>`).join(" & ")}</b>
         <small>${won[0].wins} rounds won, ${won[0].kills} kills</small></span></p>`
     : "";
   const proof = l.screenshot
@@ -539,7 +541,7 @@ function searchSheet() {
       results.innerHTML = found.length
         ? found
             .map(
-              (p) => `<li><a href="/player?id=${p.id}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
+              (p) => `<li><a href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
                 <span class="pos num">${p.rank}</span><b>${esc(p.name)}</b>${chip(p.tier)}<span class="rating num">${rating(p.rating)}</span></a></li>`,
             )
             .join("")
