@@ -250,6 +250,18 @@ describe("GET /api/players/:id/history", () => {
     expect((await history(alpha, "?region=na")).matches).toBe(0);
   });
 
+  it("answers a merged player's id with the player they were merged into", async () => {
+    await upload("000000000001", 3);
+    const [alpha, bravo] = [await playerId("Alpha"), await playerId("Bravo")];
+    const before = await history(alpha);
+    // Merged by hand, as the admin merge leaves it (#8): `merged_into` set.
+    await db().prepare("UPDATE players SET merged_into = ? WHERE id = ?").bind(bravo, alpha).run();
+    const merged = await history(alpha);
+    expect(merged.player.id).toBe(bravo);
+    expect(merged).toEqual(await history(bravo));
+    expect(merged.matches).toBe(before.matches);
+  });
+
   it("is a 404 for an unknown player, a 400 for an unknown region", async () => {
     expect((await SELF.fetch("https://example.com/api/players/999/history")).status).toBe(404);
     expect((await SELF.fetch("https://example.com/api/players/abc/history")).status).toBe(404);

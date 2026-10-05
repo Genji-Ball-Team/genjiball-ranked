@@ -1,4 +1,5 @@
 import { staleFromPlayersStatement } from "../rating/store";
+import { queueRecountStatement, recordsUrgentStatement } from "../records/store";
 
 /**
  * The D1 queries for merging and naming players (#8, docs/database.md, "Merging players"). Like the
@@ -267,6 +268,9 @@ export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number>
     staleFromPlayersStatement(db, [w.from], w.at),
     // A rating run that read `from`'s rows before this batch fails instead of writing them back.
     db.prepare("UPDATE rating_state SET version = version + 1"),
+    // Before the rows move: the records recount `from`'s matches, which now count them with `into`.
+    queueRecountStatement(db, w.from),
+    recordsUrgentStatement(db),
   ];
   for (const c of playerIdColumns) {
     if (c.kind === "aliases" || c.kind === "matchPlayers" || c.kind === "perMatch") {
@@ -337,6 +341,9 @@ export async function writeUndo(db: D1Database, w: UndoWrite): Promise<void> {
   statements.push(
     // After the rows moved back: the first rated match `from` played in each region.
     staleFromPlayersStatement(db, [from.id], w.at),
+    // And the records recount those matches, which count them apart again.
+    queueRecountStatement(db, from.id),
+    recordsUrgentStatement(db),
     db.prepare("UPDATE rating_state SET version = version + 1"),
     db.prepare("UPDATE players SET name_fixed = 0 WHERE id = ?1 AND ?2 = 1").bind(into.id, w.unfixInto ? 1 : 0),
     db

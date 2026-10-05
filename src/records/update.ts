@@ -6,6 +6,7 @@ import {
   isCursorConflict,
   readFeedChanges,
   readMatchCounts,
+  readRecountQueue,
   readRecordsInput,
   readRecordsState,
   syncStatements,
@@ -28,30 +29,35 @@ import {
 
 const minuteMs = 60 * 1000;
 
-/** The most D1 queries a `syncMatchStats` makes: the feed, 4 counts, a batch of 5. */
-export const syncQueries = 10;
+/** The most D1 queries a `syncMatchStats` makes: the feed, the recount queue, 4 counts, a batch of 6. */
+export const syncQueries = 12;
 /** The most a `refreshRecords` makes: the regions' state, 3 reads, the write. */
 export const refreshQueries = 5;
 
 /** Returns how many feed changes it handled; 0 when there were none, or another run came first. */
 export async function syncMatchStats(db: D1Database, config: RecordsConfig, log: Logger): Promise<number> {
-  const { cursor, matches } = await readFeedChanges(db, config.recordsMatchesPerRun);
-  if (!matches.length) return 0;
+  const feed = await readFeedChanges(db, config.recordsMatchesPerRun);
+  // Matches queued by a player merge share the run's `recordsMatchesPerRun`.
+  const queue = await readRecountQueue(db, config.recordsMatchesPerRun - feed.matches.length);
+  if (!feed.matches.length && !queue.rows.length) return 0;
+  const { cursor } = feed;
+  const listed = new Set(feed.matches.map((m) => m.id));
+  const matches = [...feed.matches, ...queue.matches.filter((m) => !listed.has(m.id))];
   const accepted = matches.filter((m) => m.status === "accepted");
   const counts = await readMatchCounts(db, accepted.map((m) => m.id));
   const stats = matchStats(accepted, counts);
   const changed = matches.map((m) => m.id);
   const regions = [...new Set(matches.map((m) => m.region))];
-  const to = matches.at(-1)!.seq;
+  const to = feed.matches.at(-1)?.seq ?? cursor;
   try {
-    await db.batch(syncStatements(db, cursor, to, changed, stats, regions));
+    await db.batch(syncStatements(db, cursor, to, changed, stats, regions, queue.rows));
   } catch (error) {
     if (!isCursorConflict(error)) throw error;
     log.info("match stats: another run moved the cursor first", { from: cursor });
     return 0;
   }
-  log.info("match stats", { counted: stats.length, changed: changed.length, cursor: to });
-  return matches.length;
+  log.info("match stats", { counted: stats.length, changed: changed.length, recounted: queue.rows.length, cursor: to });
+  return feed.matches.length + queue.rows.length;
 }
 
 /** Whether a region's stored records should be rebuilt now. */

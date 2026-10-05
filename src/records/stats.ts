@@ -247,6 +247,16 @@ export type RecordsBody = ReturnType<typeof recordsView>;
 /** The records set in a match, by name: the ones a match leaving the region's records can take away. */
 export const matchRecordNames = ["roundDeflects", "fastestDeflect", "matchKills", "matchWins", "highestRating"] as const;
 
+/** The stored page with each record's holder as they are now (`current` by stored id): merged players by who they were merged into. */
+export function withPlayers(body: RecordsBody, current: ReadonlyMap<number, RecordPlayer>): RecordsBody {
+  const records = { ...body.records } as Record<keyof Records, MatchRecord | CareerRecord | null>;
+  for (const name of Object.keys(records) as (keyof Records)[]) {
+    const record = records[name];
+    if (record) records[name] = { ...record, player: current.get(record.player.id) ?? record.player };
+  }
+  return { ...body, records: records as unknown as Records };
+}
+
 /** The stored page without the match records whose match isn't in `publicIds` any more. */
 export function withoutMatches(body: RecordsBody, publicIds: ReadonlySet<number>): RecordsBody {
   const records = { ...body.records };

@@ -352,6 +352,12 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
     expect(result.summary).toMatchObject({ players: 4, changed: 0, identical: true });
   });
 
+  it("isn't identical when only a stored win streak is wrong", async () => {
+    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await db().prepare("UPDATE ratings SET best_streak = best_streak + 5 WHERE board = 'eu' AND player_id = ?").bind(await playerId("Alpha")).run();
+    expect((await dryRun("eu")).summary).toMatchObject({ changed: 0, identical: false });
+  });
+
   it("lists who would move, and by how much", async () => {
     await upload(matchLog(), tokens.eu, hoursAgo(1));
     const alpha = await playerId("Alpha");
@@ -471,5 +477,11 @@ describe("diffRatings", () => {
     expect(diffRatings(same, new Map(same), 3).summary).toMatchObject({ changed: 0, identical: true });
     const drifted = new Map([[1, { ...rating(1200), mu: 12.000001 }]]);
     expect(diffRatings(same, drifted, 3).summary).toMatchObject({ changed: 0, identical: false });
+  });
+
+  it("isn't identical when only a win streak differs", () => {
+    const same = new Map([[1, rating(1200)]]);
+    expect(diffRatings(same, new Map([[1, { ...rating(1200), streak: 3 }]]), 3).summary).toMatchObject({ changed: 0, identical: false });
+    expect(diffRatings(same, new Map([[1, { ...rating(1200), bestStreak: 9 }]]), 3).summary).toMatchObject({ changed: 0, identical: false });
   });
 });

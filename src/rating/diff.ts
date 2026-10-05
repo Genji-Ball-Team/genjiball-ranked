@@ -111,6 +111,8 @@ function sameRating(a: StoredRating, b: StoredRating): boolean {
     a.display === b.display &&
     a.rounds === b.rounds &&
     a.wins === b.wins &&
+    a.streak === b.streak &&
+    a.bestStreak === b.bestStreak &&
     a.lastPlayedAt === b.lastPlayedAt
   );
 }

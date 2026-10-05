@@ -54,6 +54,15 @@ CREATE TABLE records_state (
 );
 INSERT INTO records_state (id) VALUES (1);
 
+-- Matches to recount that the feed doesn't list again: a player merge or its undo (#8) moves their
+-- `match_players` rows, which the stats name players by. Written in the merge's own transaction; the
+-- cron recounts them with the feed's changes and deletes the rows it read (a match queued again
+-- meanwhile has a newer row, which stays).
+CREATE TABLE match_stats_recount (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  match_id INTEGER NOT NULL
+);
+
 -- Each region's records revision: goes up whenever what its records count changes (a match's stats
 -- written or dropped, a match leaving or joining the region). Never goes down, so a rebuild that
 -- read revision N can't hide a change made while it ran. `urgent`: the revision at which an

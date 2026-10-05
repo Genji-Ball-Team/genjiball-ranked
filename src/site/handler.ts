@@ -230,7 +230,10 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
  * points), the peak, the win streaks and the recent form. Compare (#16) asks once per player, so
  * each answer is cached on its own URL.
  */
-async function history(db: D1Database, config: SiteConfig, region: Region, id: number) {
+async function history(db: D1Database, config: SiteConfig, region: Region, requested: number) {
+  // A merged player's id answers for the player they were merged into (#8), like the player page.
+  const id = await canonicalPlayerId(db, requested);
+  if (id === null) return null;
   const [found, rows] = await Promise.all([findPlayer(db, id), listHistory(db, region.id, id)]);
   if (!found) return null;
   const form = recentForm(await listFormRounds(db, region.id, id, config.recentFormRounds));

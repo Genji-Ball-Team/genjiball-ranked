@@ -1,6 +1,7 @@
 import {
   matchRecordNames,
   withoutMatches,
+  withPlayers,
   type CareerRecord,
   type FeedMatch,
   type MatchCounts,
@@ -28,19 +29,59 @@ const json = (value: unknown) => JSON.stringify(value);
 
 /** Matches changed in the feed since the cron last read it, oldest change first, at most `limit`. */
 export async function readFeedChanges(db: D1Database, limit: number): Promise<{ cursor: number; matches: FeedMatch[] }> {
+  // LEFT JOIN: the cursor comes back even with no change after it.
   const { results } = await db
     .prepare(
       `SELECT s.feed_cursor AS cursor, m.id, m.feed_seq AS seq, m.status, m.region, m.host_id AS hostId, m.played_at AS playedAt,
          m.line_count AS lineCount
-       FROM records_state s JOIN matches m ON m.feed_seq > s.feed_cursor
+       FROM records_state s LEFT JOIN matches m ON m.feed_seq > s.feed_cursor
        ORDER BY m.feed_seq LIMIT ?1`,
     )
     .bind(limit)
-    .all<FeedMatch & { cursor: number }>();
+    .all<{ cursor: number } & { [K in keyof FeedMatch]: FeedMatch[K] | null }>();
   return {
     cursor: results[0]?.cursor ?? 0,
-    matches: results.map((m) => ({ id: m.id, seq: m.seq, status: m.status, region: m.region, hostId: m.hostId, playedAt: m.playedAt, lineCount: m.lineCount })),
+    matches: results.flatMap((m) =>
+      m.id === null ? [] : [{ id: m.id, seq: m.seq!, status: m.status!, region: m.region!, hostId: m.hostId!, playedAt: m.playedAt!, lineCount: m.lineCount! }],
+    ),
   };
+}
+
+/**
+ * The oldest matches queued for a recount (`match_stats_recount`: player merges and undos), at
+ * most `limit`, with the queue rows read: the sync deletes those.
+ */
+export async function readRecountQueue(db: D1Database, limit: number): Promise<{ rows: number[]; matches: FeedMatch[] }> {
+  if (limit <= 0) return { rows: [], matches: [] };
+  const { results } = await db
+    .prepare(
+      `SELECT q.id AS row, m.id, m.feed_seq AS seq, m.status, m.region, m.host_id AS hostId, m.played_at AS playedAt,
+         m.line_count AS lineCount
+       FROM (SELECT id, match_id FROM match_stats_recount ORDER BY id LIMIT ?1) q LEFT JOIN matches m ON m.id = q.match_id
+       ORDER BY q.id`,
+    )
+    .bind(limit)
+    .all<{ row: number } & { [K in keyof FeedMatch]: FeedMatch[K] | null }>();
+  const matches = new Map<number, FeedMatch>();
+  for (const m of results) {
+    if (m.id !== null) matches.set(m.id, { id: m.id, seq: m.seq ?? 0, status: m.status!, region: m.region!, hostId: m.hostId!, playedAt: m.playedAt!, lineCount: m.lineCount! });
+  }
+  return { rows: results.map((r) => r.row), matches: [...matches.values()] };
+}
+
+/** Queues these matches' stats for a recount: the matches `playerId` is in. For a merge's batch. */
+export function queueRecountStatement(db: D1Database, playerId: number): D1PreparedStatement {
+  return db
+    .prepare("INSERT INTO match_stats_recount (match_id) SELECT DISTINCT match_id FROM match_players WHERE player_id = ?1")
+    .bind(playerId);
+}
+
+/**
+ * Every region's records are urgent: rebuilt at the next cron run, and checked at view time until
+ * then. For a merge's batch: a record may name the merged player, or count them apart.
+ */
+export function recordsUrgentStatement(db: D1Database): D1PreparedStatement {
+  return db.prepare("UPDATE records_revisions SET revision = revision + 1, urgent = revision + 1");
 }
 
 /** What `matchStats` needs of these matches, counted by D1: about one row read per event and round. */
@@ -94,9 +135,11 @@ export function syncStatements(
   changed: readonly number[],
   stats: readonly MatchStatsRow[],
   regions: readonly string[],
+  queueRows: readonly number[] = [],
 ): D1PreparedStatement[] {
   const statements = [
     db.prepare("UPDATE records_state SET feed_cursor = CASE WHEN feed_cursor = ?1 THEN ?2 END WHERE id = 1").bind(from, to),
+    db.prepare("DELETE FROM match_stats_recount WHERE id IN (SELECT value FROM json_each(?1))").bind(json(queueRows)),
     db
       .prepare(
         `DELETE FROM match_stats WHERE match_id IN (SELECT value FROM json_each(?1))
@@ -306,9 +349,21 @@ export async function readRecords(db: D1Database, region: string): Promise<{ bod
   const body = JSON.parse(row.body) as RecordsBody;
   if (row.outdated !== 1) return { body, refreshedAt: row.refreshedAt };
   const ids = matchRecordNames.map((name) => body.records[name]?.matchId).filter((id): id is number => id !== undefined);
-  const { results } = await db
-    .prepare(`SELECT m.id FROM matches m WHERE m.id IN (SELECT value FROM json_each(?2)) AND ${counted}`)
-    .bind(region, json(ids))
-    .all<{ id: number }>();
-  return { body: withoutMatches(body, new Set(results.map((r) => r.id))), refreshedAt: row.refreshedAt };
+  const holders = Object.values(body.records).flatMap((record) => (record ? [record.player.id] : []));
+  const [publicMatches, players] = await db.batch([
+    db.prepare(`SELECT m.id FROM matches m WHERE m.id IN (SELECT value FROM json_each(?2)) AND ${counted}`).bind(region, json(ids)),
+    // Each holder's player now: the end of their merge chain (#8).
+    db
+      .prepare(
+        `WITH RECURSIVE chain(start, id, merged_into) AS (
+           SELECT id, id, merged_into FROM players WHERE id IN (SELECT value FROM json_each(?1))
+           UNION
+           SELECT c.start, p.id, p.merged_into FROM players p JOIN chain c ON p.id = c.merged_into
+         ) SELECT c.start, c.id, p.name FROM chain c JOIN players p ON p.id = c.id WHERE c.merged_into IS NULL`,
+      )
+      .bind(json([...new Set(holders)])),
+  ]);
+  const current = new Map((players!.results as { start: number; id: number; name: string }[]).map((p) => [p.start, { id: p.id, name: p.name }]));
+  const shown = withoutMatches(body, new Set((publicMatches!.results as { id: number }[]).map((r) => r.id)));
+  return { body: withPlayers(shown, current), refreshedAt: row.refreshedAt };
 }

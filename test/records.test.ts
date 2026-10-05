@@ -5,7 +5,7 @@ import worker from "../src/index";
 import { createLogger } from "../src/log";
 import { queryBudget } from "../src/budget";
 import { matchStats, recordsView, noRecords, type MatchCounts } from "../src/records/stats";
-import { readFeedChanges, readMatchCounts, syncStatements } from "../src/records/store";
+import { readFeedChanges, readMatchCounts, readRecountQueue, syncStatements } from "../src/records/store";
 import { isDue, rebuildRecords, refreshQueries, syncMatchStats, syncQueries, updateRecords } from "../src/records/update";
 import { markAllStale, rateNewQueries, recomputeQueries } from "../src/rating/update";
 import { sha256 } from "../src/upload/handler";
@@ -20,7 +20,7 @@ const names = ["Alpha", "Bravo", "Charlie", "Delta"];
 beforeEach(async () => {
   // Storage is isolated per test file, not per test.
   const tables = [
-    "admin_actions", "admins", "match_stats", "records", "records_revisions", "screenshot_deletions", "events", "round_players", "rounds", "match_players",
+    "player_merges", "admin_actions", "admins", "match_stats", "match_stats_recount", "records", "records_revisions", "screenshot_deletions", "events", "round_players", "rounds", "match_players",
     "rating_history", "ratings", "matches", "uploads", "aliases", "players", "hosts",
   ];
   await db().batch([
@@ -350,14 +350,79 @@ describe("records: matches that stop counting", () => {
     const before = await revisions("eu");
     // A change lands while the rebuild that read `before` runs.
     await db().prepare("UPDATE records_revisions SET revision = revision + 1 WHERE region = 'eu'").run();
-    await rebuildRecords(db(), defaults, "eu", before.revision, before.version, new Date());
-    const [state] = (await db().prepare("SELECT revision FROM records WHERE region = 'eu'").all<{ revision: number }>()).results;
-    expect(state!.revision).toBe(before.revision);
-    const later = new Date(Date.now() + defaults.recordsRefreshMinutes * 60 * 1000);
-    expect(isDue({ region: "eu", version: before.version, ratingVersion: before.version, revision: before.revision + 1, urgent: 0, builtRevision: before.revision, refreshedAt: new Date().toISOString() }, defaults, later)).toBe(true);
+    // A fixed clock: "now" read twice could straddle the refresh interval by a millisecond.
+    const at = new Date("2026-10-05T12:00:00Z");
+    await rebuildRecords(db(), defaults, "eu", before.revision, before.version, at);
+    const state = await db().prepare("SELECT revision, refreshed_at AS refreshedAt FROM records WHERE region = 'eu'").first<{ revision: number; refreshedAt: string }>();
+    expect(state).toEqual({ revision: before.revision, refreshedAt: "2026-10-05T12:00:00Z" });
+    const later = new Date(at.getTime() + defaults.recordsRefreshMinutes * 60 * 1000);
+    const stored = { region: "eu", version: before.version, ratingVersion: before.version, urgent: 0, builtRevision: before.revision, refreshedAt: state!.refreshedAt };
+    expect(isDue({ ...stored, revision: before.revision + 1 }, defaults, later)).toBe(true);
+    expect(isDue({ ...stored, revision: before.revision }, defaults, later)).toBe(false);
     // A slower run that read an even older revision doesn't overwrite it.
-    await rebuildRecords(db(), defaults, "eu", before.revision - 1, before.version, new Date());
+    await rebuildRecords(db(), defaults, "eu", before.revision - 1, before.version, at);
     expect(await db().prepare("SELECT revision FROM records WHERE region = 'eu'").first("revision")).toBe(before.revision);
+  });
+});
+
+describe("records: player merges (#8)", () => {
+  async function merge(from: number, into: number) {
+    const res = await SELF.fetch(`https://example.com/api/admin/players/${from}/merge`, {
+      method: "POST",
+      body: JSON.stringify({ into }),
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    return ((await res.json()) as { merge: { id: number } }).merge.id;
+  }
+
+  /** Alpha (log id 1) kills in round 1, leaves and rejoins as "Alpha2" (log id 5), and kills again in round 2. */
+  function rejoinLog(key: string) {
+    const lines = [`GBR|1.00|1|1.3.3R|${key}`, "MATCH_START|1.00|workshop-island-night|Default|0|"];
+    names.forEach((name, i) => lines.push(`JOIN|1.00|${i + 1}|${name}`));
+    lines.push("ROUND_START|2.00|1|1,2,3,4", "KILL|2.50|Alpha|Bravo|1|2", "KILL|2.60|Alpha|Charlie|1|3");
+    lines.push("ELIM|3.00|1|2|1|4", "ELIM|4.00|1|3|1|3", "ELIM|5.00|1|4|1|2", "ROUND_END|5.00|1|1|WIN", "LEAVE|5.50|1", "JOIN|5.60|5|Alpha2");
+    lines.push("ROUND_START|6.00|2|2,3,4,5", "KILL|6.50|Alpha2|Bravo|5|2", "KILL|6.60|Alpha2|Charlie|5|3", "KILL|6.70|Alpha2|Delta|5|4");
+    lines.push("ELIM|7.00|2|2|5|4", "ELIM|8.00|2|3|5|3", "ELIM|9.00|2|4|5|2", "ROUND_END|9.00|2|5|WIN", "MATCH_END|10.00|TIME");
+    return lines.map((line) => `[00:00:01] ${line}`).join("\r\n");
+  }
+
+  it("recounts the merged player's matches at the next cron run, and an undo counts them apart again", async () => {
+    await upload(rejoinLog("000000000001"), 3);
+    await refresh();
+    const [alpha, alpha2] = [await playerId("Alpha"), await playerId("Alpha2")];
+    // Apart: Alpha2's 3 kills hold the record.
+    expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
+
+    const mergeId = await merge(alpha2, alpha);
+    // Queued and urgent in the merge's transaction: the stored page already names Alpha.
+    expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(1);
+    expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha } });
+    await updateRecords(db(), defaults, new Date(), log);
+    expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(0);
+    expect((await records()).records.matchKills).toMatchObject({ value: 5, player: { id: alpha } });
+    expect((await records()).records.matchWins).toMatchObject({ value: 2, player: { id: alpha } });
+
+    const undo = await SELF.fetch(`https://example.com/api/admin/merges/${mergeId}/undo`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    expect(undo.status, await undo.clone().text()).toBe(200);
+    await updateRecords(db(), defaults, new Date(), log);
+    expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
+  });
+
+  it("keeps a queued recount that arrived while a run was counting", async () => {
+    await upload(richLog({ key: "000000000001" }), 3);
+    await syncMatchStats(db(), defaults, log);
+    const id = await matchId("000000000001");
+    await db().prepare("INSERT INTO match_stats_recount (match_id) VALUES (?)").bind(id).run();
+    const read = await readRecountQueue(db(), defaults.recordsMatchesPerRun);
+    // Queued again meanwhile: a new row.
+    await db().prepare("INSERT INTO match_stats_recount (match_id) VALUES (?)").bind(id).run();
+    const { cursor } = await readFeedChanges(db(), defaults.recordsMatchesPerRun);
+    await db().batch(syncStatements(db(), cursor, cursor, [id], [], ["eu"], read.rows));
+    expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(1);
   });
 });
 
