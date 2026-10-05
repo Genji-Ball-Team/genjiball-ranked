@@ -226,6 +226,7 @@
         const answer = prompt(`Rounds for ${l.label}, or empty for the default`, l.roundLimitDefault ? "" : l.roundLimit);
         if (answer === null) return;
         const roundLimit = answer.trim() ? Number(answer.trim()) : null;
+        if (roundLimit !== null && !(Number.isSafeInteger(roundLimit) && roundLimit > 0)) return say("Enter a number of rounds, like 30, or nothing for the default.", true);
         act(`round limit ${l.label}`, () => post(`lobbies/${l.id}`, { roundLimit }).then(() => `${l.label} plays ${roundLimit ?? "the default number of"} rounds.`));
       });
       button(actions, "Rename", () => { const label = prompt("Lobby label", l.label); if (label) act("rename lobby", () => post(`lobbies/${l.id}`, { label }).then(() => `Renamed to ${label}.`)); });
