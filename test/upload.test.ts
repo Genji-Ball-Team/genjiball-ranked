@@ -15,7 +15,7 @@ beforeEach(async () => {
   const hosts = await Promise.all(Object.entries(tokens).map(async ([trust, token]) => ({ trust, hash: await sha256(token) })));
   await db().batch(
     hosts.map(({ trust, hash }, i) =>
-      db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (?, ?, ?, ?)").bind(i + 1, trust, hash, trust),
+      db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (?, ?, ?, ?, 'eu')").bind(i + 1, trust, hash, trust),
     ),
   );
 });
@@ -107,7 +107,7 @@ describe("host: check a token", () => {
   it("answers the token's host", async () => {
     const res = await me(tokens.untrusted);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ host: { id: 2, name: "untrusted", trust: "untrusted" } });
+    expect(await res.json()).toEqual({ host: { id: 2, name: "untrusted", trust: "untrusted", region: "eu" } });
   });
 
   it("answers like an upload for a missing, unknown or revoked token", async () => {
@@ -295,7 +295,7 @@ describe("upload: copies of a match", () => {
   it("stores the same file once", async () => {
     const first = await uploadOk(matchLog());
     const again = await uploadOk(matchLog());
-    expect(again).toEqual({ result: "duplicate", uploadId: first.uploadId, matches: [] });
+    expect(again).toEqual({ result: "duplicate", uploadId: first.uploadId, region: "eu", matches: [] });
     expect(await count("uploads")).toBe(1);
   });
 

@@ -72,14 +72,14 @@ describe("GET /api/rank-tags", () => {
       rows.flatMap(([name, display, rounds, last], i) => [
         db().prepare("INSERT INTO players (id, name) VALUES (?, ?)").bind(i + 1, name),
         db()
-          .prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('ranked', ?, 25, 1, ?, ?, ?)")
+          .prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('eu', ?, 25, 1, ?, ?, ?)")
           .bind(i + 1, display, rounds, last),
       ]),
     );
 
     // A name the Workshop can't hold doesn't take a place under rankTagsMaxNames.
     await db().prepare("INSERT INTO players (id, name) VALUES (6, 'Second')").run();
-    await db().prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('ranked', 6, 25, 1, 1300, ?, ?)").bind(defaults.minRankedRounds, active).run();
+    await db().prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('eu', 6, 25, 1, 1300, ?, ?)").bind(defaults.minRankedRounds, active).run();
     const capped = await handleSite(new Request("https://example.com/api/rank-tags"), db(), { ...defaults, rankTagsMaxNames: 2 });
     expect(((await capped!.json()) as RankTags).tiers.map((t) => t.names)).toEqual([["Second"], ["Kenzo"], [], [], [], []]);
     await db().prepare("DELETE FROM ratings WHERE player_id = 6").run();

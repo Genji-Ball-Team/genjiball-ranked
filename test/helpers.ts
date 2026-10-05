@@ -61,6 +61,6 @@ export async function expectUpToDate() {
   const expected = await fromScratch();
   expect(await ratingsTable()).toEqual(expected.ratings);
   expect(await historyTable()).toEqual(expected.history);
-  expect((await readState(db())).staleFrom).toBeNull();
+  expect((await readState(db(), "eu")).staleFrom).toBeNull();
 }
 

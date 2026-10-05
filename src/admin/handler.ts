@@ -1,6 +1,6 @@
 import { fail } from "../http";
 import type { Logger } from "../log";
-import { readState, staleFromMatchesStatement } from "../rating/store";
+import { anyStale, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
 import { readBody, sha256, storeLog } from "../upload/handler";
@@ -16,11 +16,12 @@ import {
   listActions,
   listHosts,
   listMatches,
+  setHostRegion,
   setHostTrust,
   setMatchState,
   setTournament,
 } from "./store";
-import { BadRequest, body, changedMeanwhile, notAllowed, text, type AdminConfig, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type AdminConfig, type Context } from "./request";
 import { handleTourneyAdmin } from "./tourneys";
 
 /**
@@ -59,13 +60,19 @@ export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bu
         const data = await body(request);
         return await changeTrust(ctx, id, path[2] === "revoke" ? "revoked" : data.trust);
       }
+      if (id !== null && path.length === 3 && path[2] === "region") {
+        if (method !== "POST") return notAllowed("POST");
+        return await changeRegion(ctx, id, await body(request));
+      }
     }
     if (path[0] === "matches") {
       if (path.length === 1) {
         if (method !== "GET") return notAllowed("GET");
-        const status = new URL(request.url).searchParams.get("status") ?? "review";
+        const params = new URL(request.url).searchParams;
+        const status = params.get("status") ?? "review";
         if (!(statuses as string[]).includes(status)) return fail(400, "bad_request", `status must be one of ${statuses.join(", ")}`);
-        return Response.json({ matches: await listMatches(db, status as MatchStatus, config.adminListLimit) });
+        const region = params.has("region") ? regionField(params.get("region"), config, "region") : null;
+        return Response.json({ matches: await listMatches(db, status as MatchStatus, region, config.adminListLimit) });
       }
       if (id !== null && path.length === 2) {
         if (method !== "GET") return notAllowed("GET");
@@ -98,23 +105,47 @@ export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bu
   return fail(404, "not_found", "No such admin route");
 }
 
-/** `POST /api/admin/hosts`: a new host token, shown once. Only its SHA-256 is stored. */
+/**
+ * `POST /api/admin/hosts` with `{ name, trust?, region? }`: a new host token, shown once. Only its
+ * SHA-256 is stored. `region` is the home region; without one, every upload must send `X-Region`.
+ */
 async function addHost(ctx: Context, data: Record<string, unknown>): Promise<Response> {
   const name = text(data.name, ctx.config, "name");
   if (!name) throw new BadRequest("name is required");
   const trust = data.trust ?? "untrusted";
   if (!(settableTrust as unknown[]).includes(trust)) throw new BadRequest(`trust must be one of ${settableTrust.join(", ")}`);
+  const region = data.region === undefined || data.region === null ? null : regionField(data.region, ctx.config, "region");
 
   const token = newToken(ctx.config.hostTokenBytes);
   const at = isoSeconds(ctx.now);
-  const host = await createHost(ctx.db, name, trust as HostTrust, await sha256(token), {
+  const host = await createHost(ctx.db, name, trust as HostTrust, region, await sha256(token), {
     adminId: ctx.admin.id,
     action: "host_create",
-    detail: { name, trust },
+    detail: { name, trust, region },
     at,
   });
-  ctx.log.info("admin: host created", { admin: ctx.admin.id, host: host.id, trust });
+  ctx.log.info("admin: host created", { admin: ctx.admin.id, host: host.id, trust, region });
   return Response.json({ host, token }, { status: 201 });
+}
+
+/**
+ * `POST /api/admin/hosts/:id/region` with `{ region }` (`null`: no home region). Only changes where
+ * the host's next uploads go: stored matches keep their region.
+ */
+async function changeRegion(ctx: Context, hostId: number, data: Record<string, unknown>): Promise<Response> {
+  if (data.region === undefined) throw new BadRequest("region is required (null for none)");
+  const region = data.region === null ? null : regionField(data.region, ctx.config, "region");
+  const host = await findHostById(ctx.db, hostId);
+  if (!host) return fail(404, "not_found", "No such host");
+  await setHostRegion(ctx.db, hostId, region, {
+    adminId: ctx.admin.id,
+    action: "host_region",
+    hostId,
+    detail: { from: host.region, to: region },
+    at: isoSeconds(ctx.now),
+  });
+  ctx.log.info("admin: host region", { admin: ctx.admin.id, host: hostId, from: host.region, to: region });
+  return Response.json({ host: { ...host, region } });
 }
 
 /** `POST /api/admin/hosts/:id/trust` and `/revoke`. */
@@ -183,8 +214,10 @@ async function changeMatch(ctx: Context, matchId: number, action: MatchAction, d
 
   let ratingsStale = true;
   try {
-    if (match.status === "accepted" || transition.to.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log);
-    ratingsStale = (await readState(ctx.db)).staleFrom !== null;
+    if (match.status === "accepted" || transition.to.status === "accepted") {
+      await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, [match.region]);
+    }
+    ratingsStale = await anyStale(ctx.db);
   } catch (error) {
     // The change is stored; the cron rates or recomputes.
     ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
@@ -225,8 +258,8 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
 
   let ratingsStale = true;
   try {
-    if (match.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log);
-    ratingsStale = (await readState(ctx.db)).staleFrom !== null;
+    if (match.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, [match.region]);
+    ratingsStale = await anyStale(ctx.db);
   } catch (error) {
     ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
   }
@@ -234,22 +267,28 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
 }
 
 /**
- * `POST /api/admin/legacy-import?host=<id>`: stores a v1.3.2 log file (body, as with an upload) as
- * the host's legacy match (#13, docs/legacy.md). The admin vouches for the file, so it's stored as
- * from a trusted host, with no upload rate limit. Answers like `POST /api/upload`.
+ * `POST /api/admin/legacy-import?host=<id>&region=<region>`: stores a v1.3.2 log file (body, as with
+ * an upload) as the host's legacy match (#13, docs/legacy.md), in `region` or else the host's home
+ * region. The admin vouches for the file, so it's stored as from a trusted host, with no upload rate
+ * limit. Answers like `POST /api/upload`.
  */
 async function importLegacy(ctx: Context, request: Request): Promise<Response> {
-  const hostParam = new URL(request.url).searchParams.get("host") ?? "";
+  const params = new URL(request.url).searchParams;
+  const hostParam = params.get("host") ?? "";
   const hostId = /^[1-9]\d{0,15}$/.test(hostParam) ? Number(hostParam) : null;
   if (hostId === null) throw new BadRequest("host=<host id> is required");
+  const asked = params.has("region") ? regionField(params.get("region"), ctx.config, "region") : null;
   const host = await findHostById(ctx.db, hostId);
   if (!host) return fail(404, "not_found", "No such host");
+  const region = asked ?? host.region;
+  if (!region) throw new BadRequest("The host has no home region: add region=<region>");
 
   const bytes = await readBody(request, ctx.config);
   if (bytes instanceof Response) return bytes;
   const fileName = request.headers.get("X-Log-File")?.trim().slice(0, 255) || null;
   return storeLog(ctx.db, ctx.config, ctx.log, {
-    host: { id: host.id, name: host.name, trust: "trusted" },
+    host: { id: host.id, name: host.name, trust: "trusted", region: host.region },
+    region,
     bytes,
     request,
     now: ctx.now,

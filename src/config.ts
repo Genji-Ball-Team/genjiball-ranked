@@ -14,6 +14,17 @@ export const defaults = {
    */
   testServer: false,
 
+  /**
+   * The regions, which play apart (#47): each has its own matches, leaderboard, hosts and tourneys.
+   * `id` is what the API takes (`?region=`, `X-Region`) and the leaderboard's `board` in D1. The
+   * first is the one a site read without `?region=` shows. A new region needs nothing else: its
+   * rating state row is made the first time it's rated.
+   */
+  regions: [
+    { id: "eu", label: "Europe" },
+    { id: "na", label: "North America" },
+  ] as Region[],
+
   /** Log format versions (the `format` field of `GBR`) the parser accepts. */
   acceptedLogFormats: [1] as number[],
 
@@ -204,6 +215,18 @@ export const defaults = {
 
 export type Config = typeof defaults;
 export type LogLevel = "error" | "info" | "debug";
+
+export interface Region {
+  /** Lowercase letters: `eu`. */
+  id: string;
+  label: string;
+}
+
+/** The region with this id, or null when it isn't one of `regions`. */
+export function findRegion(regions: readonly Region[], id: string | null | undefined): Region | null {
+  const key = id?.trim().toLowerCase();
+  return regions.find((region) => region.id === key) ?? null;
+}
 
 export interface Tier {
   label: string;

@@ -35,9 +35,12 @@ import {
  *   match on, a few matches a run, and writes only the rows that changed.
  * - `markMatchesChanged`, `markAllStale`: for whatever changes a rated match (a void, #7) or the
  *   rating itself (a config or engine change).
+ *
+ * Each region is its own leaderboard (#47): `rateNewMatches` and `recomputeRatings` work on one
+ * region's matches and ratings, and `updateRatings` runs them for each region.
  */
 
-export type UpdateConfig = RatingConfig & Pick<Config, "ratingIncompleteGraceHours" | "ratingMatchesPerRun">;
+export type UpdateConfig = RatingConfig & Pick<Config, "ratingIncompleteGraceHours" | "ratingMatchesPerRun" | "regions">;
 
 export interface RateNewResult {
   /** Matches rated on top of the current ratings. */
@@ -71,9 +74,10 @@ export async function rateNewMatches(
   config: UpdateConfig,
   now: Date,
   log: Logger,
+  region: string,
   budget = config.ratingMatchesPerRun,
 ): Promise<RateNewResult> {
-  const [state, unrated, newest] = await Promise.all([readState(db), readUnrated(db), readNewestRated(db)]);
+  const [state, unrated, newest] = await Promise.all([readState(db, region), readUnrated(db, region), readNewestRated(db, region)]);
   const due = unrated.filter((match) => counts(match, config, now));
   const isLate = (match: MatchRef) => newest !== null && compareRefs(match, newest) < 0;
   // A late match already inside the stale range needs nothing more.
@@ -82,15 +86,15 @@ export async function rateNewMatches(
   if (!late.length && !fresh.length) return { rated: 0, late: 0, conflict: false };
 
   const stamp = isoSeconds(now);
-  const statements = [lockStatement(db, state.version)];
+  const statements = [lockStatement(db, region, state.version)];
   if (late.length) {
-    statements.push(staleFromStatement(db, late[0]!, stamp));
-    log.info("late matches: ratings stale", { from: late[0], matches: late.map((m) => m.id) });
+    statements.push(staleFromStatement(db, region, late[0]!, stamp));
+    log.info("late matches: ratings stale", { region, from: late[0], matches: late.map((m) => m.id) });
   }
   if (fresh.length) {
     const rounds = await readRounds(db, fresh.map((m) => m.id));
     const players = [...new Set([...rounds.values()].flat(2))];
-    const ratings = await readRatings(db, players);
+    const ratings = await readRatings(db, region, players);
     const writes = planRerate(
       {
         start: ratings,
@@ -100,49 +104,50 @@ export async function rateNewMatches(
       },
       config,
     );
-    statements.push(...writeStatements(db, writes), ratedAtStatement(db, fresh.map((m) => m.id), stamp));
+    statements.push(...writeStatements(db, region, writes), ratedAtStatement(db, fresh.map((m) => m.id), stamp));
   }
 
   try {
     await db.batch(statements);
   } catch (error) {
     if (!isConflict(error)) throw error;
-    log.info("rating conflict: another rating write came first", { matches: fresh.map((m) => m.id) });
+    log.info("rating conflict: another rating write came first", { region, matches: fresh.map((m) => m.id) });
     return { rated: 0, late: 0, conflict: true };
   }
-  if (fresh.length) log.info("matches rated", { matches: fresh.map((m) => m.id) });
+  if (fresh.length) log.info("matches rated", { region, matches: fresh.map((m) => m.id) });
   return { rated: fresh.length, late: late.length, conflict: false };
 }
 
 /**
- * One run of the recompute: re-rates up to `budget` accepted matches from the first stale one,
- * starting from each player's history just before it. Run it until `done`.
+ * One run of the region's recompute: re-rates up to `budget` accepted matches from the first stale
+ * one, starting from each player's history just before it. Run it until `done`.
  */
 export async function recomputeRatings(
   db: D1Database,
   config: UpdateConfig,
   now: Date,
   log: Logger,
+  region: string,
   budget = config.ratingMatchesPerRun,
 ): Promise<RecomputeResult> {
-  const state = await readState(db);
+  const state = await readState(db, region);
   const from = state.staleFrom;
   if (!from) return { stale: false, rated: 0, done: true, conflict: false };
 
   const size = Math.max(1, budget);
-  const accepted = await readAcceptedFrom(db, from, size + 1);
+  const accepted = await readAcceptedFrom(db, region, from, size + 1);
   const next = accepted[size] ?? null;
   const batch = accepted.slice(0, size);
   const counted = batch.filter((match) => counts(match, config, now));
   const notCounted = batch.filter((match) => match.rated && !counts(match, config, now)).map((m) => m.id);
-  const dropped = [...notCounted, ...(await readNoLongerAccepted(db, from, next))];
+  const dropped = [...notCounted, ...(await readNoLongerAccepted(db, region, from, next))];
 
   const [rounds, history] = await Promise.all([
     readRounds(db, counted.map((m) => m.id)),
-    readHistory(db, [...batch.map((m) => m.id), ...dropped]),
+    readHistory(db, region, [...batch.map((m) => m.id), ...dropped]),
   ]);
   const players = [...new Set([...[...rounds.values()].flat(2), ...history.map((entry) => entry.playerId)])];
-  const [start, ratings] = await Promise.all([readRatingsBefore(db, players, from), readRatings(db, players)]);
+  const [start, ratings] = await Promise.all([readRatingsBefore(db, region, players, from), readRatings(db, region, players)]);
   const writes = planRerate(
     {
       start,
@@ -156,20 +161,21 @@ export async function recomputeRatings(
   const stamp = isoSeconds(now);
   const newlyRated = counted.filter((m) => !m.rated).map((m) => m.id);
   const statements = [
-    lockStatement(db, state.version),
-    ...writeStatements(db, writes),
+    lockStatement(db, region, state.version),
+    ...writeStatements(db, region, writes),
     ...(newlyRated.length ? [ratedAtStatement(db, newlyRated, stamp)] : []),
     ...(dropped.length ? [ratedAtStatement(db, dropped, null)] : []),
-    staleUntilStatement(db, next, stamp),
+    staleUntilStatement(db, region, next, stamp),
   ];
   try {
     await db.batch(statements);
   } catch (error) {
     if (!isConflict(error)) throw error;
-    log.info("recompute conflict: another rating write came first");
+    log.info("recompute conflict: another rating write came first", { region });
     return { stale: true, rated: 0, done: false, conflict: true };
   }
   log.info("ratings recomputed", {
+    region,
     from,
     matches: counted.length,
     dropped: dropped.length,
@@ -182,21 +188,37 @@ export async function recomputeRatings(
 
 /**
  * For whatever changes matches that may be rated: a void, an un-void, accepting a match from the
- * review queue (#7). The ratings are stale from the earliest of them; the cron recomputes them,
- * or call `recomputeRatings` straight away.
+ * review queue (#7). Each region's ratings are stale from the earliest of them in it; the cron
+ * recomputes them, or call `recomputeRatings` straight away.
  */
 export async function markMatchesChanged(db: D1Database, matchIds: readonly number[], now: Date): Promise<void> {
   if (matchIds.length) await staleFromMatchesStatement(db, matchIds, isoSeconds(now)).run();
 }
 
-/** After a change to the rating config or engine: everything is re-rated. */
+/** After a change to the rating config or engine: everything is re-rated, in every region. */
 export async function markAllStale(db: D1Database, now: Date): Promise<void> {
-  await staleFromStatement(db, fromStart, isoSeconds(now)).run();
+  await staleFromStatement(db, null, fromStart, isoSeconds(now)).run();
 }
 
-/** The cron: rate what's due, then carry on a recompute if the ratings are stale. */
-export async function updateRatings(db: D1Database, config: UpdateConfig, now: Date, log: Logger): Promise<void> {
-  const fresh = await rateNewMatches(db, config, now, log);
-  const budget = config.ratingMatchesPerRun - fresh.rated;
-  if (budget > 0) await recomputeRatings(db, config, now, log, budget);
+/**
+ * The cron: rate what's due in each region, then carry on the recomputes of regions whose ratings
+ * are stale. The regions share one run's `ratingMatchesPerRun`, so a run costs what it did with
+ * one leaderboard; a region whose recompute didn't fit carries on in the next run.
+ */
+export async function updateRatings(
+  db: D1Database,
+  config: UpdateConfig,
+  now: Date,
+  log: Logger,
+  regions: readonly string[] = config.regions.map((r) => r.id),
+): Promise<void> {
+  let budget = config.ratingMatchesPerRun;
+  for (const region of regions) {
+    if (budget <= 0) return;
+    budget -= (await rateNewMatches(db, config, now, log, region, budget)).rated;
+  }
+  for (const region of regions) {
+    if (budget <= 0) return;
+    budget -= (await recomputeRatings(db, config, now, log, region, budget)).rated;
+  }
 }

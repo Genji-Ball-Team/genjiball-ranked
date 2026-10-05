@@ -40,7 +40,7 @@ beforeEach(async () => {
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
     db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
     db().prepare("INSERT INTO admins (id, name, token_hash) VALUES (1, 'Ada', ?)").bind(await sha256(adminToken)),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (1, 'trusted', ?, 'trusted')").bind(await sha256(hostToken)),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'trusted', ?, 'trusted', 'eu')").bind(await sha256(hostToken)),
   ]);
 });
 
@@ -76,7 +76,7 @@ async function upload(key: string, hoursAgo: number) {
 
 async function newTourney(fields: Record<string, unknown> = {}) {
   const { tourney } = await adminOk<{ tourney: { id: number } }>("tourneys", {
-    body: { name: "October Cup", startsAt: "2026-10-10T19:00:00+02:00", ...fields },
+    body: { name: "October Cup", region: "eu", startsAt: "2026-10-10T19:00:00+02:00", ...fields },
   });
   return tourney.id;
 }
@@ -171,23 +171,23 @@ describe("admin: tourneys", () => {
   it("schedules a tourney in UTC and edits it", async () => {
     const id = await newTourney({ notes: "Bring a friend" });
     const { tourneys } = await adminOk<{ tourneys: Tourney[] }>("tourneys");
-    expect(tourneys).toEqual([{ id, name: "October Cup", startsAt: "2026-10-10T17:00:00Z", status: "scheduled", notes: "Bring a friend", lobbies: [] }]);
+    expect(tourneys).toEqual([{ id, name: "October Cup", region: "eu", startsAt: "2026-10-10T17:00:00Z", status: "scheduled", notes: "Bring a friend", lobbies: [] }]);
 
     await adminOk(`tourneys/${id}`, { body: { status: "live" } });
     expect((await adminOk<{ tourneys: Tourney[] }>("tourneys")).tourneys[0]).toMatchObject({ name: "October Cup", status: "live" });
 
     const { results } = await db().prepare("SELECT action, detail FROM admin_actions ORDER BY id").all<{ action: string; detail: string }>();
     expect(results.map((r) => [r.action, JSON.parse(r.detail)])).toEqual([
-      ["tourney_create", { name: "October Cup", startsAt: "2026-10-10T17:00:00Z", tourney: id }],
+      ["tourney_create", { name: "October Cup", region: "eu", startsAt: "2026-10-10T17:00:00Z", tourney: id }],
       ["tourney_edit", { tourney: id, status: { from: "scheduled", to: "live" } }],
     ]);
   });
 
   it("refuses bad fields", async () => {
     expect((await admin("tourneys", { body: { startsAt: "2026-10-10T19:00:00Z" } })).status).toBe(400);
-    expect((await admin("tourneys", { body: { name: "Cup", startsAt: "2026-10-10T19:00" } })).status).toBe(400);
-    expect((await admin("tourneys", { body: { name: "Cup", startsAt: "next friday" } })).status).toBe(400);
-    expect((await admin("tourneys", { body: { name: "Cup", startsAt: "2026-10-10T19:00:00Z", status: "maybe" } })).status).toBe(400);
+    expect((await admin("tourneys", { body: { name: "Cup", region: "eu", startsAt: "2026-10-10T19:00" } })).status).toBe(400);
+    expect((await admin("tourneys", { body: { name: "Cup", region: "eu", startsAt: "next friday" } })).status).toBe(400);
+    expect((await admin("tourneys", { body: { name: "Cup", region: "eu", startsAt: "2026-10-10T19:00:00Z", status: "maybe" } })).status).toBe(400);
     expect((await admin("tourneys/999", { body: { status: "done" } })).status).toBe(404);
     expect((await admin("tourneys/999/lobbies", { body: { label: "Lobby 1" } })).status).toBe(404);
     expect((await admin("lobbies/999", { body: { label: "x" } })).status).toBe(404);
@@ -546,7 +546,7 @@ describe("site: tourneys", () => {
     ]);
 
     const boards = await db().prepare("SELECT DISTINCT board FROM ratings").all<{ board: string }>();
-    expect(boards.results).toEqual([{ board: "ranked" }]);
+    expect(boards.results).toEqual([{ board: "eu" }]);
   });
 
   it("answers 404 for an unknown tourney or screenshot", async () => {

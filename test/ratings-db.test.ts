@@ -18,7 +18,7 @@ beforeEach(async () => {
   await db().batch([
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
     db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (1, 'host', ?, 'trusted')").bind(await sha256(token)),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'host', ?, 'trusted', 'eu')").bind(await sha256(token)),
   ]);
 });
 
@@ -36,7 +36,7 @@ async function recomputeUntilDone(budget = defaults.ratingMatchesPerRun): Promis
   let runs = 0;
   for (;;) {
     runs++;
-    const result = await recomputeRatings(db(), defaults, new Date(), log, budget);
+    const result = await recomputeRatings(db(), defaults, new Date(), log, "eu", budget);
     if (result.done) return runs;
     expect(runs).toBeLessThan(100);
   }
@@ -83,7 +83,7 @@ describe("ratings: new matches", () => {
   it("doesn't rate a rejected match", async () => {
     await upload(matchLog().replace("JOIN|1.00|4|Delta", "JOIN|1.00|4|Delta\r\n[00:00:01] UNRANKED|1.00|BOT"), "2026-09-01T20:00:00Z");
     expect(await ratingsTable()).toEqual([]);
-    expect((await readState(db())).staleFrom).toBeNull();
+    expect((await readState(db(), "eu")).staleFrom).toBeNull();
   });
 
   it("marks the ratings stale for a late upload, and the recompute puts it in its place", async () => {
@@ -91,7 +91,7 @@ describe("ratings: new matches", () => {
     await upload(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Echo", "Delta"] }), "2026-09-01T20:00:00Z");
     const late = await matchId("000000000002");
     expect(await historyTable()).toHaveLength(4);
-    expect((await readState(db())).staleFrom).toEqual({ id: late, playedAt: "2026-09-01T20:00:00Z" });
+    expect((await readState(db(), "eu")).staleFrom).toEqual({ id: late, playedAt: "2026-09-01T20:00:00Z" });
 
     await recomputeUntilDone();
     await expectUpToDate();
@@ -116,9 +116,9 @@ describe("ratings: incomplete matches", () => {
     expect(await ratingsTable()).toEqual([]);
 
     const beforeGrace = new Date(started.getTime() + (defaults.ratingIncompleteGraceHours - 0.5) * 3600_000);
-    expect(await rateNewMatches(db(), defaults, beforeGrace, log)).toMatchObject({ rated: 0 });
+    expect(await rateNewMatches(db(), defaults, beforeGrace, log, "eu")).toMatchObject({ rated: 0 });
     const afterGrace = new Date(started.getTime() + (defaults.ratingIncompleteGraceHours + 0.5) * 3600_000);
-    expect(await rateNewMatches(db(), defaults, afterGrace, log)).toMatchObject({ rated: 1 });
+    expect(await rateNewMatches(db(), defaults, afterGrace, log, "eu")).toMatchObject({ rated: 1 });
     expect(await ratingsTable()).toHaveLength(4);
   });
 
@@ -133,10 +133,10 @@ describe("ratings: changed matches", () => {
     await upload(matchLog({ rounds: 1, end: false }), "2026-09-01T20:00:00Z");
     await upload(matchLog({ key: "000000000002", players: others }), "2026-09-02T20:00:00Z");
     expect(await historyTable()).toHaveLength(8);
-    expect((await readState(db())).staleFrom).toBeNull();
+    expect((await readState(db(), "eu")).staleFrom).toBeNull();
 
     await upload(matchLog(), "2026-09-01T20:00:00Z");
-    expect((await readState(db())).staleFrom).toEqual({ id: await matchId("000000000001"), playedAt: "2026-09-01T20:00:00Z" });
+    expect((await readState(db(), "eu")).staleFrom).toEqual({ id: await matchId("000000000001"), playedAt: "2026-09-01T20:00:00Z" });
     await recomputeUntilDone();
     await expectUpToDate();
     const alpha = await db().prepare("SELECT rounds FROM ratings r JOIN players p ON p.id = r.player_id WHERE p.name = 'Alpha'").first();
@@ -167,7 +167,7 @@ describe("ratings: changed matches", () => {
     // Nothing changed: the recompute writes no history and no ratings, only its own state.
     await markAllStale(db(), new Date());
     const unchanged = counting();
-    await recomputeRatings(unchanged.db, defaults, new Date(), log);
+    await recomputeRatings(unchanged.db, defaults, new Date(), log, "eu");
     expect(unchanged.batches).toEqual([2]);
     await expectUpToDate();
 
@@ -210,7 +210,7 @@ describe("ratings: changed matches", () => {
     });
     const history = await historyTable();
     await db().prepare("DELETE FROM rating_history").run();
-    expect(await recomputeRatings(racing, defaults, new Date(), log)).toMatchObject({ conflict: true, done: false });
+    expect(await recomputeRatings(racing, defaults, new Date(), log, "eu")).toMatchObject({ conflict: true, done: false });
     expect(await historyTable()).toEqual([]);
     await recomputeUntilDone();
     expect(await historyTable()).toEqual(history);
@@ -221,7 +221,7 @@ describe("ratings: cron", () => {
   it("recomputes stale ratings on the scheduled run", async () => {
     await upload(matchLog(), "2026-09-02T20:00:00Z");
     await upload(matchLog({ key: "000000000002", players: others }), "2026-09-01T20:00:00Z");
-    expect((await readState(db())).staleFrom).not.toBeNull();
+    expect((await readState(db(), "eu")).staleFrom).not.toBeNull();
 
     await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "*/10 * * * *" }), env);
     await expectUpToDate();

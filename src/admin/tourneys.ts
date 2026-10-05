@@ -1,5 +1,5 @@
 import { fail } from "../http";
-import { readState, staleFromMatchesStatement } from "../rating/store";
+import { anyStale, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
 import { expireOverCaps, flushScreenshotDeletions } from "../tourney/expiry";
@@ -27,14 +27,16 @@ import {
   type TourneyStatus,
 } from "../tourney/store";
 import { readLimited } from "../upload/handler";
-import { BadRequest, body, changedMeanwhile, notAllowed, text, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type Context } from "./request";
 import { findMatch, type ActionLog } from "./store";
 
 /**
  * `/api/admin/tourneys` and `/api/admin/lobbies/:id` (#24, #28, docs/api.md "Admin"): schedule
  * tourneys, add their lobbies, link each lobby's match, upload and verify its screenshot.
  *
- * A lobby's match is a tournament (`matches.tournament`): it stays on the one leaderboard, counts
+ * A tourney belongs to one region (#47), and so do its lobbies' matches.
+ *
+ * A lobby's match is a tournament (`matches.tournament`): it stays on its region's leaderboard, counts
  * `tournamentWeight` times as much, and nobody moves more than `tournamentMaxChange` in it. Linking
  * or unlinking a rated match makes the ratings stale from it, like the tournament flag does.
  */
@@ -80,19 +82,26 @@ async function listTourneys(ctx: Context): Promise<Response> {
   return Response.json({ tourneys: tourneys.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id) })) });
 }
 
-/** `POST /api/admin/tourneys` with `{ name, startsAt, notes?, status? }`. */
+/** `POST /api/admin/tourneys` with `{ name, region, startsAt, notes?, status? }`. */
 async function addTourney(ctx: Context, data: Record<string, unknown>): Promise<Response> {
   const fields = tourneyFields(ctx, data, null);
-  const tourney = await createTourney(ctx.db, fields, log(ctx, "tourney_create", { name: fields.name, startsAt: fields.startsAt }));
+  const tourney = await createTourney(
+    ctx.db,
+    fields,
+    log(ctx, "tourney_create", { name: fields.name, region: fields.region, startsAt: fields.startsAt }),
+  );
   ctx.log.info("admin: tourney created", { admin: ctx.admin.id, tourney: tourney.id });
   return Response.json({ tourney: { ...tourney, lobbies: [] } }, { status: 201 });
 }
 
-/** `POST /api/admin/tourneys/:id`: changes the fields that are sent. */
+/** `POST /api/admin/tourneys/:id`: changes the fields that are sent. The region only while no lobby has a match. */
 async function editTourney(ctx: Context, id: number, data: Record<string, unknown>): Promise<Response> {
   const tourney = await findTourney(ctx.db, id);
   if (!tourney) return fail(404, "not_found", "No such tourney");
   const fields = tourneyFields(ctx, data, tourney);
+  if (fields.region !== tourney.region && (await listLobbies(ctx.db, [id])).some((l) => l.matchId !== null)) {
+    return fail(409, "conflict", "Unlink the lobbies' matches before moving the tourney to another region");
+  }
   await updateTourney(ctx.db, id, fields, log(ctx, "tourney_edit", { tourney: id, ...changes(tourney, fields) }));
   ctx.log.info("admin: tourney edited", { admin: ctx.admin.id, tourney: id });
   return Response.json({ tourney: { ...tourney, ...fields, lobbies: await listLobbies(ctx.db, [id]) } });
@@ -126,7 +135,8 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
   }
 
   const at = isoSeconds(ctx.now);
-  const relink = await relinkStatements(ctx, lobby.matchId, matchId, at);
+  const tourney = await findTourney(ctx.db, lobby.tourneyId);
+  const relink = await relinkStatements(ctx, tourney!.region, lobby.matchId, matchId, at);
   if (relink instanceof Response) return relink;
   try {
     await updateLobby(
@@ -150,7 +160,7 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
 async function removeLobby(ctx: Context, id: number): Promise<Response> {
   const lobby = await findLobby(ctx.db, id);
   if (!lobby) return fail(404, "not_found", "No such lobby");
-  const relink = await relinkStatements(ctx, lobby.matchId, null, isoSeconds(ctx.now));
+  const relink = await relinkStatements(ctx, null, lobby.matchId, null, isoSeconds(ctx.now));
   if (relink instanceof Response) return relink;
   try {
     await deleteLobby(
@@ -266,6 +276,7 @@ function log(ctx: Context, action: string, detail: Record<string, unknown>): Act
 function tourneyFields(ctx: Context, data: Record<string, unknown>, from: TourneyFields | null): TourneyFields {
   const name = data.name === undefined && from ? from.name : text(data.name, ctx.config, "name");
   if (!name) throw new BadRequest("name is required");
+  const region = data.region === undefined && from ? from.region : regionField(data.region, ctx.config, "region");
   let startsAt = from?.startsAt;
   if (data.startsAt !== undefined || !from) {
     // A time zone is required: `2026-10-10T19:00` alone would be read in the server's zone.
@@ -276,22 +287,23 @@ function tourneyFields(ctx: Context, data: Record<string, unknown>, from: Tourne
   const status = data.status === undefined ? (from?.status ?? "scheduled") : data.status;
   if (!(tourneyStatuses as unknown[]).includes(status)) throw new BadRequest(`status must be one of ${tourneyStatuses.join(", ")}`);
   const notes = data.notes === undefined && from ? from.notes : text(data.notes, ctx.config, "notes", ctx.config.tourneyNotesMaxLength);
-  return { name, startsAt: startsAt!, status: status as TourneyStatus, notes };
+  return { name, region, startsAt: startsAt!, status: status as TourneyStatus, notes };
 }
 
 /** What an edit changed, for the action log. */
 function changes(from: TourneyFields, to: TourneyFields): Record<string, unknown> {
-  const keys = (["name", "startsAt", "status", "notes"] as const).filter((k) => from[k] !== to[k]);
+  const keys = (["name", "region", "startsAt", "status", "notes"] as const).filter((k) => from[k] !== to[k]);
   return Object.fromEntries(keys.map((k) => [k, { from: from[k], to: to[k] }]));
 }
 
 /**
  * Moving a lobby from match `from` to match `to`: `from` is no longer a tournament and `to` is one,
- * and the ratings are stale from whichever of them was rated. `rated`: whether an accepted match
- * changed, so the ratings need bringing up to date.
+ * and the ratings are stale from whichever of them was rated. `to` has to be from the tourney's
+ * `region` (null when only unlinking). `rated`: whether an accepted match changed, so the ratings need bringing up to date.
  */
 async function relinkStatements(
   ctx: Context,
+  region: string | null,
   from: number | null,
   to: number | null,
   at: string,
@@ -303,6 +315,7 @@ async function relinkStatements(
   if (to !== null) {
     const match = await findMatch(ctx.db, to);
     if (!match) return fail(404, "not_found", "No such match");
+    if (region !== null && match.region !== region) return fail(409, "conflict", `The match was played in ${match.region}, the tourney is in ${region}`);
     changed.push(to);
     rated ||= match.status === "accepted";
     statements.push(tournamentStatement(ctx.db, [to], true));
@@ -323,7 +336,7 @@ async function relinkStatements(
 async function rerate(ctx: Context, rated: boolean, lobby: LobbyRow["id"]): Promise<boolean> {
   try {
     if (rated) await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log);
-    return (await readState(ctx.db)).staleFrom !== null;
+    return await anyStale(ctx.db);
   } catch (error) {
     // The change is stored; the cron rates or recomputes.
     ctx.log.error("rating after admin action failed", { lobby, error: String(error) });

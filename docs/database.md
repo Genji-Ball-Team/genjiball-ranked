@@ -8,21 +8,21 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 |---|---|---|
 | `players` | player account | `name` is the alias seen most recently |
 | `aliases` | name seen for a player | A name (ignoring case) belongs to one player. Admins merge them (#8) |
-| `hosts` | host | Only the SHA-256 of the token. `trust`: `trusted`, `untrusted` or `revoked` |
+| `hosts` | host | Only the SHA-256 of the token. `trust`: `trusted`, `untrusted` or `revoked`. `region`: home region, where uploads without `X-Region` go (`NULL`: none) |
 | `uploads` | uploaded file | The raw log, gzipped, and its SHA-256 (the same file is stored once) |
-| `matches` | match | `status`: `accepted`, `review`, `rejected`, `void`. One per host + `match_key`. `rated_at`: when it went into the ratings. `feed_seq`: its place in the match feed, set by triggers ([below](#the-match-feed)) |
+| `matches` | match | `status`: `accepted`, `review`, `rejected`, `void`. One per host + `match_key`. `rated_at`: when it went into the ratings. `region`: where it was hosted, kept by later copies. `feed_seq`: its place in the match feed, set by triggers ([below](#the-match-feed)) |
 | `match_players` | player in a match | By the per-match log id from `JOIN` |
 | `rounds` | round | `rated` = a `WIN` round that isn't broken |
 | `round_players` | player in a round | `position` in the rated finishing order (1 = winner), `left_round` for leavers |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
-| `ratings` | player | `board` is always `ranked`: there is one leaderboard, tourney matches included (marked `matches.tournament`) |
-| `rating_history` | player per match | The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
+| `ratings` | player per region | `board` is the region id (`eu`, `na`): each region is its own leaderboard, tourney matches included (marked `matches.tournament`) |
+| `rating_history` | player per match | On the board of the match's region (`h.board = m.region`). The whole rating after each match (mu, sigma, rounds, wins): for the graph, and where a recompute starts |
 | `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
 | `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |
-| `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC |
+| `tourneys` | tourney | `status`: `scheduled`, `live`, `done`, `cancelled`. `starts_at` in UTC. `region`: its lobbies' matches are from there |
 | `tourney_lobbies` | lobby of a tourney | Its match (`match_id`, unique: a match is in one lobby) and verify screenshot (`screenshot_key` in R2, `verified_by`/`verified_at`). Linking a match sets `matches.tournament` |
 | `screenshot_deletions` | screenshot awaiting R2 deletion | Keeps its key and byte count until R2 deletion succeeds; failed deletes remain accounted for and are retried |
-| `rating_state` | leaderboard | Whether the ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)) |
+| `rating_state` | region | Whether the region's ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)). A region added to the config gets its row the first time it's rated |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
 
@@ -99,5 +99,7 @@ Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the
 `events` is the biggest table. If writes get tight, deflects can be stored as per-player counts per match instead of rows: the raw log keeps the detail.
 
 **Storage.** A log line is about 35 bytes, so a match is about 28 KB of text, about 7 KB gzipped (gzip shrinks even the tiny spec example 2.6×; long logs shrink more). The rows add about 1,100 rows × ~40 bytes ≈ 45 KB a match. Together about **50 KB a match, 2 MB a day, 14 MB a week, 730 MB a year** at this rate. That passes the 500 MB database limit after about 8 months of every day being this busy. Before that: drop `events` rows for old matches (stats can be kept as totals, the raw log stays), or move raw logs to R2 (10 GB free).
+
+**Regions** (#47) split the same matches and players between two leaderboards: the writes above don't change, and a player who plays in both regions has two `ratings` rows. The rating reads a region's matches through `matches_region_status_played`, `matches_unrated` and `matches_rated` (all keyed by region first), and the cron's `ratingMatchesPerRun` is shared between the regions, so a recompute costs what it did with one leaderboard.
 
 **Rows read.** Pages read through the indexes: a leaderboard page reads its 50 rows, a player page the player's matches and rounds, head-to-head the two players' rounds. Even 10,000 page views a day stay far under 5 million. The exception is the **name search** (`/api/players?search=`, for the Discord bot's autocomplete): a "contains" match can't use an index, so each search reads every alias once, plus the players and ratings of the hits. The v1.3.2 logs hold about 1,450 names, so a search reads about 1,500 rows: 1,000 searches a day is 1.5 million, 30% of the limit. The bot waits for a pause in typing before it asks, and `playerSearchMinLength` can go up if searches get too many. The **match feed** reads through `matches_feed`: a bot asking every 2 minutes while nothing changed reads about one row a time, 720 a day; each listed match reads its rounds and players, a few hundred rows. The cost to watch is a **rating recompute** (#6): it reads every rated `round_players` row of the matches it re-rates, about 200 a match, and a full one would read about 3 million rows after a year at this rate, most of a day's reads. So a new match is rated incrementally, and a recompute starts at the first changed match, from the players' `rating_history` just before it, not from scratch. It re-rates `ratingMatchesPerRun` matches a run (about 2,000 rows read) and writes only the history and ratings rows that changed, so a late upload only rewrites the later matches of the players it moved ([rating.md](rating.md), "Ratings in the database").

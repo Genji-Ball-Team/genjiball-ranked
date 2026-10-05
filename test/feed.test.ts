@@ -14,7 +14,7 @@ beforeEach(async () => {
   await db().batch([
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
     db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (1, 'trusted', ?, 'trusted')").bind(await sha256(token)),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'trusted', ?, 'trusted', 'eu')").bind(await sha256(token)),
   ]);
 });
 

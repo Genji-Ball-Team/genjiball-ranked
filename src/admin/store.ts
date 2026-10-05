@@ -16,12 +16,15 @@ export interface HostRow {
   id: number;
   name: string;
   trust: HostTrust;
+  /** Home region (#47): where its uploads without `X-Region` were played. Null: they must say. */
+  region: string | null;
   createdAt: string;
   lastUploadAt: string | null;
 }
 
 export interface MatchRow extends MatchState {
   id: number;
+  region: string;
   matchKey: string | null;
   hostId: number;
   hostName: string;
@@ -63,7 +66,7 @@ export async function findAdmin(db: D1Database, tokenHash: string): Promise<Admi
   return db.prepare("SELECT id, name FROM admins WHERE token_hash = ? AND revoked_at IS NULL").bind(tokenHash).first<Admin>();
 }
 
-const hostColumns = "id, name, trust, created_at AS createdAt, last_upload_at AS lastUploadAt";
+const hostColumns = "id, name, trust, region, created_at AS createdAt, last_upload_at AS lastUploadAt";
 
 export async function listHosts(db: D1Database, limit: number): Promise<HostRow[]> {
   const { results } = await db.prepare(`SELECT ${hostColumns} FROM hosts ORDER BY id DESC LIMIT ?`).bind(limit).all<HostRow>();
@@ -75,11 +78,18 @@ export async function findHostById(db: D1Database, id: number): Promise<HostRow 
 }
 
 /** Adds a host with the token's hash. Returns the new host. */
-export async function createHost(db: D1Database, name: string, trust: HostTrust, tokenHash: string, log: ActionLog): Promise<HostRow> {
+export async function createHost(
+  db: D1Database,
+  name: string,
+  trust: HostTrust,
+  region: string | null,
+  tokenHash: string,
+  log: ActionLog,
+): Promise<HostRow> {
   const [inserted] = await db.batch<HostRow>([
     db
-      .prepare(`INSERT INTO hosts (name, token_hash, trust, created_at) VALUES (?1, ?2, ?3, ?4) RETURNING ${hostColumns}`)
-      .bind(name, tokenHash, trust, log.at),
+      .prepare(`INSERT INTO hosts (name, token_hash, trust, created_at, region) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING ${hostColumns}`)
+      .bind(name, tokenHash, trust, log.at, region),
     db
       .prepare("INSERT INTO admin_actions (admin_id, action, host_id, detail, at) SELECT ?1, ?2, id, ?3, ?4 FROM hosts WHERE token_hash = ?5")
       .bind(log.adminId, log.action, detailJson(log.detail), log.at, tokenHash),
@@ -96,13 +106,19 @@ export async function setHostTrust(db: D1Database, hostId: number, from: HostTru
   ]);
 }
 
-const matchColumns = `m.id, m.match_key AS matchKey, m.host_id AS hostId, h.name AS hostName, m.line_count AS lineCount,
+/** Sets a host's home region (null: none, every upload must send `X-Region`). */
+export async function setHostRegion(db: D1Database, hostId: number, region: string | null, log: ActionLog): Promise<void> {
+  await db.batch([db.prepare("UPDATE hosts SET region = ?2 WHERE id = ?1").bind(hostId, region), actionStatement(db, log)]);
+}
+
+const matchColumns = `m.id, m.region, m.match_key AS matchKey, m.host_id AS hostId, h.name AS hostName, m.line_count AS lineCount,
   m.status, m.rejection_code AS rejectionCode, m.rejection_message AS rejectionMessage, m.review_reasons AS reviewReasons,
   m.map, m.preset, m.played_at AS playedAt, m.complete, m.rated_at IS NOT NULL AS rated, m.tournament,
   (SELECT json_group_array(mp.name) FROM match_players mp WHERE mp.match_id = m.id) AS players`;
 
 interface RawMatch {
   id: number;
+  region: string;
   matchKey: string | null;
   hostId: number;
   hostName: string;
@@ -132,14 +148,17 @@ function toMatch({ rejectionCode, rejectionMessage, reviewReasons, complete, rat
   };
 }
 
-/** Matches with this status, newest first (index `matches_status_played`). */
-export async function listMatches(db: D1Database, status: MatchStatus, limit: number): Promise<MatchRow[]> {
+/**
+ * Matches with this status, newest first, in one region or all (indexes `matches_region_status_played`,
+ * `matches_status_played`).
+ */
+export async function listMatches(db: D1Database, status: MatchStatus, region: string | null, limit: number): Promise<MatchRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${matchColumns} FROM matches m JOIN hosts h ON h.id = m.host_id
-       WHERE m.status = ?1 ORDER BY m.played_at DESC, m.id DESC LIMIT ?2`,
+       WHERE m.status = ?1 AND (?3 IS NULL OR m.region = ?3) ORDER BY m.played_at DESC, m.id DESC LIMIT ?2`,
     )
-    .bind(status, limit)
+    .bind(status, limit, region)
     .all<RawMatch>();
   return results.map(toMatch);
 }

@@ -22,8 +22,8 @@ beforeEach(async () => {
     db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
     db().prepare("INSERT INTO admins (id, name, token_hash) VALUES (1, 'Ada', ?)").bind(await sha256(adminToken)),
     db().prepare("INSERT INTO admins (id, name, token_hash, revoked_at) VALUES (2, 'Gone', ?, '2026-01-01T00:00:00Z')").bind(await sha256("revoked-admin")),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (1, 'trusted', ?, 'trusted')").bind(await sha256(tokens.trusted)),
-    db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (2, 'untrusted', ?, 'untrusted')").bind(await sha256(tokens.untrusted)),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'trusted', ?, 'trusted', 'eu')").bind(await sha256(tokens.trusted)),
+    db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (2, 'untrusted', ?, 'untrusted', 'eu')").bind(await sha256(tokens.untrusted)),
   ]);
 });
 
@@ -86,10 +86,10 @@ describe("admin: sign-in", () => {
 
 describe("admin: hosts", () => {
   it("creates a host token, shown once and stored as its SHA-256", async () => {
-    const res = await admin("hosts", { body: { name: "  New host  ", trust: "trusted" } });
+    const res = await admin("hosts", { body: { name: "  New host  ", trust: "trusted", region: "NA" } });
     expect(res.status).toBe(201);
     const { host, token } = await res.json<{ host: { id: number; name: string; trust: string }; token: string }>();
-    expect(host).toMatchObject({ name: "New host", trust: "trusted" });
+    expect(host).toMatchObject({ name: "New host", trust: "trusted", region: "na" });
     expect(token).toMatch(/^[0-9a-f]{64}$/);
 
     const stored = await db().prepare("SELECT token_hash AS hash FROM hosts WHERE id = ?").bind(host.id).first<{ hash: string }>();
@@ -97,19 +97,20 @@ describe("admin: hosts", () => {
     expect(JSON.stringify(await adminOk("hosts"))).not.toContain(token);
 
     const uploaded = await upload(matchLog(), "2026-09-01T20:00:00Z", token);
-    expect(uploaded.matches[0]).toMatchObject({ status: "accepted" });
-    expect(await actions()).toEqual([{ adminId: 1, action: "host_create", matchId: null, hostId: host.id, detail: { name: "New host", trust: "trusted" } }]);
+    expect(uploaded).toMatchObject({ region: "na", matches: [{ status: "accepted", region: "na" }] });
+    expect(await actions()).toEqual([{ adminId: 1, action: "host_create", matchId: null, hostId: host.id, detail: { name: "New host", trust: "trusted", region: "na" } }]);
   });
 
-  it("makes a new host untrusted by default", async () => {
-    const { host } = await adminOk<{ host: { trust: string } }>("hosts", { body: { name: "Someone" } });
-    expect(host.trust).toBe("untrusted");
+  it("makes a new host untrusted by default, with no home region", async () => {
+    const { host } = await adminOk<{ host: { trust: string; region: string | null } }>("hosts", { body: { name: "Someone" } });
+    expect(host).toMatchObject({ trust: "untrusted", region: null });
   });
 
   it("checks what it's sent", async () => {
     expect((await admin("hosts", { body: {} })).status).toBe(400);
     expect((await admin("hosts", { body: { name: "x".repeat(201) } })).status).toBe(400);
     expect((await admin("hosts", { body: { name: "x", trust: "revoked" } })).status).toBe(400);
+    expect((await admin("hosts", { body: { name: "x", region: "asia" } })).status).toBe(400);
     expect((await admin("hosts", { method: "POST" })).status).toBe(400);
     const res = await SELF.fetch("https://example.com/api/admin/hosts", { method: "POST", body: "{", headers: { Authorization: `Bearer ${adminToken}` } });
     expect(res.status).toBe(400);
@@ -245,7 +246,7 @@ describe("admin: void", () => {
     const res = await adminOk<{ ratingsStale: boolean }>(`matches/${await matchId("000000000001")}/void`, { method: "POST" });
     expect(res.ratingsStale).toBe(true);
     // The cron carries on.
-    while (!(await recomputeRatings(db(), config, new Date(), log)).done);
+    while (!(await recomputeRatings(db(), config, new Date(), log, "eu")).done);
     await expectUpToDate();
   });
 
@@ -281,7 +282,7 @@ describe("admin: void", () => {
     const write = setMatchState(db(), id, "review", { status: "accepted", rejection: null }, { adminId: 1, action: "match_accept", matchId: id, at: "2026-09-01T00:00:00Z" });
     await expect(write).rejects.toSatisfy(isStale);
     expect(await actions()).toEqual([]);
-    expect((await readState(db())).staleFrom).toBeNull();
+    expect((await readState(db(), "eu")).staleFrom).toBeNull();
   });
 });
 

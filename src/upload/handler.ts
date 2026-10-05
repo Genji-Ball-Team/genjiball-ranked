@@ -1,4 +1,4 @@
-import type { Config } from "../config";
+import { findRegion, type Config } from "../config";
 import { fail, type ApiError } from "../http";
 import type { Logger } from "../log";
 import { parseLegacyLog } from "../parser/legacy";
@@ -16,6 +16,8 @@ import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUp
  * - `X-Log-File` (optional): the file name, `Log-<date>-<time>.txt`.
  * - `X-Log-Started-At` (optional): when the file was started, ISO 8601 with a time zone. The file
  *   name has no time zone, so the host tool sends this; without it, the upload time is used.
+ * - `X-Region` (optional): the region the matches were hosted in (#47). Without it, the host's home
+ *   region; a host with neither gets `no_region`.
  *
  * The response says what happened to each match in the file (`UploadResponse`).
  */
@@ -28,12 +30,16 @@ export interface UploadResponse {
    */
   result: "stored" | "unchanged" | "duplicate";
   uploadId: number | null;
+  /** The region the file's new matches are stored in. */
+  region: string;
   matches: MatchResult[];
 }
 
 export interface MatchResult {
   matchKey: string;
   lineCount: number;
+  /** The match's region: the upload's for a new match, the stored match's for another copy. */
+  region: string;
   /** `insert`: new. `replace`: longer than the stored copy. `repoint`/`skip`: the stored copy stays. */
   action: MatchAction;
   /** The match's status now: `accepted` counts, `review` waits for an admin, `rejected` never counts. */
@@ -57,6 +63,7 @@ export type UploadConfig = UpdateConfig &
     | "legacyGameVersion"
     | "legacyRoundGapSeconds"
     | "legacyResurrectSeconds"
+    | "regions"
   >;
 
 const hourMs = 60 * 60 * 1000;
@@ -68,6 +75,14 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
 
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
+  const header = request.headers.get("X-Region");
+  const region = findRegion(config.regions, header ?? host.region);
+  if (header !== null && !region) {
+    return fail(400, "bad_request", `X-Region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+  }
+  if (!region) {
+    return fail(422, "no_region", "This host has no home region: send the region the matches were hosted in as X-Region");
+  }
 
   const now = new Date();
   const recent = await countRecentUploads(db, host.id, isoSeconds(new Date(now.getTime() - hourMs)));
@@ -78,12 +93,12 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
 
   const bytes = await readBody(request, config);
   if (bytes instanceof Response) return bytes;
-  return storeLog(db, config, log, { host, bytes, request, now, legacy: false });
+  return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false });
 }
 
 /**
  * `GET /api/host/me`: checks a host token, for the host tool's settings screen.
- * `{ host: { id, name, trust } }`, or the 401 / 403 an upload with that token would get.
+ * `{ host: { id, name, trust, region } }`, or the 401 / 403 an upload with that token would get.
  */
 export async function handleHostMe(request: Request, db: D1Database): Promise<Response> {
   if (request.method !== "GET") {
@@ -91,7 +106,7 @@ export async function handleHostMe(request: Request, db: D1Database): Promise<Re
   }
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
-  return Response.json({ host: { id: host.id, name: host.name, trust: host.trust } });
+  return Response.json({ host: { id: host.id, name: host.name, trust: host.trust, region: host.region } });
 }
 
 /**
@@ -124,6 +139,8 @@ async function authHost(request: Request, db: D1Database): Promise<Host | Respon
 
 export interface StoreLog {
   host: Host;
+  /** The region new matches are stored in. */
+  region: string;
   bytes: Uint8Array;
   /** For `X-Log-File` and `X-Log-Started-At`. */
   request: Request;
@@ -146,12 +163,12 @@ export async function readBody(request: Request, config: Pick<Config, "maxUpload
 
 /** Parses a log file and stores its matches: the upload endpoint and the legacy import share it. */
 export async function storeLog(db: D1Database, config: UploadConfig, log: Logger, s: StoreLog): Promise<Response> {
-  const { host, bytes, request, now } = s;
+  const { host, region, bytes, request, now } = s;
   const contentHash = await sha256(bytes);
   const existing = await findUploadByHash(db, contentHash);
   if (existing) {
     log.debug("duplicate upload", { host: host.id, upload: existing.id });
-    return Response.json({ result: "duplicate", uploadId: existing.id, matches: [] } satisfies UploadResponse);
+    return Response.json({ result: "duplicate", uploadId: existing.id, region, matches: [] } satisfies UploadResponse);
   }
 
   const text = new TextDecoder().decode(bytes);
@@ -195,9 +212,12 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
     });
   }
 
-  const matches = plans.map(result);
+  // A match keeps the region it was first stored in: another copy doesn't move it.
+  const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
+  const regionOf = (plan: MatchPlan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
+  const matches = plans.map((plan) => result(plan, regionOf(plan)));
   if (!plans.some((p) => p.action === "insert" || p.action === "replace")) {
-    return Response.json({ result: "unchanged", uploadId: null, matches } satisfies UploadResponse);
+    return Response.json({ result: "unchanged", uploadId: null, region, matches } satisfies UploadResponse);
   }
 
   const receivedAt = isoSeconds(now);
@@ -206,6 +226,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
   try {
     uploadId = await writeUpload(db, {
       hostId: host.id,
+      region,
       contentHash,
       rawLog: await gzip(bytes),
       rawSize: bytes.length,
@@ -226,23 +247,30 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
     }
     throw error;
   }
-  log.info("upload stored", { host: host.id, upload: uploadId, matches: matches.map((m) => `${m.matchKey}:${m.action}:${m.status}`) });
+  log.info("upload stored", {
+    host: host.id,
+    upload: uploadId,
+    region,
+    matches: matches.map((m) => `${m.matchKey}:${m.action}:${m.status}`),
+  });
 
-  if (plans.some((p) => (p.action === "insert" || p.action === "replace") && p.status === "accepted")) {
+  const toRate = new Set(plans.filter((p) => (p.action === "insert" || p.action === "replace") && p.status === "accepted").map(regionOf));
+  for (const matchRegion of toRate) {
     try {
-      await rateNewMatches(db, config, now, log);
+      await rateNewMatches(db, config, now, log, matchRegion);
     } catch (error) {
       // The match is stored and still unrated: the cron rates it.
-      log.error("rating after upload failed", { upload: uploadId, error: String(error) });
+      log.error("rating after upload failed", { upload: uploadId, region: matchRegion, error: String(error) });
     }
   }
-  return Response.json({ result: "stored", uploadId, matches } satisfies UploadResponse);
+  return Response.json({ result: "stored", uploadId, region, matches } satisfies UploadResponse);
 }
 
-function result(plan: MatchPlan): MatchResult {
+function result(plan: MatchPlan, region: string): MatchResult {
   return {
     matchKey: plan.matchKey,
     lineCount: plan.lineCount,
+    region,
     action: plan.action,
     status: plan.status,
     rejection: plan.rejection,

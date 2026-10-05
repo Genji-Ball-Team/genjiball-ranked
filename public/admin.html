@@ -35,10 +35,11 @@
         <option value="review">review</option><option value="accepted">accepted</option>
         <option value="void">void</option><option value="rejected">rejected</option>
       </select></label>
+      <label>Region <select id="match-region" data-regions="all"></select></label>
       <button id="reload-matches">Reload</button>
     </div>
     <div class="scroll"><table class="data">
-      <thead><tr><th>Id</th><th>Played</th><th>Host</th><th>Players</th><th>Why</th><th>Rated</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Id</th><th>Region</th><th>Played</th><th>Host</th><th>Players</th><th>Why</th><th>Rated</th><th>Actions</th></tr></thead>
       <tbody id="matches"></tbody>
     </table></div>
 
@@ -46,6 +47,7 @@
     <p class="muted">A lobby's match is a tourney match: it counts more on the leaderboard. Upload the host's screenshot of the final standings, then verify it against the standings on the <a href="/tourneys">Tourneys page</a>.</p>
     <form class="row" id="tourney-form">
       <input id="tourney-name" placeholder="Tourney name" required maxlength="200">
+      <label>Region <select id="tourney-region" data-regions="pick" required></select></label>
       <label>Starts <input id="tourney-start" type="datetime-local" required></label>
       <input id="tourney-notes" placeholder="Notes (optional)" maxlength="1000" size="30">
       <button class="primary">Schedule tourney</button>
@@ -56,11 +58,12 @@
     <form class="row" id="host-form">
       <input id="host-name" placeholder="Host name" required maxlength="200">
       <select id="host-trust"><option value="untrusted">untrusted</option><option value="trusted">trusted</option></select>
+      <label>Home region <select id="host-region" data-regions="none"></select></label>
       <button class="primary">Create host token</button>
     </form>
     <p id="new-token" hidden>New token for <strong id="new-token-host"></strong>, shown once: <code id="new-token-value"></code></p>
     <div class="scroll"><table class="data">
-      <thead><tr><th>Id</th><th>Name</th><th>Trust</th><th>Created</th><th>Last upload</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Id</th><th>Name</th><th>Trust</th><th>Home region</th><th>Created</th><th>Last upload</th><th>Actions</th></tr></thead>
       <tbody id="hosts"></tbody>
     </table></div>
 
@@ -93,6 +96,18 @@
     function cell(row, value) { const td = document.createElement("td"); td.textContent = value ?? ""; row.append(td); return td; }
     function button(parent, label, onClick) { const b = document.createElement("button"); b.textContent = label; b.onclick = onClick; parent.append(b, " "); }
 
+    // Regions (#47) come from /api/server. A select's data-regions says what else it offers:
+    // "all" (every region), "none" (no home region) or "pick" (a region must be chosen).
+    let regions = [];
+    async function loadRegions() {
+      ({ regions } = await (await fetch("/api/server")).json());
+      for (const select of document.querySelectorAll("select[data-regions]")) {
+        const extra = { all: ["", "all"], none: ["", "none"], pick: ["", "choose…"] }[select.dataset.regions];
+        select.replaceChildren(new Option(extra[1], extra[0]), ...regions.map((r) => new Option(r.label, r.id)));
+      }
+    }
+    const regionLabel = (id) => regions.find((r) => r.id === id)?.label ?? id ?? "none";
+
     async function act(label, run) {
       try { say(await run() || `${label}: done`); } catch (e) { say(`${label}: ${e.message}`, true); }
       await loadAll();
@@ -108,12 +123,13 @@
     }
 
     async function loadMatches() {
-      const { matches } = await api(`matches?status=${$("status").value}`);
+      const region = $("match-region").value;
+      const { matches } = await api(`matches?status=${$("status").value}${region ? `&region=${region}` : ""}`);
       const body = $("matches"); body.replaceChildren();
-      if (!matches.length) { const tr = body.insertRow(); cell(tr, "None.").colSpan = 7; }
+      if (!matches.length) { const tr = body.insertRow(); cell(tr, "None.").colSpan = 8; }
       for (const m of matches) {
         const tr = body.insertRow();
-        cell(tr, m.id); cell(tr, m.playedAt); cell(tr, m.hostName); cell(tr, m.players.join(", "));
+        cell(tr, m.id); cell(tr, regionLabel(m.region)); cell(tr, m.playedAt); cell(tr, m.hostName); cell(tr, m.players.join(", "));
         cell(tr, [...m.reviewReasons, m.rejection && `${m.rejection.code}: ${m.rejection.message}`].filter(Boolean).join("; "));
         cell(tr, (m.rated ? "yes" : m.complete ? "no" : "no (incomplete)") + (m.tournament ? ", tourney" : ""));
         const actions = cell(tr, "");
@@ -129,9 +145,15 @@
       const body = $("hosts"); body.replaceChildren();
       for (const h of hosts) {
         const tr = body.insertRow();
-        cell(tr, h.id); cell(tr, h.name); cell(tr, h.trust); cell(tr, h.createdAt); cell(tr, h.lastUploadAt);
+        cell(tr, h.id); cell(tr, h.name); cell(tr, h.trust); cell(tr, regionLabel(h.region)); cell(tr, h.createdAt); cell(tr, h.lastUploadAt);
         const actions = cell(tr, "");
         if (h.trust === "revoked") continue;
+        button(actions, "Set region", () => {
+          const answer = prompt(`Home region for ${h.name}: ${regions.map((r) => r.id).join(", ")}, or empty for none. Stored matches keep theirs.`, h.region ?? "");
+          if (answer === null) return;
+          const region = answer.trim().toLowerCase() || null;
+          act(`host ${h.id}`, () => post(`hosts/${h.id}/region`, { region }).then(() => `${h.name}'s home region is ${regionLabel(region)}.`));
+        });
         const other = h.trust === "trusted" ? "untrusted" : "trusted";
         button(actions, `Make ${other}`, () => act(`host ${h.id}`, () => api(`hosts/${h.id}/trust`, { method: "POST", body: JSON.stringify({ trust: other }) }).then(() => `${h.name} is ${other}.`)));
         button(actions, "Revoke", () => {
@@ -195,7 +217,8 @@
       for (const t of tourneys) {
         const head = document.createElement("div"); head.className = "row";
         const name = document.createElement("strong"); name.textContent = t.name;
-        const when = document.createElement("span"); when.className = "muted"; when.textContent = new Date(t.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+        const when = document.createElement("span"); when.className = "muted";
+        when.textContent = `${regionLabel(t.region)}, ${new Date(t.startsAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
         const status = document.createElement("select");
         for (const s of tourneyStatuses) status.add(new Option(s, s, false, s === t.status));
         status.onchange = () => act(`tourney ${t.id}`, () => post(`tourneys/${t.id}`, { status: status.value }).then(() => `${t.name} is ${status.value}.`));
@@ -244,6 +267,7 @@
         const { admin } = await api("me");
         $("admin-name").textContent = admin.name;
         $("signin").hidden = true; $("app").hidden = false;
+        await loadRegions();
         await loadAll();
       } catch (e) { say(e.message, true); }
     }
@@ -253,11 +277,12 @@
     $("signin-form").onsubmit = (e) => { e.preventDefault(); token = $("token").value.trim(); storage.set(token); $("token").value = ""; signIn(); };
     $("signout").onclick = signOut;
     $("status").onchange = () => loadMatches().catch((e) => say(e.message, true));
+    $("match-region").onchange = () => loadMatches().catch((e) => say(e.message, true));
     $("reload-matches").onclick = () => loadMatches().catch((e) => say(e.message, true));
     $("host-form").onsubmit = (e) => {
       e.preventDefault();
       act("create host", async () => {
-        const res = await api("hosts", { method: "POST", body: JSON.stringify({ name: $("host-name").value, trust: $("host-trust").value }) });
+        const res = await post("hosts", { name: $("host-name").value, trust: $("host-trust").value, region: $("host-region").value || null });
         $("new-token-host").textContent = res.host.name; $("new-token-value").textContent = res.token; $("new-token").hidden = false;
         $("host-name").value = "";
         return `Host ${res.host.name} created. Copy the token now: it isn't shown again.`;
@@ -266,7 +291,12 @@
     $("tourney-form").onsubmit = (e) => {
       e.preventDefault();
       act("schedule tourney", async () => {
-        const res = await post("tourneys", { name: $("tourney-name").value, startsAt: new Date($("tourney-start").value).toISOString(), notes: $("tourney-notes").value });
+        const res = await post("tourneys", {
+          name: $("tourney-name").value,
+          region: $("tourney-region").value,
+          startsAt: new Date($("tourney-start").value).toISOString(),
+          notes: $("tourney-notes").value,
+        });
         $("tourney-name").value = ""; $("tourney-start").value = ""; $("tourney-notes").value = "";
         return `${res.tourney.name} is scheduled. Add its lobbies below.`;
       });
