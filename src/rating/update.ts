@@ -64,7 +64,7 @@ export interface RecomputeResult {
 const hourMs = 60 * 60 * 1000;
 
 /** A match counts once it's complete, or once its grace period has passed. */
-function counts(match: CandidateMatch, config: UpdateConfig, now: Date): boolean {
+export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, config: Pick<UpdateConfig, "ratingIncompleteGraceHours">, now: Date): boolean {
   if (match.complete) return true;
   return Date.parse(match.playedAt) <= now.getTime() - config.ratingIncompleteGraceHours * hourMs;
 }

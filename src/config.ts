@@ -109,6 +109,23 @@ export const defaults = {
    * set `RATING_MATCHES_PER_RUN = "10"`.
    */
   ratingMatchesPerRun: 100,
+  /**
+   * Dry-run recompute (`POST /api/admin/ratings/recompute?dryRun=1`, #33): rates a region's matches
+   * from scratch in one request, in memory, and compares the result with the stored ratings. It
+   * rates at most this many matches (the first ones, in play order); past it the answer says it was
+   * capped and compares with the stored ratings as they were just before the first match left out.
+   * About 0.5 ms of CPU and 200 rows read a match: 2000 is about 1 s of CPU (the Standard plan allows
+   * 30 s) and 400,000 rows read. On the free plan (10 ms CPU) set `RATING_DRY_RUN_MAX_MATCHES` low.
+   */
+  ratingDryRunMaxMatches: 2000,
+  /**
+   * Matches whose rounds one query of the dry-run recompute reads. Keep
+   * `ratingDryRunMaxMatches / ratingDryRunReadChunk` under about 40, so a dry run stays inside the 50
+   * queries per invocation (it makes 5 more).
+   */
+  ratingDryRunReadChunk: 250,
+  /** Most players a dry-run recompute lists, the biggest moves first; the summary counts them all. */
+  ratingDryRunListLimit: 500,
 
   /**
    * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
@@ -289,5 +306,7 @@ export function loadConfig(env: Partial<Env>): Config {
   if (env.TEST_SERVER !== undefined) config.testServer = env.TEST_SERVER.trim().toLowerCase() === "true";
   const matchesPerRun = Number(env.RATING_MATCHES_PER_RUN);
   if (Number.isInteger(matchesPerRun) && matchesPerRun > 0) config.ratingMatchesPerRun = matchesPerRun;
+  const dryRunMax = Number(env.RATING_DRY_RUN_MAX_MATCHES);
+  if (Number.isInteger(dryRunMax) && dryRunMax > 0) config.ratingDryRunMaxMatches = dryRunMax;
   return config;
 }

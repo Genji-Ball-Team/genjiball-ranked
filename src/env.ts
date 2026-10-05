@@ -7,4 +7,5 @@ export interface Env {
   LOG_LEVEL?: string;
   TEST_SERVER?: string;
   RATING_MATCHES_PER_RUN?: string;
+  RATING_DRY_RUN_MAX_MATCHES?: string;
 }

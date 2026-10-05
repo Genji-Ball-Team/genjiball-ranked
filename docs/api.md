@@ -216,13 +216,89 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/lobbies/:id/verify` | Body `{ "verified": true, "version": 3 }`: an admin checked the displayed screenshot against the standings; use the lobby's displayed `version`. Needs a match, screenshot and current version (`409` otherwise). `{ "verified": false }` clears verification; version is optional when clearing |
 | `POST /api/admin/legacy-import?host=<id>&region=<region>` | Body: an old v1.3.2 log file, as with an upload. Stored as the host's legacy match ([legacy.md](legacy.md)), as from a trusted host and with no rate limit, in `region` or else the host's home region (`400` with neither). Answers like `POST /api/upload`; `422 not_legacy` for a file without `KILL` lines or with a `GBR` line. `npm run import:legacy` sends a folder of them |
 
+| `POST /api/admin/parse?region=<region>&host=<id>&legacy=1` | Dry-run parse: body a log file, as with an upload. What the parser and an upload would make of it, **writing nothing** ([Debug tools](#debug-tools)) |
+| `POST /api/admin/ratings/recompute?region=<region>&dryRun=1` | With `dryRun=1`: rates the region from scratch in memory and answers who would move and by how much, **writing nothing**. Without: the region's ratings are recomputed from the start ([Debug tools](#debug-tools)). `region` is required |
+
 A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
 
 **Decisions that last.** A longer copy of a match keeps an admin's void or rejection. An accept doesn't: a longer copy is judged again, and goes back to review if it still has a reason to (its new rounds haven't been looked at).
 
 Lobby mutations return `409 conflict` if another edit, replacement, expiry or longer log changed their snapshot before the write. A longer log also clears its lobby's verification. Screenshot removal is immediate at the public API; R2 failures leave durable cleanup records for later uploads or the cron to retry.
 
-`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action (with `hostId` and `roundLimit` for a lobby; `host_id` is the lobby's assigned host). A host's own screenshot changes go to `host_actions` instead (`lobby_screenshot`, `lobby_screenshot_delete`).
+`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`, `ratings_recompute`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action (with `hostId` and `roundLimit` for a lobby; `host_id` is the lobby's assigned host), and the `region` of a recompute. A host's own screenshot changes go to `host_actions` instead (`lobby_screenshot`, `lobby_screenshot_delete`).
+
+### Debug tools
+
+For finding out why a log was parsed, judged or rated the way it was (#33). Code: `src/admin/debug.ts`. With `LOG_LEVEL=debug` the server also logs each uploaded match's action, status, rejection, review reasons and skipped lines.
+
+**Dry-run parse: `POST /api/admin/parse`.** The body is a log file, as with an upload, at most `maxUploadBytes` (`413 too_large` past it, `400 empty` for none). It's parsed and planned exactly as an upload would be, and nothing is written. Query, all optional:
+
+| Param | |
+|---|---|
+| `region` | Echoed into each new match's `region` (what the upload would store); `400` if it isn't a region. Without it, the host's home region, or `null` |
+| `host` | A host id: plans against that host's stored copies (`replace`, `repoint`, `skip`; a stored match keeps its region) and judges with its trust. Without it: as from a trusted host with nothing stored. `404` for an unknown host |
+| `legacy` | `1`: read the file as a v1.3.2 log, as `legacy-import` does (as from a trusted host) |
+
+`200`, also for a file an upload would refuse:
+
+```json
+{
+  "dryRun": true,
+  "region": "eu",
+  "host": { "id": 3, "name": "Kenzo", "trust": "trusted", "region": "eu" },
+  "legacy": false,
+  "bytes": 2048,
+  "duplicateOf": null,
+  "upload": { "status": 200, "result": "stored" },
+  "matches": [
+    {
+      "matchKey": "482913507226", "lineCount": 57, "region": "eu", "action": "insert", "status": "review",
+      "rejection": null, "reviewReasons": ["duplicate_name"], "storedMatchId": null,
+      "format": 1, "gameVersion": "1.3.3R", "startLine": 2, "unranked": [],
+      "settings": { "map": "workshop-island-night", "preset": "Default", "feel": false, "addOns": [] },
+      "complete": true, "startTime": 2.38, "endTime": 114, "endResult": "TIME",
+      "players": [{ "id": 1, "name": "Sparrow", "joinTime": 2.38, "leaveTime": null }],
+      "ratedRounds": 3,
+      "rounds": [
+        { "number": 1, "result": "WIN", "rated": true, "startTime": 21.02, "endTime": 43.3, "players": [1, 2, 3, 4, 5],
+          "winnerId": 1, "left": [2], "broken": [], "placements": [{ "position": 1, "id": 1, "name": "Sparrow" }] }
+      ],
+      "kills": 13, "deflects": 21,
+      "problems": [{ "line": 12, "message": "..." }]
+    }
+  ],
+  "warnings": ["Match 482913507226 has no MATCH_END: it's rated 6 h after it started, if no longer copy comes"]
+}
+```
+
+- `upload` is what `POST /api/upload` (or the legacy import) would answer: `{ status: 200, result }` with `result` as in an upload (`stored`, `unchanged`, `duplicate`), or the error it would give (`{ status, error, message }`: `not_ranked`, `legacy_log`, `not_legacy`, `no_region` for a `host` with no region, `revoked`). For an error, `matches` is empty.
+- Each match has its upload line (`matchKey, lineCount, region, action, status, rejection, reviewReasons`), `storedMatchId` (the stored copy, with `host`), and what the parser read: player and round ids are the log's ids, `placements` the rated finishing order (winner first, leavers left out; empty for a round that isn't rated), `problems` the lines that were skipped and why.
+- `duplicateOf` is the stored upload with the same bytes, if any. `warnings` lists what to notice: an upload error, copies of one match in the file (only the longest is used), skipped lines, broken rounds, no `MATCH_END`.
+
+**Recompute: `POST /api/admin/ratings/recompute?region=eu`.** `region` is required (`400` without it, or for one that isn't a region). One region at a time: the other's ratings are never read or written.
+
+- **`dryRun=1`**: rates the region's accepted matches that count (complete, or past `ratingIncompleteGraceHours`) from scratch, in memory, and compares with its stored ratings. Nothing is written, not even `admin_actions`.
+
+  ```json
+  {
+    "dryRun": true,
+    "region": "eu",
+    "staleFrom": null,
+    "matches": { "counted": 220, "recomputed": 220, "capped": false, "until": null },
+    "summary": { "players": 329, "changed": 2, "added": 0, "removed": 1, "up": 0, "down": 1, "biggestGain": 0, "biggestLoss": -40, "identical": false },
+    "truncated": false,
+    "players": [
+      { "playerId": 7, "name": "Echo", "before": { "display": 1012, "rounds": 2, "wins": 1, "rank": null }, "after": null, "change": null, "rankChange": null },
+      { "playerId": 3, "name": "Alpha", "before": { "display": 1340, "rounds": 50, "wins": 12, "rank": 4 }, "after": { "display": 1300, "rounds": 50, "wins": 12, "rank": 5 }, "change": -40, "rankChange": -1 }
+    ]
+  }
+  ```
+
+  `players` are those whose display rating, rounds, wins or rank would change, or who'd gain (`before: null`) or lose (`after: null`) a rating: those first, then the biggest moves. `rank` is the leaderboard's (display rating down, from `minRankedRounds` rated rounds; `null` below), `rankChange` places moved up (negative: down). At most `ratingDryRunListLimit` (500) are listed (`truncated: true` past it); `summary` counts them all. `summary.identical` is true when every stored rating, mu and sigma included, is exactly what the recompute gives: the incremental ratings match a from-scratch recompute. `staleFrom` is where the region's ratings are stale from (`{ id, playedAt }`, or `null`).
+
+  **Limits.** It runs in one request: about 0.5 ms of CPU and 200 `round_players` rows read a match, rounds read `ratingDryRunReadChunk` (250) matches a query. It rates at most `ratingDryRunMaxMatches` (2000, override `RATING_DRY_RUN_MAX_MATCHES`): about 1 s of CPU, 400,000 rows read (8% of the free tier's daily 5 million) and 13 queries. Past it, `matches.capped` is true: the first `ratingDryRunMaxMatches` matches are rated, and compared with each player's stored rating just before the first match left out (`matches.until`, from `rating_history`). On the Workers Free plan (10 ms CPU an invocation) only a few dozen matches fit: set `RATING_DRY_RUN_MAX_MATCHES` low there.
+
+- **Without `dryRun`** (or `dryRun=0`): marks the region's ratings stale from its first match, logged as `ratings_recompute`, then runs one run of the update like the other admin actions (`ratingMatchesPerRun` matches); the cron (every 10 minutes) carries on the rest ([rating.md](rating.md), "Ratings in the database"). New matches are still rated in the meantime. `{ region, ratingsStale }`, `ratingsStale` whether the region's recompute is still going. Use it after a rating config or engine change, or when a dry run found drift.
 
 ### Errors
 

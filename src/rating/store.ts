@@ -188,6 +188,42 @@ export async function readRatingsBefore(
   return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
 }
 
+/** Where the region's ratings are stale from, without making its `rating_state` row: for reads that write nothing. */
+export async function peekStaleFrom(db: D1Database, board: string): Promise<MatchRef | null> {
+  const row = await db
+    .prepare("SELECT stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = ?")
+    .bind(board)
+    .first<{ playedAt: string | null; id: number | null }>();
+  return row?.playedAt == null ? null : { playedAt: row.playedAt, id: row.id ?? 0 };
+}
+
+/** Every `ratings` row of the region's leaderboard. */
+export async function readBoard(db: D1Database, board: string): Promise<Map<number, StoredRating>> {
+  const { results } = await db
+    .prepare(
+      `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, last_played_at AS lastPlayedAt
+       FROM ratings WHERE board = ?`,
+    )
+    .bind(board)
+    .all<StoredRating & { playerId: number }>();
+  return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
+}
+
+/** The region's leaderboard as it stood just before `before`: each player's last history row before it. */
+export async function readBoardBefore(db: D1Database, board: string, before: MatchRef): Promise<Map<number, StoredRating>> {
+  const { results } = await db
+    .prepare(
+      `SELECT playerId, mu, sigma, display, rounds, wins, lastPlayedAt FROM (
+         SELECT player_id AS playerId, mu, sigma, display, rounds, wins, played_at AS lastPlayedAt,
+           ROW_NUMBER() OVER (PARTITION BY player_id ORDER BY played_at DESC, match_id DESC) AS nth
+         FROM rating_history WHERE board = ?1 AND (played_at, match_id) < (?2, ?3))
+       WHERE nth = 1`,
+    )
+    .bind(board, before.playedAt, before.id)
+    .all<StoredRating & { playerId: number }>();
+  return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
+}
+
 /**
  * Fails the batch it's in (NOT NULL on `version`) unless the version is still `version`, and
  * moves it on otherwise. Put it first in every batch that writes ratings.
