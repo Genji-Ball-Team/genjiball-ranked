@@ -451,7 +451,7 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
 });
 
 describe("diffRatings", () => {
-  const rating = (display: number, rounds = 10) => ({ mu: display / 100, sigma: 1, display, rounds, wins: 1, lastPlayedAt: "2026-10-01T00:00:00Z" });
+  const rating = (display: number, rounds = 10) => ({ mu: display / 100, sigma: 1, display, rounds, wins: 1, lastPlayedAt: "2026-10-01T00:00:00Z", streak: 0, bestStreak: 0 });
 
   it("ranks like the leaderboard and says who passes whom", () => {
     const before = new Map([[1, rating(1200)], [2, rating(1100)], [3, rating(1000, 2)]]);
