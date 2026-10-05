@@ -16,6 +16,7 @@ import {
   findHeadToHead,
   findMatchDetail,
   findPlayer,
+  findPlayerStats,
   findRating,
   latestFeedSeq,
   listFeed,
@@ -40,7 +41,8 @@ import {
  * `/api/rank-tags`, cached for `rankTagsCacheSeconds`. And `/api/server`: whether this is the test server
  * (#37), for the banner on every page. And the Tourneys page (#31): `/api/tourneys`, `/api/tourneys/:id`
  * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
- * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, and
+ * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, their
+ * round stats for compare (#16), `/api/players/:id/stats`, and
  * the records page (#19), `/api/records`.
  *
  * Regions (#47): the leaderboard, a player's rating, matches, rivals and history, head-to-head, the
@@ -120,10 +122,10 @@ export async function handleSite(
     if (!isRead(request)) return notAllowed();
     return cached(await records(db, config, region!, now), config.publicCacheSeconds);
   }
-  if (path.length === 3 && route === "players" && path[2] === "history") {
+  if (path.length === 3 && route === "players" && (path[2] === "history" || path[2] === "stats")) {
     if (!isRead(request)) return notAllowed();
     const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
-    const body = id === null ? null : await history(db, config, region!, id);
+    const body = id === null ? null : await (path[2] === "history" ? history : stats)(db, config, region!, id);
     if (!body) return fail(404, "not_found", "No such player");
     return cached(body, config.publicCacheSeconds);
   }
@@ -290,6 +292,18 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
     bestStreak: last?.bestStreak ?? 0,
     form,
   };
+}
+
+/**
+ * A player's round stats in one region, for compare (#16): kills, deflects and touches in their rated
+ * rounds, and their average place. Its own route, so the player page doesn't read every round.
+ */
+async function stats(db: D1Database, _config: SiteConfig, region: Region, requested: number) {
+  const id = await canonicalPlayerId(db, requested);
+  if (id === null) return null;
+  const [found, totals] = await Promise.all([findPlayer(db, id), findPlayerStats(db, region.id, id)]);
+  if (!found) return null;
+  return { region: region.id, player: { id: found.id, name: found.name }, stats: totals };
 }
 
 /** The region's records page, as the cron last stored it; empty before the first refresh. */

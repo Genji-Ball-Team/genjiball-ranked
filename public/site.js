@@ -175,27 +175,35 @@ const ordinal = (n) => {
   return `${n}${{ one: "st", two: "nd", few: "rd" }[rules.select(n)] ?? "th"}`;
 };
 
-// The rating graph (#17): the display rating after each match, in play order, one point a match.
-// The tier lines are the player's own tier and the next one, when the graph reaches them. Hover or
-// touch shows a point; a click opens its match. Drawn at the box's width, again when it changes.
-function ratingGraph(box, h, r) {
-  const points = h.points;
-  const tiers = [r?.tier, r?.nextTier].filter(Boolean);
+// The rating graph (#17): display ratings after each match. One player's is in play order, one
+// point a match, in the region's colour, with their peak; compare's (#16) puts each player on one
+// time axis in their own colour. `series`: `{ name, points, peak, color }`. The tier lines are
+// `tiers` the graph reaches. Hover or touch shows the nearest point of each line; with one player a
+// click opens its match. Drawn at the box's width, again when it changes.
+function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
+  const one = series.length === 1;
+  const all = series.flatMap((s) => s.points);
   const draw = () => {
     const width = box.clientWidth;
     const height = width < 480 ? 180 : 240;
     const pad = { top: 18, right: 12, bottom: 26, left: 40 };
-    const ratings = points.map((p) => p.rating);
+    const ratings = all.map((p) => p.rating);
     let lo = Math.min(...ratings);
     let hi = Math.max(...ratings);
     for (const t of tiers) if (t.threshold >= lo - 50 && t.threshold <= hi + 50) [lo, hi] = [Math.min(lo, t.threshold), Math.max(hi, t.threshold)];
     const span = Math.max(hi - lo, 40);
     lo = Math.max(0, lo - span * 0.08);
     hi += span * 0.08;
-    const x = (i) => pad.left + (points.length > 1 ? (i / (points.length - 1)) * (width - pad.left - pad.right) : (width - pad.left - pad.right) / 2);
+    const inner = width - pad.left - pad.right;
+    // Along the x axis: the point's place in play order, or its time.
+    const times = all.map((p) => Date.parse(p.playedAt));
+    const [t0, t1] = [Math.min(...times), Math.max(...times)];
+    const share = (p, i, s) =>
+      byTime ? (t1 > t0 ? (Date.parse(p.playedAt) - t0) / (t1 - t0) : 0.5) : s.points.length > 1 ? i / (s.points.length - 1) : 0.5;
     const y = (v) => pad.top + (1 - (v - lo) / (hi - lo)) * (height - pad.top - pad.bottom);
-    const line = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.rating).toFixed(1)}`).join("");
-    const area = `${line}L${x(points.length - 1).toFixed(1)},${height - pad.bottom}L${x(0).toFixed(1)},${height - pad.bottom}Z`;
+    const lines = series.map((s) => s.points.map((p, i) => ({ ...p, x: pad.left + share(p, i, s) * inner, y: y(p.rating) })));
+    // Over time a rating holds until the next match: steps. In play order, a line from point to point.
+    const path = (pts) => pts.map((p, i) => (i ? (byTime ? `H${p.x.toFixed(1)}V${p.y.toFixed(1)}` : `L${p.x.toFixed(1)},${p.y.toFixed(1)}`) : `M${p.x.toFixed(1)},${p.y.toFixed(1)}`)).join("");
     // A few round ratings on the left, as faint grid lines.
     const step = [10, 25, 50, 100, 200, 250, 500].find((s) => (hi - lo) / s <= 4) ?? 1000;
     const grid = [];
@@ -209,50 +217,107 @@ function ratingGraph(box, h, r) {
           <text x="${pad.left + 6}" y="${y(t.threshold)}" dy="-.45em">${esc(t.label)} ${t.threshold}</text></g>`,
       )
       .join("");
-    const peak = h.peak && points.findIndex((p) => p.matchId === h.peak.matchId);
     // Both ends on one day: their times say more.
-    const sameDay = date(points[0].playedAt) === date(points.at(-1).playedAt);
-    const ends = [points[0], points.at(-1)].map((p) => (sameDay ? dateTime : date)(p.playedAt));
-    box.innerHTML = `<svg width="${width}" height="${height}" role="img" aria-label="${esc(graphLabel(h))}">
+    const sameDay = date(new Date(t0).toISOString()) === date(new Date(t1).toISOString());
+    const ends = [t0, t1].map((t) => (sameDay ? dateTime : date)(new Date(t).toISOString()));
+    const marks = lines
+      .map((pts, n) => {
+        const s = series[n];
+        const peak = s.peak ? pts.find((p) => p.matchId === s.peak.matchId) : null;
+        const last = pts.at(-1);
+        return `<g class="series" style="--series:${s.color}">
+          ${one ? `<path class="area" d="${path(pts)}L${last.x.toFixed(1)},${height - pad.bottom}L${pts[0].x.toFixed(1)},${height - pad.bottom}Z"/>` : ""}
+          <path class="line" d="${path(pts)}"/>
+          ${one && peak ? `<circle class="peak" cx="${peak.x}" cy="${peak.y}" r="4.5"/>` : ""}
+          <circle class="last" cx="${last.x}" cy="${last.y}" r="4.5"/></g>`;
+      })
+      .join("");
+    box.innerHTML = `<svg width="${width}" height="${height}" role="img" tabindex="0" aria-label="${esc(`${label} Arrow keys step through the points${one ? ", Enter opens a point's match" : ""}.`)}">
         <defs><linearGradient id="graph-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
-        <g class="grid-lines">${grid.join("")}</g>${tierLines}
-        <path class="area" d="${area}"/><path class="line" d="${line}"/>
-        ${peak >= 0 ? `<circle class="peak" cx="${x(peak)}" cy="${y(h.peak.rating)}" r="4.5"/>` : ""}
-        <circle class="last" cx="${x(points.length - 1)}" cy="${y(points.at(-1).rating)}" r="4.5"/>
+        <g class="grid-lines">${grid.join("")}</g>${tierLines}${marks}
         <text class="end" x="${pad.left}" y="${height - 6}">${esc(ends[0])}</text>
         <text class="end" x="${width - pad.right}" y="${height - 6}" text-anchor="end">${esc(ends[1])}</text>
-        <g class="cursor" hidden><line y1="${pad.top}" y2="${height - pad.bottom}"/><circle r="5"/></g>
-      </svg><div class="tip" hidden></div>`;
+        <g class="cursor" hidden><line y1="${pad.top}" y2="${height - pad.bottom}"/>${series.map((s) => `<circle r="5" style="--series:${s.color}"/>`).join("")}</g>
+      </svg><div class="tip" hidden></div><p class="sr" aria-live="polite"></p>`;
     const svg = box.querySelector("svg");
     const cursor = svg.querySelector(".cursor");
+    const dots = cursor.querySelectorAll("circle");
     const tip = box.querySelector(".tip");
-    let at = -1;
-    // A mouse click opens the match under the cursor; a tap shows its point first, a second tap on it
-    // opens it.
+    const said = box.querySelector("[aria-live]");
+    let picked = [];
+    // With one player, a mouse click opens the match under the cursor; a tap shows its point first, a
+    // second tap on it opens it.
     let open = false;
-    const show = (e) => {
-      const px = e.clientX - svg.getBoundingClientRect().left;
-      const i = points.length > 1 ? Math.round(((px - pad.left) / (width - pad.left - pad.right)) * (points.length - 1)) : 0;
-      at = Math.min(points.length - 1, Math.max(0, i));
-      const p = points[at];
+    const showAt = (px) => {
+      // One player: the point nearest the pointer. Over time: each player's rating then, from their
+      // last match before the pointer (-1 before their first).
+      picked = one
+        ? [lines[0].reduce((best, p, i, pts) => (Math.abs(p.x - px) < Math.abs(pts[best].x - px) ? i : best), 0)]
+        : lines.map((pts) => pts.findLastIndex((p) => p.x <= px + 0.5));
+      const cx = one ? lines[0][picked[0]].x : px;
       // An SVG element has no `hidden` property: the attribute itself.
       cursor.removeAttribute("hidden");
       tip.hidden = false;
-      cursor.querySelector("line").setAttribute("x1", x(at));
-      cursor.querySelector("line").setAttribute("x2", x(at));
-      cursor.querySelector("circle").setAttribute("cx", x(at));
-      cursor.querySelector("circle").setAttribute("cy", y(p.rating));
-      const before = at ? points[at - 1].rating : null;
-      tip.innerHTML = `<b class="num">${rating(p.rating)}</b>${before === null ? "" : ` <span class="${p.rating >= before ? "up" : "down"}">${p.rating >= before ? "+" : "−"}${Math.abs(p.rating - before)}</span>`}
-        <small>${esc(date(p.playedAt))} · Match #${p.matchId}${at === peak ? " · Peak" : ""}</small>`;
-      tip.style.left = `${Math.min(Math.max(x(at), 70), width - 70)}px`;
-      tip.style.top = `${y(p.rating)}px`;
+      cursor.querySelector("line").setAttribute("x1", cx);
+      cursor.querySelector("line").setAttribute("x2", cx);
+      lines.forEach((pts, n) => {
+        const p = pts[picked[n]];
+        dots[n].style.display = p ? "" : "none";
+        if (!p) return;
+        dots[n].setAttribute("cx", cx);
+        dots[n].setAttribute("cy", p.y);
+      });
+      if (one) {
+        const at = picked[0];
+        const p = lines[0][at];
+        const before = at ? lines[0][at - 1].rating : null;
+        tip.className = "tip";
+        tip.innerHTML = `<b class="num">${rating(p.rating)}</b>${before === null ? "" : ` <span class="${p.rating >= before ? "up" : "down"}">${p.rating >= before ? "+" : "−"}${Math.abs(p.rating - before)}</span>`}
+          <small>${esc(date(p.playedAt))} · Match #${p.matchId}${p.matchId === series[0].peak?.matchId ? " · Peak" : ""}</small>`;
+        tip.style.top = `${p.y}px`;
+        tip.style.left = `${Math.min(Math.max(cx, tip.offsetWidth / 2), width - tip.offsetWidth / 2)}px`;
+      } else {
+        // Beside the cursor, at the top, to cover the lines as little as it can.
+        tip.className = "tip beside";
+        const when = new Date(t0 + ((px - pad.left) / inner) * (t1 - t0)).toISOString();
+        tip.innerHTML =
+          `<small>${esc(dateTime(when))}</small>` +
+          lines
+            .map((pts, n) => {
+              const p = pts[picked[n]];
+              return `<span class="row"><i style="--series:${series[n].color}"></i>${esc(series[n].name)} <b class="num">${p ? rating(p.rating) : "–"}</b></span>`;
+            })
+            .join("");
+        tip.style.top = `${pad.top}px`;
+        tip.style.left = `${cx + 12 + tip.offsetWidth > width ? cx - 12 - tip.offsetWidth : cx + 12}px`;
+      }
     };
+    const show = (e) => showAt(Math.min(Math.max(e.clientX - svg.getBoundingClientRect().left, pad.left), width - pad.right));
+    // The keyboard steps through the points, each read out as the tooltip says it.
+    const stops = [...new Set(lines.flat().map((p) => p.x))].sort((a, b) => a - b);
+    let stop = -1;
+    svg.addEventListener("keydown", (e) => {
+      const keys = { ArrowLeft: stop - 1, ArrowRight: stop + 1, Home: 0, End: stops.length - 1 };
+      if (e.key in keys) {
+        e.preventDefault();
+        stop = Math.min(stops.length - 1, Math.max(0, stop < 0 ? stops.length - 1 : keys[e.key]));
+        showAt(stops[stop]);
+        said.textContent = tip.textContent.replace(/\s+/g, " ").trim();
+      } else if ((e.key === "Enter" || e.key === " ") && one && stop >= 0) {
+        e.preventDefault();
+        location.href = `/match?id=${lines[0][picked[0]].matchId}`;
+      }
+    });
+    svg.addEventListener("blur", () => {
+      cursor.setAttribute("hidden", "");
+      tip.hidden = true;
+      stop = -1;
+    });
     svg.addEventListener("pointermove", show);
     svg.addEventListener("pointerdown", (e) => {
-      const before = tip.hidden ? -1 : at;
+      const before = tip.hidden ? -1 : picked[0];
       show(e);
-      open = e.pointerType === "mouse" || at === before;
+      open = e.pointerType === "mouse" || picked[0] === before;
     });
     svg.addEventListener("pointerleave", (e) => {
       if (e.pointerType !== "mouse") return;
@@ -260,14 +325,17 @@ function ratingGraph(box, h, r) {
       tip.hidden = true;
     });
     svg.addEventListener("click", () => {
-      if (open && at >= 0) location.href = `/match?id=${points[at].matchId}`;
+      if (one && open && picked.length) location.href = `/match?id=${lines[0][picked[0]].matchId}`;
     });
   };
   draw();
   let width = box.clientWidth;
-  new ResizeObserver(() => {
+  // Compare draws into the same box again: one observer a box.
+  box.observer?.disconnect();
+  box.observer = new ResizeObserver(() => {
     if (box.clientWidth !== width) (width = box.clientWidth), draw();
-  }).observe(box);
+  });
+  box.observer.observe(box);
 }
 
 // What the graph shows, for screen readers.
@@ -300,7 +368,11 @@ function historySection(h, r) {
   ]
     .filter(Boolean)
     .join("");
-  ratingGraph($("graph"), h, r);
+  ratingGraph($("graph"), {
+    series: [{ name: h.player.name, points: h.points, peak: h.peak, color: "var(--accent)" }],
+    tiers: [r?.tier, r?.nextTier].filter(Boolean),
+    label: graphLabel(h),
+  });
   const f = h.form;
   $("form-facts").innerHTML = f.rounds
     ? [
@@ -313,11 +385,33 @@ function historySection(h, r) {
   $("form").innerHTML = formList(f);
 }
 
+const compareLink = (ids) => `/compare?ids=${ids.join(",")}&${inRegion()}`;
+
+// Head-to-head on the player page (#18): who they eliminate most and who eliminates them most, each
+// with a link to compare the two.
+function rivalsSection(p, eliminated, eliminatedBy) {
+  if (!eliminated.length && !eliminatedBy.length) return;
+  $("rivals-section").hidden = false;
+  const list = (rivals) =>
+    rivals.length
+      ? rivals
+          .map(
+            (o) => `<li><a href="${playerLink(o.id)}">${esc(o.name)}</a>
+              <span class="num">${count(o.kills, "time")}</span>
+              <small>${o.rounds ? `in ${count(o.rounds, "round")} together` : ""}</small>
+              <a class="vs" href="${compareLink([p.id, o.id])}" aria-label="Compare ${esc(p.name)} and ${esc(o.name)}">Compare</a></li>`,
+          )
+          .join("")
+      : '<li class="muted">No one yet.</li>';
+  $("eliminated").innerHTML = list(eliminated);
+  $("eliminated-by").innerHTML = list(eliminatedBy);
+}
+
 async function playerPage() {
   // The rating history is its own request: the page shows without it if it fails.
   const history = api(`players/${encodeURIComponent(idParam())}/history?${inRegion()}`).catch(() => null);
   try {
-    const { player: p, matches } = await api(`players/${encodeURIComponent(idParam())}?${inRegion()}`);
+    const { player: p, matches, mostEliminated, mostEliminatedBy } = await api(`players/${encodeURIComponent(idParam())}?${inRegion()}`);
     const r = p.rating;
     const here = regionName(site.region);
     title(`${p.name} (${site.short(site.region)})`);
@@ -345,6 +439,9 @@ async function playerPage() {
          <div><dt>Rounds won</dt><dd class="num">${winRate(r.wins, r.rounds)}</dd></div>`
       : "";
     $("next-tier").innerHTML = r?.rank && r.nextTier ? progress(r) : "";
+    rivalsSection(p, mostEliminated, mostEliminatedBy);
+    $("compare-link").href = compareLink([p.id]);
+    $("compare-link").hidden = false;
     loaded(
       $("matches"),
       matches.length
@@ -368,6 +465,230 @@ async function playerPage() {
     $("name").textContent = error.message === "not_found" ? "Player not found" : "Player";
     showError($("matches"), error, "player");
   }
+}
+
+// Compare (#16)
+
+// At most this many players: the series colours are validated as a set of three (all pairs apart for
+// colour blindness on the dark background), and a fourth line would be one too many to tell apart.
+const compareMax = 3;
+const seriesColors = ["#3987e5", "#d95926", "#199e70"];
+
+// Everything compare shows of one player in this region: rating and rivals, history, round stats.
+const compared = new Map();
+function comparedPlayer(id) {
+  if (!compared.has(id)) {
+    const path = `players/${id}`;
+    const loading = Promise.all([api(`${path}?${inRegion()}`), api(`${path}/history?${inRegion()}`), api(`${path}/stats?${inRegion()}`)]).then(
+      ([player, history, stats]) => ({ ...player.player, history, stats: stats.stats }),
+    );
+    // A failed fetch isn't kept, so adding the player again tries again.
+    loading.catch(() => compared.delete(id));
+    compared.set(id, loading);
+  }
+  return compared.get(id);
+}
+
+const perRound = (n, rounds) => (rounds ? n / rounds : null);
+const fixed2 = (v) => v.toFixed(2);
+
+// The table's rows: a label, each player's value (`null`: none), and which way is better, to mark the
+// best when two or more players have one.
+const compareRows = [
+  { label: "Rating", value: (p) => p.rating?.rating ?? null, show: rating, better: 1 },
+  { label: "Rank", value: (p) => p.rating?.rank ?? null, better: -1 },
+  { label: "Rated rounds", value: (p) => p.rating?.rounds ?? null },
+  { label: "Rounds won", value: (p) => (p.rating?.rounds ? p.rating.wins / p.rating.rounds : null), show: (v) => `${Math.round(v * 100)}%`, better: 1 },
+  { label: "Average place", tip: "Where they finish a rated round on average: 1 is a win", value: (p) => p.stats.averagePosition, show: fixed2, better: -1 },
+  { label: "Kills a round", tip: "Players they eliminate in a rated round", value: (p) => perRound(p.stats.kills, p.stats.rounds), show: fixed2, better: 1 },
+  { label: "Deflects a round", tip: "Balls they deflect in a rated round (not counted in older game versions)", value: (p) => perRound(p.stats.deflects, p.stats.deflectRounds), show: fixed2, better: 1 },
+  { label: "Touches a round", tip: "Deflects, plus times a ball someone sent eliminated them", value: (p) => perRound(p.stats.touches, p.stats.deflectRounds), show: fixed2, better: 1 },
+  { label: "Peak rating", value: (p) => p.history.peak?.rating ?? null, show: rating, better: 1 },
+  { label: "Best win streak", tip: "Most rated rounds won in a row", value: (p) => (p.history.matches ? p.history.bestStreak : null), better: 1 },
+  { label: "Recent form", tip: "Rated rounds won of their last ones", value: (p) => (p.history.form.rounds ? p.history.form.wins / p.history.form.rounds : null), show: (v, p) => `${p.history.form.wins} of ${p.history.form.rounds}`, better: 1 },
+];
+
+function compareTable(players) {
+  const head = players
+    .map(
+      (p, i) => `<th scope="col"><span class="key"><i style="--series:${seriesColors[i]}"></i><a href="${playerLink(p.id)}">${esc(p.name)}</a></span>
+        ${chip(p.rating?.tier)}<button type="button" class="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></th>`,
+    )
+    .join("");
+  const rows = compareRows
+    .map((row) => {
+      const values = players.map((p) => (row.value(p) === null ? null : Number(row.value(p))));
+      const known = values.filter((v) => v !== null);
+      const best = row.better && known.length > 1 ? (row.better > 0 ? Math.max(...known) : Math.min(...known)) : null;
+      const cells = values
+        .map((v, i) => `<td class="num${v !== null && v === best ? " best" : ""}">${v === null ? '<span class="muted">–</span>' : (row.show ?? String)(v, players[i])}</td>`)
+        .join("");
+      return `<tr><th scope="row"${row.tip ? ` title="${row.tip}"` : ""}>${row.label}</th>${cells}</tr>`;
+    })
+    .join("");
+  return `<div class="scroll"><table class="versus"><thead><tr><td></td>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="note">Stats are over rated rounds in ${regionName(site.region)}, void matches left out. The best of each row is bright.</p>`;
+}
+
+// Two players' record against each other (#18): rounds one finished above the other, and kills.
+// `current()` says whether these are still the players shown: a slow answer for an earlier pair is dropped.
+async function headToHeadSection(a, b, current) {
+  const box = $("h2h");
+  $("h2h-section").hidden = false;
+  box.innerHTML = "";
+  try {
+    const d = await api(`head-to-head?a=${a.id}&b=${b.id}&${inRegion()}`);
+    if (!current()) return;
+    if (!d.rounds && !d.a.kills && !d.b.kills) {
+      box.innerHTML = `<p class="empty">${esc(a.name)} and ${esc(b.name)} haven't met in a rated round in ${regionName(site.region)} yet.</p>`;
+      return;
+    }
+    const bar = (label, x, y, what) => {
+      const total = x + y;
+      const share = total ? (100 * x) / total : 50;
+      return `<div class="tug"><p><b class="num">${x}</b><span>${label}</span><b class="num">${y}</b></p>
+        <div class="split" role="img" aria-label="${esc(`${a.name} ${x}, ${b.name} ${y} ${what}`)}"><span style="width:${share.toFixed(1)}%;--series:${seriesColors[0]}"></span><span style="--series:${seriesColors[1]}"></span></div></div>`;
+    };
+    box.innerHTML = `<p class="facts"><span>${esc(a.name)} <span class="muted">vs</span> ${esc(b.name)}</span><span>${count(d.rounds, "rated round")} together</span></p>
+      ${bar("Finished ahead", d.a.ahead, d.b.ahead, "rounds finished ahead of the other")}
+      ${bar("Eliminated the other", d.a.kills, d.b.kills, "times eliminated the other")}`;
+  } catch (error) {
+    if (current()) showError(box, error, "head-to-head record");
+  }
+}
+
+async function comparePage() {
+  const params = new URLSearchParams(location.search);
+  let ids = [...new Set((params.get("ids") ?? "").split(",").filter((s) => /^[1-9]\d{0,15}$/.test(s)))].slice(0, compareMax).map(Number);
+  $("region-name").innerHTML = regionName(site.region);
+  const table = $("table");
+  const input = $("add");
+  const suggest = $("suggest");
+
+  const keep = () => {
+    const url = new URL(location.href);
+    if (ids.length) url.searchParams.set("ids", ids.join(","));
+    else url.searchParams.delete("ids");
+    history.replaceState(history.state, "", url);
+  };
+
+  let shown = 0;
+  async function render() {
+    const run = ++shown;
+    keep();
+    input.disabled = ids.length >= compareMax;
+    input.placeholder = ids.length >= compareMax ? `${compareMax} players at most` : ids.length ? "Add another player" : "Add a player";
+    $("h2h-section").hidden = $("graph-section").hidden = true;
+    if (!ids.length) {
+      title("Compare");
+      $("heading").textContent = "Compare";
+      loaded(table, '<p class="empty">Add a player to start, then one or two more to compare them with.</p>');
+      return;
+    }
+    table.setAttribute("aria-busy", "true");
+    const results = await Promise.allSettled(ids.map(comparedPlayer));
+    if (run !== shown) return; // changed meanwhile
+    const missing = ids.filter((_, i) => results[i].status === "rejected" && results[i].reason.message === "not_found");
+    if (results.some((r) => r.status === "rejected" && r.reason.message !== "not_found")) {
+      return showError(table, new Error("failed"), "comparison");
+    }
+    ids = ids.filter((id) => !missing.includes(id));
+    keep();
+    const players = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
+    const names = players.map((p) => p.name);
+    title(`${names.join(" vs ")} (${site.short(site.region)})`);
+    $("heading").textContent = players.length > 1 ? names.join(" vs ") : "Compare";
+    loaded(
+      table,
+      (missing.length ? `<p class="note">${count(missing.length, "player")} in the link no longer exist${missing.length === 1 ? "s" : ""}.</p>` : "") +
+        compareTable(players) +
+        (players.length === 1 ? '<p class="note">Add another player to compare them with.</p>' : ""),
+    );
+    if (players.length === 2) headToHeadSection(players[0], players[1], () => run === shown);
+    const series = players
+      .map((p, i) => ({ name: p.name, points: p.history.points, peak: p.history.peak, color: seriesColors[i] }))
+      .filter((s) => s.points.length);
+    if (series.length) {
+      $("graph-section").hidden = false;
+      $("key").innerHTML = series.map((s) => `<span><i style="--series:${s.color}"></i>${esc(s.name)}</span>`).join("");
+      ratingGraph($("graph"), {
+        series,
+        byTime: true,
+        label: `Ratings over time: ${series.map((s) => `${s.name} from ${rating(s.points[0].rating)} to ${rating(s.points.at(-1).rating)}`).join("; ")}.`,
+      });
+    }
+  }
+
+  table.addEventListener("click", (e) => {
+    const remove = e.target.closest(".remove");
+    if (!remove) return;
+    ids = ids.filter((id) => id !== Number(remove.dataset.id));
+    render();
+    input.focus();
+  });
+
+  // Suggestions from the name search, after a pause in typing ("Free tier" in docs/database.md).
+  let timer;
+  let asked = "";
+  const close = () => {
+    suggest.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+  };
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const query = input.value.trim();
+    if (query.length < 2) return close();
+    timer = setTimeout(async () => {
+      asked = query;
+      try {
+        const { players } = await api(`players?search=${encodeURIComponent(query)}&${inRegion()}`);
+        if (asked !== query || input.value.trim() !== query) return; // typed on meanwhile
+        const found = players.filter((p) => !ids.includes(p.id));
+        suggest.innerHTML = found.length
+          ? found
+              .slice(0, 8)
+              .map(
+                (p) => `<li><button type="button" data-id="${p.id}"><b>${esc(p.name)}</b>${p.matchedAlias ? `<small>was ${esc(p.matchedAlias)}</small>` : ""}
+                  ${chip(p.tier)}<span class="rating num">${p.rating === null ? "" : rating(p.rating)}</span></button></li>`,
+              )
+              .join("")
+          : `<li class="hint">No one in ${regionName(site.region)} is called “${esc(query)}”.</li>`;
+        suggest.hidden = false;
+        input.setAttribute("aria-expanded", "true");
+      } catch {
+        suggest.innerHTML = '<li class="hint">The search didn\'t load. Try again.</li>';
+        suggest.hidden = false;
+      }
+    }, 300);
+  });
+  suggest.addEventListener("click", (e) => {
+    const pick = e.target.closest("button[data-id]");
+    if (!pick) return;
+    ids = [...ids, Number(pick.dataset.id)].slice(0, compareMax);
+    input.value = "";
+    close();
+    render();
+    if (!input.disabled) input.focus();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+    if (e.key === "ArrowDown" && !suggest.hidden) {
+      e.preventDefault();
+      suggest.querySelector("button")?.focus();
+    }
+  });
+  suggest.addEventListener("keydown", (e) => {
+    const buttons = [...suggest.querySelectorAll("button")];
+    const i = buttons.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") (e.preventDefault(), buttons[Math.min(i + 1, buttons.length - 1)]?.focus());
+    if (e.key === "ArrowUp") (e.preventDefault(), i > 0 ? buttons[i - 1].focus() : input.focus());
+    if (e.key === "Escape") (close(), input.focus());
+  });
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".picker")) close();
+  });
+
+  render();
 }
 
 // Match
@@ -757,7 +1078,7 @@ function backButton() {
 }
 
 const page = document.body.dataset.page;
-if (["leaderboard", "player", "tourneys"].includes(page)) site.pin();
+if (["leaderboard", "player", "compare", "tourneys"].includes(page)) site.pin();
 tabBar(page);
 backButton();
-({ leaderboard: leaderboardPage, player: playerPage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();
+({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();

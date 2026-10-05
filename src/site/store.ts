@@ -524,6 +524,39 @@ export async function listRivals(
   return { mostEliminated: pick("kills", "byKills"), mostEliminatedBy: pick("deaths", "byDeaths") };
 }
 
+export interface PlayerStatsRow {
+  /** Rated rounds the player finished (`position` set) in the region's accepted matches. */
+  rounds: number;
+  /** Their `KILL`s in those rounds, as the match page counts a round's kills. */
+  kills: number;
+  /** Of those rounds, the ones whose log has deflects (not legacy): what `deflects` and `touches` are over. */
+  deflectRounds: number;
+  deflects: number;
+  /** Deflects, plus being eliminated by a ball someone sent, as on the match page. */
+  touches: number;
+  /** Average finishing place in those rounds (1 = won), `null` with none. */
+  averagePosition: number | null;
+}
+
+/**
+ * A player's round stats in the region (#16), for compare: totals over the rated rounds they finished
+ * in accepted matches (not void, review or rejected, like the head-to-head and the records). Reads the
+ * player's `round_players` rows through `round_players_player`, with each one's round and match.
+ */
+export async function findPlayerStats(db: D1Database, board: string, playerId: number): Promise<PlayerStatsRow> {
+  const row = await db
+    .prepare(
+      `SELECT count(*) AS rounds, coalesce(sum(rp.kills), 0) AS kills, count(rp.deflects) AS deflectRounds,
+         coalesce(sum(rp.deflects), 0) AS deflects,
+         coalesce(sum(rp.deflects + (rp.killer_id IS NOT NULL)), 0) AS touches, avg(rp.position) AS averagePosition
+       FROM round_players rp JOIN rounds r ON r.id = rp.round_id JOIN matches m ON m.id = r.match_id
+       WHERE rp.player_id = ?2 AND rp.position IS NOT NULL AND r.rated = 1 AND m.status = 'accepted' AND m.region = ?1`,
+    )
+    .bind(board, playerId)
+    .first<PlayerStatsRow>();
+  return row ?? { rounds: 0, kills: 0, deflectRounds: 0, deflects: 0, touches: 0, averagePosition: null };
+}
+
 export interface HeadToHeadRow {
   /** Rated rounds both finished. */
   rounds: number;
