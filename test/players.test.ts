@@ -1,5 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { handleAdmin } from "../src/admin/handler";
 import { playerIdColumns, writeMerge } from "../src/admin/playerStore";
 import { isStale } from "../src/admin/store";
 import { defaults } from "../src/config";
@@ -8,7 +9,8 @@ import { displayRating, recompute, type RatingMatch } from "../src/rating/engine
 import { readRounds, readState } from "../src/rating/store";
 import { updateRatings } from "../src/rating/update";
 import { listTagCandidates } from "../src/site/store";
-import { sha256, type UploadResponse } from "../src/upload/handler";
+import { handleSite } from "../src/site/handler";
+import { handleUpload, sha256, type UploadResponse } from "../src/upload/handler";
 import { matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;
@@ -49,6 +51,26 @@ function admin(path: string, body?: unknown) {
     body: body === undefined ? undefined : JSON.stringify(body),
     headers: { Authorization: `Bearer ${adminToken}` },
   });
+}
+
+/** Run a competing write after the handler's reads, just before its transaction. */
+function beforeBatch(compete: () => Promise<unknown>): D1Database {
+  return new Proxy(db(), {
+    get(target, prop) {
+      if (prop === "batch") return async (statements: D1PreparedStatement[]) => {
+        await compete();
+        return target.batch(statements);
+      };
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+function adminWith(database: D1Database, path: string, body: unknown) {
+  return handleAdmin(new Request(`https://example.com/api/admin/${path}`, {
+    method: "POST", body: JSON.stringify(body), headers: { Authorization: `Bearer ${adminToken}` },
+  }), database, env.PROOFS, defaults, log);
 }
 
 async function adminOk<T = Record<string, unknown>>(path: string, body?: unknown): Promise<T> {
@@ -174,16 +196,28 @@ describe("players: merge", () => {
     await expectRegionUpToDate("na");
   });
 
-  it("re-rates at most playerMergeRecomputeMatches before answering, and leaves the rest to the cron", async () => {
-    await upload(matchLog({ key: "000000000001", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(30));
-    for (let i = 2; i <= defaults.playerMergeRecomputeMatches + 2; i++) {
-      await upload(matchLog({ key: String(i).padStart(12, "0") }), tokens.eu, hoursAgo(30 - i));
-    }
-    const res = await adminOk<{ ratingsStale: boolean }>(`players/${await playerId("Alfa")}/merge`, { into: await playerId("Alpha") });
+  it("leaves all recomputation after merge and undo to the cron", async () => {
+    const { alpha, alfa } = await nameChange();
+    const before = await snapshot();
+    const versions = await rows("SELECT board, version FROM rating_state ORDER BY board");
+    const res = await adminOk<{ merge: { id: number }; ratingsStale: boolean }>(`players/${alfa}/merge`, { into: alpha });
     expect(res.ratingsStale).toBe(true);
-    expect((await readState(db(), "eu")).staleFrom).not.toBeNull();
+    expect((await readState(db(), "eu")).staleFrom).toMatchObject({ id: await matchId("000000000002") });
+    expect((await readState(db(), "na")).staleFrom).toMatchObject({ id: await matchId("000000000004") });
+    expect((await snapshot()).history).toEqual(before.history.filter((r) => r.player_id !== alfa));
+    const changed = await rows("SELECT board, version FROM rating_state ORDER BY board");
+    for (const [i, state] of changed.entries()) expect(Number(state.version)).toBeGreaterThan(Number(versions[i]!.version));
     await finishRecompute();
     await expectRegionUpToDate("eu");
+    await expectRegionUpToDate("na");
+    const merged = await snapshot();
+    const undone = await adminOk<{ ratingsStale: boolean }>(`merges/${res.merge.id}/undo`, {});
+    expect(undone.ratingsStale).toBe(true);
+    expect((await snapshot()).history).toEqual(merged.history);
+    expect((await readState(db(), "eu")).staleFrom).toMatchObject({ id: await matchId("000000000002") });
+    expect((await readState(db(), "na")).staleFrom).toMatchObject({ id: await matchId("000000000004") });
+    await finishRecompute();
+    expect(await snapshot()).toEqual(before);
   });
 
   it("leaves a region the merged player never played in alone", async () => {
@@ -224,6 +258,86 @@ describe("players: merge", () => {
     expect(page.player).toMatchObject({ id: alpha });
     expect(page.player.aliases.sort()).toEqual(["Alfa", "Alpha"]);
     expect(page.player).not.toHaveProperty("mergedInto");
+  });
+
+  it("resolves a long merge chain with a fixed number of page queries", async () => {
+    const { alpha } = await nameChange();
+    let oldest = alpha;
+    for (let i = 0; i < 13; i++) {
+      oldest = (await db().prepare("INSERT INTO players (name, merged_into) VALUES (?, ?) RETURNING id")
+        .bind(`Old ${i}`, oldest).first<{ id: number }>())!.id;
+    }
+    let queries = 0;
+    const counted = new Proxy(db(), {
+      get(target, prop) {
+        if (prop === "prepare") return (sql: string) => { queries++; return target.prepare(sql); };
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const response = await handleSite(new Request(`https://example.com/api/players/${oldest}?region=eu`), counted, defaults);
+    expect(response!.status).toBe(200);
+    const page = await response!.json<{ player: { id: number }; matches: unknown[] }>();
+    expect(page.player.id).toBe(alpha);
+    expect(page).toEqual(await get(`players/${alpha}?region=eu`));
+    expect(queries).toBe(6); // Canonical id, player, rating, matches, regions and rank.
+  });
+
+  it("refuses a shared round uploaded after the check, and rolls back the merge and action", async () => {
+    const { alpha, alfa } = await nameChange();
+    let before: Awaited<ReturnType<typeof snapshot>>;
+    const racing = beforeBatch(async () => {
+      await upload(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
+      before = await snapshot();
+    });
+    const response = await adminWith(racing, `players/${alfa}/merge`, { into: alpha });
+    expect(response.status).toBe(409);
+    expect(await snapshot()).toEqual(before!);
+    expect(await rows("SELECT COUNT(*) AS n FROM player_merges")).toEqual([{ n: 0 }]);
+    expect(await rows("SELECT COUNT(*) AS n FROM admin_actions")).toEqual([{ n: 0 }]);
+  });
+
+  it("reviews resolved-id collisions even when the merge lands between upload reads and its batch", async () => {
+    const { alpha, alfa } = await nameChange();
+    const racing = beforeBatch(() => writeMerge(db(), { from: alfa, into: alpha, adminId: 1, at: hoursAgo(0.5), detail: {} }));
+    const response = await handleUpload(new Request("https://example.com/api/upload", {
+      method: "POST", body: matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }),
+      headers: { Authorization: `Bearer ${tokens.eu}`, "X-Log-Started-At": hoursAgo(1) },
+    }), racing, defaults, log);
+    expect(response.status).toBe(200);
+    expect((await response.json<UploadResponse>()).matches).toMatchObject([{ status: "review", reviewReasons: ["merged_names"] }]);
+    expect(await rows("SELECT status, review_reasons, rated_at FROM matches WHERE match_key = '000000000006'"))
+      .toEqual([{ status: "review", review_reasons: "merged_names", rated_at: null }]);
+    expect(await rows(`SELECT COUNT(*) AS n FROM rating_history WHERE match_id = ${await matchId("000000000006")}`)).toEqual([{ n: 0 }]);
+    await finishRecompute();
+    await expectRegionUpToDate("eu");
+    await expectRegionUpToDate("na");
+  });
+
+  it("reviews a longer copy containing merged names and keeps existing review reasons", async () => {
+    const { alpha, alfa } = await nameChange();
+    await upload(matchLog({ key: "000000000006", rounds: 1 }), tokens.eu, hoursAgo(1));
+    await adminOk(`players/${alfa}/merge`, { into: alpha });
+    await db().prepare("UPDATE hosts SET trust = 'untrusted' WHERE id = 1").run();
+    const response = await upload(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
+    expect(response.matches).toMatchObject([{ action: "replace", status: "review", reviewReasons: ["untrusted_host", "merged_names"] }]);
+    await finishRecompute();
+    expect(await rows(`SELECT COUNT(*) AS n FROM rating_history WHERE match_id = ${await matchId("000000000006")}`)).toEqual([{ n: 0 }]);
+  });
+
+  it("keeps admin voids and rejections when a longer copy contains merged names", async () => {
+    const { alpha, alfa } = await nameChange();
+    await upload(matchLog({ key: "000000000006", rounds: 1 }), tokens.eu, hoursAgo(2));
+    await upload(matchLog({ key: "000000000007", rounds: 1 }), tokens.eu, hoursAgo(1));
+    await db().batch([
+      db().prepare("UPDATE matches SET status = 'void' WHERE match_key = '000000000006'"),
+      db().prepare("UPDATE matches SET status = 'rejected', rejection_code = 'admin', rejection_message = 'Rejected' WHERE match_key = '000000000007'"),
+    ]);
+    await adminOk(`players/${alfa}/merge`, { into: alpha });
+    const voided = await upload(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(2));
+    expect(voided.matches).toMatchObject([{ status: "void" }]);
+    const rejected = await upload(matchLog({ key: "000000000007", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
+    expect(rejected.matches).toMatchObject([{ status: "rejected", rejection: { code: "admin" } }]);
   });
 
   it("refuses what can't be merged", async () => {
@@ -291,6 +405,24 @@ describe("players: undo a merge", () => {
     await expectRegionUpToDate("na");
   });
 
+  it("moves a new Unicode spelling uploaded after reading the undo, by its persisted alias id", async () => {
+    await upload(matchLog(), tokens.eu, hoursAgo(3));
+    await upload(matchLog({ key: "000000000002", players: ["Älfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(2));
+    const alpha = await playerId("Alpha");
+    const alfa = (await db().prepare("SELECT player_id AS id FROM aliases WHERE name_key = ?").bind("älfa").first<{ id: number }>())!.id;
+    const { merge } = await adminOk<{ merge: { id: number } }>(`players/${alfa}/merge`, { into: alpha });
+    const racing = beforeBatch(() => upload(matchLog({ key: "000000000003", players: ["ÄLFA", "Bravo", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1)));
+    const response = await adminWith(racing, `merges/${merge.id}/undo`, {});
+    expect(response.status).toBe(200);
+    const id = await matchId("000000000003");
+    expect(await rows(`SELECT player_id, name FROM match_players WHERE match_id = ${id} AND log_id = 1`))
+      .toEqual([{ player_id: alfa, name: "ÄLFA" }]);
+    expect(await rows(`SELECT DISTINCT player_id FROM round_players rp JOIN rounds r ON r.id = rp.round_id WHERE r.match_id = ${id} AND rp.log_id = 1`))
+      .toEqual([{ player_id: alfa }]);
+    await finishRecompute();
+    await expectRegionUpToDate("eu");
+  });
+
   it("undoes merges newest first, and only once", async () => {
     const { alpha, alfa } = await nameChange();
     // Zulu never played with Alfa or Alpha.
@@ -341,6 +473,19 @@ describe("players: search for admins", () => {
 });
 
 describe("players: display name", () => {
+  it("keeps the newest-seen alias and rank tag when an older alias is uploaded late", async () => {
+    const { alpha, alfa } = await nameChange();
+    await adminOk(`players/${alfa}/merge`, { into: alpha });
+    await finishRecompute();
+    const response = await upload(matchLog({ key: "000000000006" }), tokens.eu, hoursAgo(9.5));
+    expect(response.matches).toMatchObject([{ status: "accepted", reviewReasons: [] }]);
+    expect(await rows(`SELECT name, name_fixed FROM players WHERE id = ${alpha}`)).toEqual([{ name: "Alfa", name_fixed: 0 }]);
+    const candidates = await listTagCandidates(db(), "eu", 0, 0, "", defaults.rankTagsMaxNames);
+    expect(candidates.find((c) => c.playerId === alpha)?.name).toBe("Alfa");
+    await finishRecompute();
+    await expectRegionUpToDate("eu");
+  });
+
   it("sets a name uploads keep, adds it as a name, and goes back to the logs' name", async () => {
     const { alpha } = await nameChange();
     const res = await admin(`players/${alpha}/name`, { name: " Alpha Prime " });

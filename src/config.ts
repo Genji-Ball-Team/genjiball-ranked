@@ -76,12 +76,6 @@ export const defaults = {
    * characters. Game names are far shorter; the rank tags leave out names over 128.
    */
   playerNameMaxLength: 64,
-  /**
-   * Most matches a player merge or undo re-rates before it answers (at most `ratingMatchesPerRun`);
-   * the cron does the rest. A match takes about 0.5 ms of CPU to re-rate, so 10 keeps the request
-   * inside the free plan's 10 ms CPU whatever `ratingMatchesPerRun` is.
-   */
-  playerMergeRecomputeMatches: 10,
 
   /**
    * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at

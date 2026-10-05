@@ -1,5 +1,4 @@
 import { fail } from "../http";
-import { recomputeRatings } from "../rating/update";
 import { searchPlayers } from "../site/store";
 import { isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
@@ -10,7 +9,6 @@ import {
   findPlayers,
   listAliasNames,
   listMerges,
-  matchNames,
   publicMerge,
   sharedRound,
   writeMerge,
@@ -76,7 +74,7 @@ function playerIdField(value: unknown, field: string): number {
 /**
  * `POST /api/admin/players/:id/merge` with `{ "into": <player id> }`: the player's names and matches
  * become `into`'s, who keeps their id. Their ratings are rebuilt from the first match the merged
- * player played in each region, as far as one cron run would go here; the cron finishes.
+ * player played in each region, by the cron.
  */
 async function merge(ctx: Context, fromId: number, data: Record<string, unknown>): Promise<Response> {
   const intoId = playerIdField(data.into, "into");
@@ -119,7 +117,7 @@ async function merge(ctx: Context, fromId: number, data: Record<string, unknown>
     undoneBy: null,
     undoneAt: null,
   };
-  return Response.json({ merge: row, ratingsStale: await catchUp(ctx) });
+  return Response.json({ merge: row, ratingsStale: true });
 }
 
 /**
@@ -137,10 +135,9 @@ async function undo(ctx: Context, mergeId: number): Promise<Response> {
   }
 
   const keys = new Set(found.aliasKeys);
-  const names = (await matchNames(ctx.db, found.into.id)).filter((name) => keys.has(nameKey(name)));
   const at = isoSeconds(ctx.now);
   try {
-    await writeUndo(ctx.db, { merge: found, names, unfixInto: keys.has(nameKey(found.into.name)), adminId: ctx.admin.id, at });
+    await writeUndo(ctx.db, { merge: found, unfixInto: keys.has(nameKey(found.into.name)), adminId: ctx.admin.id, at });
   } catch (error) {
     if (isStale(error)) return changedMeanwhile();
     throw error;
@@ -148,7 +145,7 @@ async function undo(ctx: Context, mergeId: number): Promise<Response> {
   ctx.log.info("admin: player merge undone", { admin: ctx.admin.id, merge: mergeId, from: found.from.id, into: found.into.id });
   return Response.json({
     merge: { ...publicMerge(found), undoneBy: ctx.admin.name, undoneAt: at },
-    ratingsStale: await catchUp(ctx),
+    ratingsStale: true,
   });
 }
 
@@ -182,30 +179,4 @@ async function rename(ctx: Context, playerId: number, data: Record<string, unkno
   }
   ctx.log.info("admin: player name", { admin: ctx.admin.id, player: playerId, from: player.name, to: name });
   return Response.json({ player: (await findPlayers(ctx.db, [playerId])).get(playerId) });
-}
-
-/**
- * After a merge or an undo, recomputes the regions whose ratings are stale, at most
- * `playerMergeRecomputeMatches` matches (and `ratingMatchesPerRun`) shared between them, so the
- * request stays inside the free plan's CPU time. Returns whether some are still stale, for the
- * cron to finish. At most 1 + 15 queries a region (docs/database.md, "Merging players").
- */
-async function catchUp(ctx: Context): Promise<boolean> {
-  try {
-    const { results } = await ctx.db.prepare("SELECT board FROM rating_state WHERE stale_played_at IS NOT NULL").all<{ board: string }>();
-    const stale = new Set(results.map((row) => row.board));
-    let budget = Math.min(ctx.config.ratingMatchesPerRun, ctx.config.playerMergeRecomputeMatches);
-    let done = true;
-    for (const region of ctx.config.regions.map((r) => r.id).filter((r) => stale.has(r))) {
-      if (budget <= 0) return true;
-      const run = await recomputeRatings(ctx.db, ctx.config, ctx.now, ctx.log, region, budget);
-      budget -= run.rated;
-      done &&= run.done;
-    }
-    return !done;
-  } catch (error) {
-    // The change is stored; the cron recomputes.
-    ctx.log.error("rating after player merge failed", { error: String(error) });
-    return true;
-  }
 }

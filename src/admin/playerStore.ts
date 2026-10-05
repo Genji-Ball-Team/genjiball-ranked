@@ -13,7 +13,7 @@ import { staleFromPlayersStatement } from "../rating/store";
  *
  * - `aliases`: the names. A merge moves the merged player's to the other; an undo moves those back.
  * - `matchPlayers`: who played a match (`match_players`). A merge moves the merged player's rows; an
- *   undo moves back the rows played under one of the names it gives back (`match_players.name`), so
+ *   undo moves back the rows played under one of the aliases it gives back (`match_players.alias_id`), so
  *   matches uploaded since the merge go back too.
  * - `perMatch`: another row about a player in one match, found again by its match (`matchOf`) and
  *   log id (`logOf`). A merge moves the merged player's rows; an undo moves back the rows whose
@@ -231,12 +231,6 @@ export async function activeMergeOf(db: D1Database, playerId: number): Promise<n
   return row?.id ?? null;
 }
 
-/** The names the player's matches were played under. */
-export async function matchNames(db: D1Database, playerId: number): Promise<string[]> {
-  const { results } = await db.prepare("SELECT DISTINCT name FROM match_players WHERE player_id = ?").bind(playerId).all<{ name: string }>();
-  return results.map((row) => row.name);
-}
-
 export interface MergeWrite {
   from: number;
   into: number;
@@ -252,11 +246,13 @@ export interface MergeWrite {
  */
 export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number> {
   const statements: D1PreparedStatement[] = [
-    // NULL when either was merged meanwhile: NOT NULL fails the batch (isStale).
+    // NULL when either was merged or a shared round arrived meanwhile: NOT NULL fails the batch (isStale).
     db
       .prepare(
         `UPDATE players SET merged_into = ?2, name = CASE WHEN merged_into IS NULL
-           AND EXISTS (SELECT 1 FROM players p WHERE p.id = ?2 AND p.merged_into IS NULL) THEN name END
+           AND EXISTS (SELECT 1 FROM players p WHERE p.id = ?2 AND p.merged_into IS NULL)
+           AND NOT EXISTS (SELECT 1 FROM round_players x JOIN round_players y
+             ON y.round_id = x.round_id AND y.player_id = ?2 WHERE x.player_id = ?1) THEN name END
          WHERE id = ?1`,
       )
       .bind(w.from, w.into),
@@ -289,8 +285,6 @@ export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number>
 
 export interface UndoWrite {
   merge: StoredMerge;
-  /** The spellings in `match_players` of the names going back: those rows go back. */
-  names: string[];
   /** `into`'s display name was one of the names going back: it follows the logs again. */
   unfixInto: boolean;
   adminId: number;
@@ -323,8 +317,8 @@ export async function writeUndo(db: D1Database, w: UndoWrite): Promise<void> {
     } else if (c.kind === "matchPlayers") {
       statements.push(
         db
-          .prepare(`UPDATE ${c.table} SET ${c.column} = ?1 WHERE ${c.column} = ?2 AND name IN (SELECT value FROM json_each(?3))`)
-          .bind(from.id, into.id, json(w.names)),
+          .prepare(`UPDATE ${c.table} SET ${c.column} = ?1 WHERE ${c.column} = ?2 AND alias_id IN (${moved})`)
+          .bind(from.id, into.id, id),
       );
     }
   }

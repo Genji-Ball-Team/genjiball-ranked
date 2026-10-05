@@ -222,7 +222,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
   const playedAt = startedAt(request.headers.get("X-Log-Started-At"), now) ?? receivedAt;
   let uploadId: number;
   try {
-    uploadId = await writeUpload(db, {
+    const written = await writeUpload(db, {
       hostId: host.id,
       region,
       contentHash,
@@ -236,6 +236,12 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       chunkRows: config.insertChunkRows,
       extra: s.extra?.(db) ?? [],
     });
+    uploadId = written.uploadId;
+    for (const review of written.reviews) {
+      const match = matches.find((m) => m.matchKey === review.matchKey)!;
+      match.status = "review";
+      match.reviewReasons = review.reviewReasons;
+    }
   } catch (error) {
     // Another upload of the same file or match was written between our reads and this write.
     // Nothing was written (the batch is one transaction); trying again sees the other upload.
@@ -252,7 +258,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
     matches: matches.map((m) => `${m.matchKey}:${m.action}:${m.status}`),
   });
 
-  const toRate = new Set(plans.filter((p) => (p.action === "insert" || p.action === "replace") && p.status === "accepted").map(regionOf));
+  const toRate = new Set(matches.filter((m) => (m.action === "insert" || m.action === "replace") && m.status === "accepted").map((m) => m.region));
   for (const matchRegion of toRate) {
     try {
       await rateNewMatches(db, config, now, log, matchRegion);

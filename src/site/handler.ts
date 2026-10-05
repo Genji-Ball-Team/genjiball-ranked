@@ -9,6 +9,7 @@ import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readSt
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
+  canonicalPlayerId,
   findMatchDetail,
   findPlayer,
   findRating,
@@ -178,14 +179,15 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
  * A player an admin merged into another (#8) answers as that one, so old links keep working.
  */
 async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
+  const canonical = await canonicalPlayerId(db, id);
+  if (canonical === null) return null;
   const [found, rating, matches, rated] = await Promise.all([
-    findPlayer(db, id),
-    findRating(db, region.id, id),
-    listPlayerMatches(db, region.id, id, config.playerRecentMatches),
-    listRatedRegions(db, id),
+    findPlayer(db, canonical),
+    findRating(db, region.id, canonical),
+    listPlayerMatches(db, region.id, canonical, config.playerRecentMatches),
+    listRatedRegions(db, canonical),
   ]);
   if (!found) return null;
-  if (found.mergedInto !== null) return player(db, config, region, found.mergedInto, now);
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
   return {
     region: region.id,

@@ -72,7 +72,7 @@ and `status`, the match's status after the upload:
 | Value | Meaning |
 |---|---|
 | `accepted` | Counts for the ratings. A complete match is rated straight away; one with no `MATCH_END` after `ratingIncompleteGraceHours` (6 h), by the cron (every 10 minutes) ([rating.md](rating.md)) |
-| `review` | Waits for an admin. `reviewReasons`: `duplicate_name` (two players with the same name at once), `untrusted_host` |
+| `review` | Waits for an admin. `reviewReasons`: `duplicate_name` (two players with the same name at once), `merged_names` (different aliases resolve to one player in the same round), `untrusted_host` |
 | `rejected` | Never counts. `rejection.code`: `unranked` (an `UNRANKED` line), `unknown_format` (kept to re-parse when the server learns the format), `too_few_players` (fewer than `minMatchPlayers`, 2, in rated rounds. A 1v1 with a rated round counts; a match with no rated round is rejected), `untrusted_host` (when `untrustedHostUploads` is `reject`), `no_match_key`, `admin` (an admin rejected it from the review queue; a longer copy doesn't change that) |
 | `void` | An admin voided it. A longer copy doesn't change that |
 
@@ -232,7 +232,7 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 A player who changes their name shows up as a new player: names are all the server knows of them (`players`, `aliases`). An admin who knows two names are one player merges them. Merges fix name changes. They don't detect smurfs or tell who is behind an account, and the site (and anything built on this API) must never say they do: a merge only joins names an admin knows are one player.
 
 - **Merge** (`POST /api/admin/players/:id/merge`): the player's names, and every match row played under them, become `into`'s. `into` keeps their id; the merged player's page (`/api/players/:id`) answers as `into`, and they drop out of searches and leaderboards. Later uploads of any of the names count for `into`. Two names that played the same round at once are two players: refused.
-- **Ratings.** Each region's ratings are rebuilt from the first rated match the merged player played there, so a player who played EU as one name and NA as the other has both regions recomputed. The merge re-rates up to `playerMergeRecomputeMatches` (10) matches straight away; `ratingsStale: true` means the cron finishes the recompute.
+- **Ratings.** Each region's ratings are rebuilt from the first rated match the merged player played there, so a player who played EU as one name and NA as the other has both regions recomputed. Merge and undo mark the affected regions stale in their transaction and answer `ratingsStale: true`; the cron does all recomputation (every 10 minutes).
 - **Display name.** The name seen most recently, of either player, unless an admin set one (`POST /api/admin/players/:id/name`). Old names stay aliases: the player is still found by them. A name an admin sets that the player didn't have becomes one of their names, so a log with it counts for them. The rank tags keep using the name the player was last seen with in a log, which is what the game shows.
 - **Undo** (`POST /api/admin/merges/:id/undo`): the merged player gets their id, names and match rows back, including matches uploaded under those names since the merge, and the ratings are rebuilt in the same way. Ratings come from the matches, so after the recompute they're exactly what they were. Merges are undone newest first: if `into` was merged on since, undo that one first.
 

@@ -121,6 +121,18 @@ export async function findPlayer(db: D1Database, id: number): Promise<PlayerRow 
   return row && { ...row, aliases: JSON.parse(row.aliases) as string[] };
 }
 
+/** Follow any number of merges in one query. UNION also stops a corrupt cycle. */
+export async function canonicalPlayerId(db: D1Database, id: number): Promise<number | null> {
+  const row = await db.prepare(
+    `WITH RECURSIVE chain(id, merged_into) AS (
+       SELECT id, merged_into FROM players WHERE id = ?1
+       UNION
+       SELECT p.id, p.merged_into FROM players p JOIN chain c ON p.id = c.merged_into
+     ) SELECT id FROM chain WHERE merged_into IS NULL`,
+  ).bind(id).first<{ id: number }>();
+  return row?.id ?? null;
+}
+
 export interface PlayerSearchRow {
   id: number;
   name: string;
