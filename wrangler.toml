@@ -5,6 +5,8 @@ compatibility_flags = ["nodejs_compat"]
 # The Genji Ball Cloudflare account (the genjiball.us zone). Pinned so a deploy never goes to whatever
 # other account wrangler is logged into.
 account_id = "c212ad20cc4f4b5382766735f57b91c3"
+# Production: genjiball.us. `npm run deploy` applies the migrations and deploys.
+routes = [{ pattern = "genjiball.us", custom_domain = true }]
 
 # The website. Files in public/ are served as they are; any other path runs the Worker.
 [assets]
@@ -14,8 +16,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "genjiball-ranked"
-# Replace with the id from `wrangler d1 create genjiball-ranked` when deploying.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "8160cd75-c556-4b7a-a7ff-35772a6ce56b"
 migrations_dir = "migrations"
 
 # Tourney verify screenshots (#28), in R2 rather than D1. Create the bucket once with

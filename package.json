@@ -4,7 +4,7 @@
   "description": "Genji Ball Ranked: API, rating engine and website (Cloudflare Workers + D1)",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "deploy:test": "wrangler d1 migrations apply DB --env test --remote && wrangler deploy --env test",
