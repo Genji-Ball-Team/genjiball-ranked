@@ -156,7 +156,7 @@ a.entry:hover::before { width: 4px; box-shadow: 0 0 10px color-mix(in srgb, var(
 /* Rows have their own pressed state, so no grey flash from the phone on top. */
 a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-color: transparent; }
 .entry .pos { color: var(--muted); font-stretch: var(--narrow); font-size: 1.05rem; }
-.entry .pos.top { color: var(--fg); font-weight: 650; }
+.entry .pos.high { color: var(--fg); font-weight: 650; }
 .entry .pos.first { color: var(--gold); }
 .who { min-width: 0; }
 .who b { display: block; font-weight: 600; font-size: 1.1rem; font-stretch: var(--narrow); overflow-wrap: anywhere; }

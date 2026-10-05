@@ -135,7 +135,7 @@ function ladder(players, query = "") {
       const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
       const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
       return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
-        <span class="pos num${p.rank <= 3 ? ` top${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>
+        <span class="pos num${p.rank <= 3 ? ` high${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>
         <span class="who"><b>${highlight(p.name, query)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
         <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
         <span class="num muted">${p.rounds}</span>
