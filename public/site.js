@@ -31,12 +31,61 @@ async function api(path) {
   return res.json();
 }
 
+// Motion is skipped for whoever asks for less (the stylesheet does the same).
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 function loaded(box, html) {
   box.innerHTML = html;
-  // Fade in over the placeholder rows the first time only, not on every search keystroke.
-  if (box.hasAttribute("data-loading")) box.classList.add("appear");
+  // Rise in over the placeholder rows the first time only, not on every search keystroke: the first
+  // rows one after another (`--i`, style.css), then the class goes so the next answer just shows.
+  if (box.hasAttribute("data-loading")) {
+    [...box.children].slice(0, 12).forEach((row, i) => row.style.setProperty("--i", i));
+    box.classList.add("appear");
+    setTimeout(() => box.classList.remove("appear"), 800);
+  }
   box.removeAttribute("aria-busy");
   box.removeAttribute("data-loading");
+}
+
+// Numbers that count up to their value when they first show: "1234", "56%", "12 days". Text that
+// doesn't start with a number ("–") is left as it is.
+function countUp(els) {
+  if (calm()) return;
+  for (const el of els) {
+    const [, digits, rest] = /^(\d+)(.*)$/s.exec(el.textContent) ?? [];
+    const to = Number(digits);
+    if (!to) continue;
+    // Held at its final width while it counts, so what's beside it doesn't move.
+    el.style.minWidth = `${el.getBoundingClientRect().width}px`;
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / 700);
+      el.textContent = `${Math.round(to * (1 - (1 - t) ** 3))}${rest}`;
+      if (t < 1) requestAnimationFrame(tick);
+      else el.style.minWidth = "";
+    };
+    tick(start);
+  }
+}
+
+// A name with the part that matches the search marked, as HTML. `query` is lower case.
+function highlight(name, query) {
+  const lower = name.toLowerCase();
+  const at = query ? lower.indexOf(query) : -1;
+  // Lower case can change a name's length (rare letters): then nothing is marked.
+  if (at < 0 || lower.length !== name.length) return esc(name);
+  const end = at + query.length;
+  return `${esc(name.slice(0, at))}<mark>${esc(name.slice(at, end))}</mark>${esc(name.slice(end))}`;
+}
+
+// "3 days ago": how long ago something was, for beside a date.
+function ago(iso) {
+  const s = (Date.parse(iso) - Date.now()) / 1000;
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, size] of [["year", 31536000], ["month", 2592000], ["week", 604800], ["day", 86400], ["hour", 3600], ["minute", 60]]) {
+    if (Math.abs(s) >= size) return rtf.format(Math.round(s / size), unit);
+  }
+  return "just now";
 }
 
 function showError(box, error, what) {
@@ -72,7 +121,7 @@ function matchFlags(m) {
 
 // Leaderboard
 
-function ladder(players) {
+function ladder(players, query = "") {
   let band;
   let floor = false;
   const html = players
@@ -86,8 +135,8 @@ function ladder(players) {
       const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
       const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
       return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
-        <span class="pos num">${p.rank}</span>
-        <span class="who"><b>${esc(p.name)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
+        <span class="pos num${p.rank <= 3 ? ` high${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>
+        <span class="who"><b>${highlight(p.name, query)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
         <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
         <span class="num muted">${p.rounds}</span>
         <span class="num muted">${winRate(p.wins, p.rounds)}</span></a></li>`;
@@ -137,18 +186,39 @@ async function leaderboardPage() {
     showError(box, error, "leaderboard");
   }
 
-  $("find").addEventListener("input", async (e) => {
-    const query = e.target.value.trim().toLowerCase();
+  // The search is kept in the URL (`?q=`), so coming back from a player finds the same list.
+  const find = $("find");
+  const search = async () => {
+    const query = find.value.trim().toLowerCase();
+    const url = new URL(location.href);
+    if (query) url.searchParams.set("q", find.value.trim());
+    else url.searchParams.delete("q");
+    history.replaceState(history.state, "", url);
     if (!query) return shown?.();
     try {
       const found = (await allPlayers()).filter((p) => p.name.toLowerCase().includes(query));
-      if (e.target.value.trim().toLowerCase() !== query) return; // typed on meanwhile
+      if (find.value.trim().toLowerCase() !== query) return; // typed on meanwhile
       $("prev").hidden = $("next").hidden = true;
-      loaded(box, found.length ? ladder(found) : `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(e.target.value.trim())}”.</li>`);
+      loaded(box, found.length ? ladder(found, query) : `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(find.value.trim())}”.</li>`);
     } catch (error) {
       showError(box, error, "leaderboard");
     }
+  };
+  find.addEventListener("input", search);
+  // Enter opens the first player found; Escape empties the box.
+  find.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && find.value.trim()) box.querySelector("a.entry")?.click();
+    if (e.key === "Escape" && find.value) {
+      e.preventDefault();
+      find.value = "";
+      search();
+    }
   });
+  const q = new URLSearchParams(location.search).get("q");
+  if (q) {
+    find.value = q;
+    await search();
+  }
 }
 
 // Player
@@ -182,6 +252,8 @@ const ordinal = (n) => {
 // click opens its match. Drawn at the box's width, again when it changes.
 function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
   const one = series.length === 1;
+  // The line draws itself in the first time only, not when a resize draws it again.
+  let intro = true;
   const all = series.flatMap((s) => s.points);
   const draw = () => {
     const width = box.clientWidth;
@@ -227,12 +299,12 @@ function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
         const last = pts.at(-1);
         return `<g class="series" style="--series:${s.color}">
           ${one ? `<path class="area" d="${path(pts)}L${last.x.toFixed(1)},${height - pad.bottom}L${pts[0].x.toFixed(1)},${height - pad.bottom}Z"/>` : ""}
-          <path class="line" d="${path(pts)}"/>
+          <path class="line" d="${path(pts)}" pathLength="1"/>
           ${one && peak ? `<circle class="peak" cx="${peak.x}" cy="${peak.y}" r="4.5"/>` : ""}
           <circle class="last" cx="${last.x}" cy="${last.y}" r="4.5"/></g>`;
       })
       .join("");
-    box.innerHTML = `<svg width="${width}" height="${height}" role="img" tabindex="0" aria-label="${esc(`${label} Arrow keys step through the points${one ? ", Enter opens a point's match" : ""}.`)}">
+    box.innerHTML = `<svg${intro ? ' class="intro"' : ""} width="${width}" height="${height}" role="img" tabindex="0" aria-label="${esc(`${label} Arrow keys step through the points${one ? ", Enter opens a point's match" : ""}.`)}">
         <defs><linearGradient id="graph-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
         <g class="grid-lines">${grid.join("")}</g>${tierLines}${marks}
         <text class="end" x="${pad.left}" y="${height - 6}">${esc(ends[0])}</text>
@@ -329,6 +401,7 @@ function ratingGraph(box, { series, tiers = [], byTime = false, label }) {
     });
   };
   draw();
+  intro = false;
   let width = box.clientWidth;
   // Compare draws into the same box again: one observer a box.
   box.observer?.disconnect();
@@ -349,10 +422,10 @@ function graphLabel(h) {
 function formList(form) {
   return [...form.results]
     .reverse()
-    .map((f) => {
+    .map((f, i) => {
       const won = f.position === 1;
       const what = `${won ? "Won" : `${ordinal(f.position)} of ${f.players}`}, round ${f.round} of match #${f.matchId}`;
-      return `<li><a class="${won ? "won" : ""}" href="/match?id=${f.matchId}" title="${what}"><span class="num">${f.position}</span><span class="sr">${what}</span></a></li>`;
+      return `<li style="--i:${i}"><a class="${won ? "won" : ""}" href="/match?id=${f.matchId}" title="${what}"><span class="num">${f.position}</span><span class="sr">${what}</span></a></li>`;
     })
     .join("");
 }
@@ -438,6 +511,7 @@ async function playerPage() {
          <div><dt>Rated rounds</dt><dd class="num">${r.rounds}</dd></div>
          <div><dt>Rounds won</dt><dd class="num">${winRate(r.wins, r.rounds)}</dd></div>`
       : "";
+    countUp($("stats").querySelectorAll("dd"));
     $("next-tier").innerHTML = r?.rank && r.nextTier ? progress(r) : "";
     rivalsSection(p, mostEliminated, mostEliminatedBy);
     $("compare-link").href = compareLink([p.id]);
@@ -648,7 +722,7 @@ async function comparePage() {
           ? found
               .slice(0, 8)
               .map(
-                (p) => `<li><button type="button" data-id="${p.id}"><b>${esc(p.name)}</b>${p.matchedAlias ? `<small>was ${esc(p.matchedAlias)}</small>` : ""}
+                (p) => `<li><button type="button" data-id="${p.id}"><b>${highlight(p.name, query.toLowerCase())}</b>${p.matchedAlias ? `<small>was ${esc(p.matchedAlias)}</small>` : ""}
                   ${chip(p.tier)}<span class="rating num">${p.rating === null ? "" : rating(p.rating)}</span></button></li>`,
               )
               .join("")
@@ -712,9 +786,9 @@ function activityBars(perDay) {
   const most = Math.max(1, ...perDay.map((d) => d.rounds));
   const day = (iso) => new Date(`${iso}T12:00:00Z`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
   const bars = perDay
-    .map((d) => {
+    .map((d, i) => {
       const what = `${day(d.date)}: ${count(d.rounds, "rated round")}, ${count(d.matches, "match", "matches")}, ${count(d.players, "player")}`;
-      return `<li><span class="bar${d.rounds ? "" : " none"}" role="img" tabindex="0" aria-label="${esc(what)}" style="height:${((100 * d.rounds) / most).toFixed(1)}%"></span>
+      return `<li><span class="bar${d.rounds ? "" : " none"}" role="img" tabindex="0" aria-label="${esc(what)}" style="height:${((100 * d.rounds) / most).toFixed(1)}%;--i:${i}"></span>
         <span class="tip" aria-hidden="true"><b class="num">${d.rounds}</b> rounds<small>${esc(day(d.date))} · ${count(d.matches, "match", "matches")} · ${count(d.players, "player")}</small></span></li>`;
     })
     .join("");
@@ -743,6 +817,7 @@ async function recordsPage() {
             .join("")
         : `<li class="empty">${d.updatedAt ? `No records in ${regionName(site.region)} yet: they come with the first matches.` : "The records are being counted. Check back in an hour."}</li>`,
     );
+    countUp($("records").querySelectorAll("li > b"));
     const a = d.activity;
     if (a.perDay.length) {
       $("activity-section").hidden = false;
@@ -751,6 +826,7 @@ async function recordsPage() {
         <div><dt>Players</dt><dd class="num">${a.players}</dd></div>
         <div><dt>Over</dt><dd class="num">${a.days} days</dd></div>`;
       $("activity").innerHTML = activityBars(a.perDay);
+      countUp($("activity-figures").querySelectorAll("dd"));
     }
     if (d.topHosts.length) {
       $("hosts-section").hidden = false;
@@ -792,6 +868,8 @@ async function livePage() {
     try {
       const { lobbies } = await api(`lobbies?${inRegion()}`);
       if (ask !== asked) return;
+      // The count in the tab's title, to see from another tab when a lobby opens.
+      title(`${lobbies.length ? `(${lobbies.length}) ` : ""}${short} live lobbies`);
       loaded(
         box,
         lobbies.length
@@ -889,7 +967,7 @@ async function matchPage() {
     $("facts").innerHTML = [
       m.tourney && `<a href="/tourney?id=${m.tourney.id}">${esc(m.tourney.name)}</a>, ${esc(m.tourney.lobby)}`,
       regionName(m.region),
-      ...[dateTime(m.playedAt), mapName(m.map), m.preset && `${m.preset} preset`, `Game version ${m.gameVersion}`].filter(Boolean).map(esc),
+      ...[`${dateTime(m.playedAt)} (${ago(m.playedAt)})`, mapName(m.map), m.preset && `${m.preset} preset`, `Game version ${m.gameVersion}`].filter(Boolean).map(esc),
     ]
       .filter(Boolean)
       .map((f) => `<li>${f}</li>`)
@@ -1162,7 +1240,7 @@ function searchSheet() {
   const results = sheet.querySelector(".results");
   // Slide back down before closing (the stylesheet's `closing` animation), unless motion is reduced.
   const close = () => {
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return sheet.close();
+    if (calm()) return sheet.close();
     sheet.classList.add("closing");
     sheet.addEventListener("animationend", () => (sheet.classList.remove("closing"), sheet.close()), { once: true });
   };
@@ -1185,7 +1263,7 @@ function searchSheet() {
         ? found
             .map(
               (p) => `<li><a href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
-                <span class="pos num">${p.rank}</span><b>${esc(p.name)}</b>${chip(p.tier)}<span class="rating num">${rating(p.rating)}</span></a></li>`,
+                <span class="pos num">${p.rank}</span><b>${highlight(p.name, query)}</b>${chip(p.tier)}<span class="rating num">${rating(p.rating)}</span></a></li>`,
             )
             .join("")
         : `<li class="hint">No one on the leaderboard is called “${esc(input.value.trim())}”.</li>`;
@@ -1208,8 +1286,69 @@ function backButton() {
   head.prepend(back);
 }
 
+// "/" puts the cursor in the page's search box, as on most sites with one.
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  const box = $("find") ?? $("add");
+  if (!box || box.disabled || !box.offsetParent) return;
+  e.preventDefault();
+  box.focus();
+  box.select();
+});
+
+// A moment's hover on a link to a player or match fetches what that page asks the API for, so it's in
+// the browser's cache (`publicCacheSeconds`) and the page fills in at once. A touch fetches straight away.
+const warmed = new Set();
+let warming;
+document.addEventListener("pointerover", (e) => {
+  const link = e.target.closest?.('a[href^="/player?"], a[href^="/match?"]');
+  if (!link) return;
+  clearTimeout(warming);
+  warming = setTimeout(
+    () => {
+      const url = new URL(link.href);
+      const id = encodeURIComponent(url.searchParams.get("id") ?? "");
+      const region = inRegion(url.searchParams.get("region") ?? site.region);
+      const paths = url.pathname === "/player" ? [`players/${id}?${region}`, `players/${id}/history?${region}`] : [`matches/${id}`];
+      for (const path of paths) {
+        if (warmed.has(path)) continue;
+        warmed.add(path);
+        fetch(`/api/${path}`, { priority: "low" }).catch(() => warmed.delete(path));
+      }
+    },
+    e.pointerType === "mouse" ? 80 : 0,
+  );
+});
+document.addEventListener("pointerout", (e) => {
+  if (e.pointerType === "mouse") clearTimeout(warming);
+});
+
+// Back to a page whose lists load after it opens: the browser would restore the scroll before
+// they're there, and land at the top. The page puts it back itself once it has loaded.
+const scrollKey = () => `scroll:${location.pathname}${location.search}`;
+const returning = performance.getEntriesByType("navigation")[0]?.type === "back_forward";
+history.scrollRestoration = "manual";
+addEventListener("pagehide", () => {
+  try {
+    sessionStorage.setItem(scrollKey(), String(Math.round(scrollY)));
+  } catch {
+    // not kept
+  }
+});
+function restoreScroll() {
+  if (!returning) return;
+  try {
+    const y = Number(sessionStorage.getItem(scrollKey()));
+    if (y) scrollTo(0, y);
+  } catch {
+    // not kept
+  }
+}
+
 const page = document.body.dataset.page;
 if (["leaderboard", "player", "compare", "live", "records", "tourneys"].includes(page)) site.pin();
 tabBar(page);
 backButton();
-({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, records: recordsPage, live: livePage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();
+Promise.resolve(
+  ({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, records: recordsPage, live: livePage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.(),
+).finally(restoreScroll);
