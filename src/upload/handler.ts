@@ -239,6 +239,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       now: receivedAt,
       plans,
       rows: matchRows(plans, playedAt),
+      botNames: config.legacyBotNames,
       chunkBytes: config.insertChunkBytes,
       maxStatements: config.queriesPerRequest - queries,
       extra: s.extra?.(db) ?? [],

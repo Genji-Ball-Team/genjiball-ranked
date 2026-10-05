@@ -200,6 +200,17 @@ describe("GET /api/records", () => {
     expect(body.topHosts).toEqual([{ name: "eu host", matches: 1 }]);
   });
 
+  it("leaves a bot out: no record, its kills and the kills of it not counted, not one of the players", async () => {
+    await upload(richLog({ deflects: [[1, 2, 90], [1, 1, 20]], kills: [[2, 3], [2, 4], [1, 2], [1, 3]] }), 3);
+    // The live server marks a bot player when an upload first sees its name (legacyBotNames).
+    await db().prepare("UPDATE players SET bot = 1 WHERE name = 'Bravo'").run();
+    await refresh();
+    const body = await records();
+    expect(body.records.matchKills).toMatchObject({ value: 1, player: { name: "Alpha" } });
+    expect(body.records.fastestDeflect).toMatchObject({ value: 20, player: { name: "Alpha" } });
+    expect(body.activity.players).toBe(3);
+  });
+
   it("keeps the regions apart", async () => {
     await upload(richLog({ key: "000000000001", deflects: [[1, 1, 20]] }), 3);
     await upload(richLog({ key: "000000000002", deflects: [[1, 2, 90], [1, 2, 80]] }), 2, tokens.na);

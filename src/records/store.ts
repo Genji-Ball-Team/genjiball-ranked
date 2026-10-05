@@ -84,21 +84,30 @@ export function recordsUrgentStatement(db: D1Database): D1PreparedStatement {
   return db.prepare("UPDATE records_revisions SET revision = revision + 1, urgent = revision + 1");
 }
 
-/** What `matchStats` needs of these matches, counted by D1: about one row read per event and round. */
+/**
+ * What `matchStats` needs of these matches, counted by D1: about one row read per event and round.
+ * A bot (`players.bot`) holds no record: its deflects and kills, and kills of it, aren't counted.
+ */
 export async function readMatchCounts(db: D1Database, matchIds: readonly number[]): Promise<MatchCounts> {
   if (!matchIds.length) return { deflects: [], kills: [], wins: [], ratedRounds: [], players: [] };
   const ids = "SELECT value FROM json_each(?1)";
   const [deflects, kills, wins, players] = await db.batch([
     db
       .prepare(
-        `SELECT match_id AS matchId, round, actor_id AS logId, COUNT(*) AS count, max(speed) AS fastest FROM events
-         WHERE match_id IN (${ids}) AND type = 'DEFLECT' AND actor_id IS NOT NULL GROUP BY match_id, round, actor_id`,
+        `SELECT e.match_id AS matchId, e.round, e.actor_id AS logId, COUNT(*) AS count, max(e.speed) AS fastest FROM events e
+         WHERE e.match_id IN (${ids}) AND e.type = 'DEFLECT' AND e.actor_id IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM match_players mp JOIN players p ON p.id = mp.player_id
+             WHERE mp.match_id = e.match_id AND mp.log_id = e.actor_id AND p.bot = 1)
+         GROUP BY e.match_id, e.round, e.actor_id`,
       )
       .bind(json(matchIds)),
     db
       .prepare(
-        `SELECT match_id AS matchId, actor_id AS logId, COUNT(*) AS count FROM events
-         WHERE match_id IN (${ids}) AND type = 'KILL' AND actor_id IS NOT NULL AND actor_id IS NOT target_id GROUP BY match_id, actor_id`,
+        `SELECT e.match_id AS matchId, e.actor_id AS logId, COUNT(*) AS count FROM events e
+         WHERE e.match_id IN (${ids}) AND e.type = 'KILL' AND e.actor_id IS NOT NULL AND e.actor_id IS NOT e.target_id
+           AND NOT EXISTS (SELECT 1 FROM match_players mp JOIN players p ON p.id = mp.player_id
+             WHERE mp.match_id = e.match_id AND mp.log_id IN (e.actor_id, e.target_id) AND p.bot = 1)
+         GROUP BY e.match_id, e.actor_id`,
       )
       .bind(json(matchIds)),
     db
@@ -246,7 +255,7 @@ const toCareerRecord = (raw: string | null): CareerRecord | null => {
 
 /**
  * Everything the records page shows, for one region: the records, the activity since `since` (a
- * UTC date) and the top hosts. Three queries, in one batch. Only matches accepted in the region now count.
+ * UTC date; bots aren't players) and the top hosts. Three queries, in one batch. Only matches accepted in the region now count.
  */
 export async function readRecordsInput(db: D1Database, region: string, since: string, topHosts: number): Promise<RecordsInput> {
   const [records, days, hosts] = await db.batch([
@@ -264,8 +273,8 @@ export async function readRecordsInput(db: D1Database, region: string, since: st
            ${careerRecord("rounds")} AS mostRounds,
            ${careerRecord("wins")} AS mostWins,
            (SELECT COUNT(DISTINCT mp.player_id) FROM match_stats s JOIN matches m ON m.id = s.match_id
-              JOIN match_players mp ON mp.match_id = s.match_id
-            WHERE s.region = ?1 AND ${counted} AND s.played_at >= ?2) AS players`,
+              JOIN match_players mp ON mp.match_id = s.match_id JOIN players p ON p.id = mp.player_id
+            WHERE s.region = ?1 AND ${counted} AND s.played_at >= ?2 AND p.bot = 0) AS players`,
       )
       .bind(region, since),
     db
@@ -276,8 +285,8 @@ export async function readRecordsInput(db: D1Database, region: string, since: st
            WHERE s.region = ?1 AND ${counted} AND s.played_at >= ?2 GROUP BY 1)
          SELECT d.date, d.matches, d.rounds,
            (SELECT COUNT(DISTINCT mp.player_id) FROM match_stats s JOIN matches m ON m.id = s.match_id
-              JOIN match_players mp ON mp.match_id = s.match_id
-            WHERE s.region = ?1 AND ${counted} AND s.played_at >= d.date AND s.played_at < date(d.date, '+1 day')) AS players
+              JOIN match_players mp ON mp.match_id = s.match_id JOIN players p ON p.id = mp.player_id
+            WHERE s.region = ?1 AND ${counted} AND s.played_at >= d.date AND s.played_at < date(d.date, '+1 day') AND p.bot = 0) AS players
          FROM days d`,
       )
       .bind(region, since),

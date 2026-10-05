@@ -1,6 +1,6 @@
 import { staleFromMatchesStatement } from "../rating/store";
 import { matchPairsInsert } from "./pairs";
-import type { HostTrust, MatchPlan, MatchRows, MatchStatus, StoredCopy } from "./plan";
+import { nameKey, type HostTrust, type MatchPlan, type MatchRows, type MatchStatus, type StoredCopy } from "./plan";
 
 /**
  * The upload endpoint's D1 queries. Writes go in one `db.batch` (a transaction) with a fixed number
@@ -89,6 +89,8 @@ export interface UploadWrite {
   now: string;
   plans: MatchPlan[];
   rows: MatchRows;
+  /** Names of AI bots (`legacyBotNames`): a new player with one is marked `bot`. */
+  botNames: readonly string[];
   /** Most bytes of JSON a bulk insert binds (`insertChunkBytes`). */
   chunkBytes: number;
   /** Most statements the batch may have: what's left of `queriesPerRequest`. */
@@ -135,14 +137,14 @@ export async function writeUpload(
 
     // Players: a name seen for the first time is a new player with that name as their alias. Every
     // player who isn't merged into another (#8) has at least one alias, so the players without one
-    // are the ones just inserted.
+    // are the ones just inserted. A bot's name makes a `bot` player, left out of head-to-head and records.
     db
       .prepare(
-        `INSERT INTO players (name, created_at)
-         SELECT e.value ->> 'name', ?2 FROM json_each(?1) e
+        `INSERT INTO players (name, created_at, bot)
+         SELECT e.value ->> 'name', ?2, e.value ->> 'key' IN (SELECT value FROM json_each(?3)) FROM json_each(?1) e
          WHERE NOT EXISTS (SELECT 1 FROM aliases a WHERE a.name_key = e.value ->> 'key')`,
       )
-      .bind(json(w.rows.names), w.now),
+      .bind(json(w.rows.names), w.now, json(w.botNames.map(nameKey))),
     db
       .prepare(
         `INSERT INTO aliases (player_id, name, name_key, first_seen_at, last_seen_at)
