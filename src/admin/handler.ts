@@ -24,10 +24,11 @@ import {
 } from "./store";
 import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type AdminConfig, type Context } from "./request";
 import { handleTourneyAdmin } from "./tourneys";
+import { dryRunParse, recomputeRegion } from "./debug";
 
 /**
  * `/api/admin/*`: hosts, the review queue, voiding matches, the action log (#7, docs/api.md), the
- * legacy log import (#13) and tourneys (#24, `./tourneys.ts`).
+ * legacy log import (#13), tourneys (#24, `./tourneys.ts`) and the debug tools (#33, `./debug.ts`).
  * Every request needs `Authorization: Bearer <admin token>`; every change is logged in
  * `admin_actions` in the same transaction.
  */
@@ -92,6 +93,12 @@ export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bu
         if (method !== "POST") return notAllowed("POST");
         return await changeMatch(ctx, id, path[2] as MatchAction, await body(request));
       }
+    }
+    if (path.length === 1 && path[0] === "parse") {
+      return method === "POST" ? await dryRunParse(ctx, request) : notAllowed("POST");
+    }
+    if (path.length === 2 && path[0] === "ratings" && path[1] === "recompute") {
+      return method === "POST" ? await recomputeRegion(ctx, request) : notAllowed("POST");
     }
     if (path.length === 1 && path[0] === "legacy-import") {
       return method === "POST" ? await importLegacy(ctx, request) : notAllowed("POST");

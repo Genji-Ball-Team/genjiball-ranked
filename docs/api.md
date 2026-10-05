@@ -216,13 +216,88 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/lobbies/:id/verify` | Body `{ "verified": true, "version": 3 }`: an admin checked the displayed screenshot against the standings; use the lobby's displayed `version`. Needs a match, screenshot and current version (`409` otherwise). `{ "verified": false }` clears verification; version is optional when clearing |
 | `POST /api/admin/legacy-import?host=<id>&region=<region>` | Body: an old v1.3.2 log file, as with an upload. Stored as the host's legacy match ([legacy.md](legacy.md)), as from a trusted host and with no rate limit, in `region` or else the host's home region (`400` with neither). Answers like `POST /api/upload`; `422 not_legacy` for a file without `KILL` lines or with a `GBR` line. `npm run import:legacy` sends a folder of them |
 
+| `POST /api/admin/parse?host=<id>&region=<region>&legacy=1` | Dry-run parse: body a log file, as with an upload. What an upload would answer and what the parser read, **writing nothing** ([Debug tools](#debug-tools)) |
+| `POST /api/admin/ratings/recompute?region=<region>` | Marks the region's ratings stale from the start: the cron recomputes them. `region` is required. The dry run is `npm run ratings:dry-run` ([Debug tools](#debug-tools)) |
+
 A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
 
 **Decisions that last.** A longer copy of a match keeps an admin's void or rejection. An accept doesn't: a longer copy is judged again, and goes back to review if it still has a reason to (its new rounds haven't been looked at).
 
 Lobby mutations return `409 conflict` if another edit, replacement, expiry or longer log changed their snapshot before the write. A longer log also clears its lobby's verification. Screenshot removal is immediate at the public API; R2 failures leave durable cleanup records for later uploads or the cron to retry.
 
-`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action (with `hostId` and `roundLimit` for a lobby; `host_id` is the lobby's assigned host). A host's own screenshot changes go to `host_actions` instead (`lobby_screenshot`, `lobby_screenshot_delete`).
+`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`, `ratings_recompute`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action (with `hostId` and `roundLimit` for a lobby; `host_id` is the lobby's assigned host), and the `region` of a recompute. A host's own screenshot changes go to `host_actions` instead (`lobby_screenshot`, `lobby_screenshot_delete`).
+
+### Debug tools
+
+For finding out why a log was parsed, judged or rated the way it was (#33). Code: `src/admin/debug.ts`, `src/rating/dryRun.ts`, `scripts/ratings-dry-run.ts`. With `LOG_LEVEL=debug` the server also logs each uploaded match's action, status, rejection, review reasons and skipped lines.
+
+**Dry-run parse: `POST /api/admin/parse`.** The body is a log file, as with an upload, at most `maxUploadBytes` (past it, or empty, `upload` says the upload's `413`/`400` and nothing is parsed). It's parsed and planned exactly as an upload would be, through the same code, and nothing is written. Query, all optional:
+
+| Param | |
+|---|---|
+| `host` | A host id: answers as that host's upload would: its revocation, home region, rate limit, trust and stored copies (`replace`, `repoint`, `skip`; a stored match keeps its region). Without it the host checks are skipped, and the file is judged as from a trusted host with nothing stored. `404` for an unknown host |
+| `region` | Stands for the upload's `X-Region` (the import's `region`): echoed into each new match's `region`. One that isn't a region is the upload's `400`. Without it, the host's home region, or `null` |
+| `legacy` | `1`: as `legacy-import` would read the file (the v1.3.2 parser, as from a trusted host, revocation not checked, `host` required) |
+
+`200`, also for a file an upload would refuse:
+
+```json
+{
+  "dryRun": true,
+  "region": "eu",
+  "host": { "id": 3, "name": "Kenzo", "trust": "trusted", "region": "eu" },
+  "legacy": false,
+  "bytes": 2048,
+  "duplicateOf": null,
+  "upload": {
+    "status": 200, "result": "stored", "uploadId": null, "region": "eu",
+    "matches": [{ "matchKey": "482913507226", "lineCount": 57, "region": "eu", "action": "insert", "status": "review", "rejection": null, "reviewReasons": ["duplicate_name"] }]
+  },
+  "parser": {
+    "error": null,
+    "matches": [
+      {
+        "matchKey": "482913507226", "lineCount": 57, "region": "eu", "action": "insert", "status": "review",
+        "rejection": null, "reviewReasons": ["duplicate_name"], "storedMatchId": null,
+        "format": 1, "gameVersion": "1.3.3R", "startLine": 2, "unranked": [],
+        "settings": { "map": "workshop-island-night", "preset": "Default", "feel": false, "addOns": [] },
+        "complete": true, "startTime": 2.38, "endTime": 114, "endResult": "TIME",
+        "players": [{ "id": 1, "name": "Sparrow", "joinTime": 2.38, "leaveTime": null }],
+        "ratedRounds": 3,
+        "rounds": [
+          { "number": 1, "result": "WIN", "rated": true, "startTime": 21.02, "endTime": 43.3, "players": [1, 2, 3, 4, 5],
+            "winnerId": 1, "left": [2], "broken": [], "placements": [{ "position": 1, "id": 1, "name": "Sparrow" }] }
+        ],
+        "kills": 11, "deflects": 18,
+        "problems": []
+      }
+    ],
+    "warnings": []
+  }
+}
+```
+
+- **`upload`** is what `POST /api/upload` (or `legacy-import`) would answer: its status and body, with `uploadId: null` for a file it would store. It checks in the real order: the host, region and rate limit before the body. An upload: `403 revoked`, then `400` for a `region` that isn't one, `422 no_region`, `429 rate_limited`, then the body (`413 too_large`, `400 empty`), `duplicate` (this exact file is stored: `duplicateOf`), the parser's `422` (`not_ranked`, `legacy_log`), and `stored` or `unchanged`. An import: `400` without `host`, for a bad `region` or with no region, then the body, `duplicate`, `422 not_legacy`, and the result. The dry run itself only refuses its own parameters: `400` for a malformed `host` or `legacy`, `404` for an unknown host.
+- **`parser`** is what the parser read, even when the upload would stop before parsing (a stored file, a revoked host). `error` is the parse's own refusal (`{ status, error, message }`) or `null`. Each match has its plan (`action, status, rejection, reviewReasons`, `region`, `storedMatchId` with `host`) and what was read: player and round ids are the log's, `placements` the rated finishing order (winner first, leavers left out; empty for a round that isn't rated), `problems` the lines skipped and why. `warnings`: copies of one match in the file (only the longest is used), skipped lines, broken rounds, no `MATCH_END`.
+
+**Recompute: `POST /api/admin/ratings/recompute?region=eu`.** Marks the region's ratings stale from its first match and logs `ratings_recompute`, in one batch; `{ region, ratingsStale: true }`. It rates nothing itself: the cron (every 10 minutes) recomputes `ratingMatchesPerRun` matches a run until it's done ([rating.md](rating.md), "Ratings in the database"), so the request stays inside the free plan's 10 ms of CPU. New matches are still rated meanwhile. `region` is required (`400` without it, or for one that isn't a region); the other region is never touched. `dryRun` gets a `400`: the dry run is a script. Use it after a rating config or engine change, or when the dry run finds drift.
+
+**Dry-run recompute: `npm run ratings:dry-run -- --region eu`.** On your computer, not in the Worker: a whole region from scratch doesn't fit a Worker's CPU time on the free plan. It reads the region's accepted matches, the rated rounds of those that count and the stored ratings with read-only `SELECT`s through `wrangler d1 execute`, rates them from scratch with the engine and the config of the checkout, and prints who would move. Nothing is written. Which matches count (accepted, complete or past `ratingIncompleteGraceHours`), their order (`played_at`, then id) and tournament weighting are the recompute's own: it shares `counts`, the match and round queries' columns and grouping, and the engine with the server (`src/rating/dryRun.ts`).
+
+| Option | |
+|---|---|
+| `--region <id>` | Required |
+| `--local` / `--remote` | The local D1 (`npm run dev`'s, the default) or the deployed one. `--remote` needs `wrangler login` to the Genji Ball account |
+| `--env test` | The test server's database |
+| `--limit <n>` | Players printed, the biggest moves first (50) |
+| `--chunk <n>` | Matches whose rounds one query reads (200) |
+| `--json <file>` | Writes the whole report: `{ region, database, env, at, staleFrom, matches: { accepted, counted, unrated }, cost: { queries, rowsRead }, summary, players }` |
+
+Each of `players` changes on the leaderboard: `{ playerId, name, before, after, change, rankChange }`, `before`/`after` `{ display, rounds, wins, rank }` or `null` (gains or loses a rating), `rank` the leaderboard's (display down, from `minRankedRounds` rated rounds; `null` below), `rankChange` places up (negative: down). `summary`: `players, changed, added, removed, up, down, biggestGain, biggestLoss`, and `identical`: every stored rating, mu and sigma included, is exactly what a recompute from scratch gives.
+
+**Cost.** One query for the matches, one for the stored ratings, one per `--chunk` counted matches for the rounds (about 225 rows read a match: its rounds and placed players), one per `--chunk` changed players for their names. With `--remote` these are real D1 reads: the 220 v1.3.2 matches are about 50,000 rows (1% of the free tier's 5 million a day); a year of busy weeks (14,600 matches) about 3.3 million, most of a day's reads. `cost.rowsRead` says what a run read (`null` locally: the local D1 doesn't report it). Run it when needed, not on a schedule.
+
+**Consistent reads.** The reads are separate `wrangler` calls, so a cron run or an admin action could land between them. The script reads the region's `rating_state.version` before and after them: every rating write, recompute mark and tournament change moves it on. If it moved, the script reads everything again once; if it moved again, it stops with "The ratings changed while reading": run it again a minute later. (A change that writes no rating, like accepting a match the cron hasn't rated yet, doesn't move it; the next run shows it.)
 
 ### Errors
 

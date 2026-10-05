@@ -8,6 +8,7 @@ import {
   fromStart,
   isConflict,
   lockStatement,
+  ratingMatches,
   ratedAtStatement,
   readAcceptedFrom,
   readHistory,
@@ -64,7 +65,7 @@ export interface RecomputeResult {
 const hourMs = 60 * 60 * 1000;
 
 /** A match counts once it's complete, or once its grace period has passed. */
-function counts(match: CandidateMatch, config: UpdateConfig, now: Date): boolean {
+export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, config: Pick<UpdateConfig, "ratingIncompleteGraceHours">, now: Date): boolean {
   if (match.complete) return true;
   return Date.parse(match.playedAt) <= now.getTime() - config.ratingIncompleteGraceHours * hourMs;
 }
@@ -98,7 +99,7 @@ export async function rateNewMatches(
     const writes = planRerate(
       {
         start: ratings,
-        matches: fresh.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)!, tournament: m.tournament })),
+        matches: ratingMatches(fresh, rounds),
         history: [],
         ratings,
       },
@@ -151,7 +152,7 @@ export async function recomputeRatings(
   const writes = planRerate(
     {
       start,
-      matches: counted.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id)!, tournament: m.tournament })),
+      matches: ratingMatches(counted, rounds),
       history,
       ratings,
     },

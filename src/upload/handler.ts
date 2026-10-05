@@ -79,15 +79,26 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   if (region instanceof Response) return region;
 
   const now = new Date();
-  const recent = await countRecentUploads(db, host.id, isoSeconds(new Date(now.getTime() - hourMs)));
-  if (recent >= config.maxUploadsPerHour) {
-    log.info("upload rate limited", { host: host.id, recent });
-    return fail(429, "rate_limited", `At most ${config.maxUploadsPerHour} uploads an hour`, { "Retry-After": "3600" });
-  }
+  const limited = await rateLimit(db, host.id, now, config, log);
+  if (limited) return limited;
 
   const bytes = await readBody(request, config);
   if (bytes instanceof Response) return bytes;
   return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false });
+}
+
+/** The `429 rate_limited` for a host past `maxUploadsPerHour` stored uploads in the last hour, else null. */
+export async function rateLimit(
+  db: D1Database,
+  hostId: number,
+  now: Date,
+  config: Pick<Config, "maxUploadsPerHour">,
+  log?: Logger,
+): Promise<Response | null> {
+  const recent = await countRecentUploads(db, hostId, isoSeconds(new Date(now.getTime() - hourMs)));
+  if (recent < config.maxUploadsPerHour) return null;
+  log?.info("upload rate limited", { host: hostId, recent });
+  return fail(429, "rate_limited", `At most ${config.maxUploadsPerHour} uploads an hour`, { "Retry-After": "3600" });
 }
 
 /**
@@ -181,31 +192,8 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
     return Response.json({ result: "duplicate", uploadId: existing.id, region, matches: [] } satisfies UploadResponse);
   }
 
-  const text = new TextDecoder().decode(bytes);
-  let parsedMatches: ParsedMatch[];
-  if (s.legacy) {
-    const match = parseLegacyLog(text, {
-      botNames: config.legacyBotNames,
-      gameVersion: config.legacyGameVersion,
-      roundGapSeconds: config.legacyRoundGapSeconds,
-      resurrectSeconds: config.legacyResurrectSeconds,
-    });
-    if (!match) return fail(422, "not_legacy", "No KILL line: this isn't a v1.3.2 log");
-    if (parseLog(text, { acceptedFormats: config.acceptedLogFormats }).matches.length) {
-      return fail(422, "not_legacy", "This file has a GBR line: upload it as a ranked log, not a legacy one");
-    }
-    // Legacy logs have no matchKey. Each file is its own match, keyed by its content; the import
-    // script leaves out a file that's the start of a longer one (docs/legacy.md).
-    parsedMatches = [{ ...match, matchKey: `legacy-${contentHash.slice(0, 16)}` }];
-  } else {
-    const parsed = parseLog(text, { acceptedFormats: config.acceptedLogFormats });
-    if (!parsed.matches.length) {
-      return parsed.legacy
-        ? fail(422, "legacy_log", "This is a v1.3.2 log (KILL lines, no GBR). Old logs are imported by an admin, not uploaded")
-        : fail(422, "not_ranked", "No GBR line: this file has no ranked match");
-    }
-    parsedMatches = parsed.matches;
-  }
+  const parsedMatches = parseFile(bytes, contentHash, s.legacy, config);
+  if (parsedMatches instanceof Response) return parsedMatches;
 
   const keys = parsedMatches.map((m) => m.matchKey).filter((key) => key !== "");
   const stored = await findStoredCopies(db, host.id, keys);
@@ -276,7 +264,38 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
   return Response.json({ result: "stored", uploadId, region, matches } satisfies UploadResponse);
 }
 
-function result(plan: MatchPlan, region: string): MatchResult {
+/**
+ * The file's matches, as an upload (or, with `legacy`, a legacy import) reads them, or the 422 it
+ * answers for a file with none. The upload and the dry-run parse (`POST /api/admin/parse`) share it.
+ */
+export function parseFile(bytes: Uint8Array, contentHash: string, legacy: boolean, config: UploadConfig): ParsedMatch[] | Response {
+  const text = new TextDecoder().decode(bytes);
+  if (legacy) {
+    const match = parseLegacyLog(text, {
+      botNames: config.legacyBotNames,
+      gameVersion: config.legacyGameVersion,
+      roundGapSeconds: config.legacyRoundGapSeconds,
+      resurrectSeconds: config.legacyResurrectSeconds,
+    });
+    if (!match) return fail(422, "not_legacy", "No KILL line: this isn't a v1.3.2 log");
+    if (parseLog(text, { acceptedFormats: config.acceptedLogFormats }).matches.length) {
+      return fail(422, "not_legacy", "This file has a GBR line: upload it as a ranked log, not a legacy one");
+    }
+    // Legacy logs have no matchKey. Each file is its own match, keyed by its content; the import
+    // script leaves out a file that's the start of a longer one (docs/legacy.md).
+    return [{ ...match, matchKey: `legacy-${contentHash.slice(0, 16)}` }];
+  }
+  const parsed = parseLog(text, { acceptedFormats: config.acceptedLogFormats });
+  if (!parsed.matches.length) {
+    return parsed.legacy
+      ? fail(422, "legacy_log", "This is a v1.3.2 log (KILL lines, no GBR). Old logs are imported by an admin, not uploaded")
+      : fail(422, "not_ranked", "No GBR line: this file has no ranked match");
+  }
+  return parsed.matches;
+}
+
+/** The match's line in an upload's answer. */
+export function result(plan: MatchPlan, region: string): MatchResult {
   return {
     matchKey: plan.matchKey,
     lineCount: plan.lineCount,
