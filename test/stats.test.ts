@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import migration from "../migrations/0017_match_stats.sql?raw";
+import { handleAdmin } from "../src/admin/handler";
 import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
 import type { ParsedMatch } from "../src/parser/types";
@@ -656,6 +657,32 @@ describe("head-to-head and player merges (#8)", () => {
     expect(await matchPairs()).toEqual(pairsBefore);
     expect(await pairStats()).toEqual(totalsBefore);
     await expectAsRederived();
+  });
+
+  it("refuses a merge or undo that would rewrite more pairs than playerMergeMaxPairRows, writing nothing", async () => {
+    await upload(alfaOnly, 3);
+    await upload(alphaOnly, 2);
+    const { Alpha, Alfa } = await ids();
+    const pairs = await matchPairs();
+    const totals = await pairStats();
+    const capped = (path: string) =>
+      handleAdmin(
+        new Request(`https://example.com/api/admin/${path}`, { method: "POST", body: JSON.stringify({ into: Alpha }), headers: { Authorization: `Bearer ${adminToken}` } }),
+        db(), env.PROOFS, { ...defaults, playerMergeMaxPairRows: 1 }, createLogger("error"),
+      );
+    const refused = await capped(`players/${Alfa}/merge`);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ error: "too_large" });
+    expect(await matchPairs()).toEqual(pairs);
+    expect(await pairStats()).toEqual(totals);
+    expect((await db().prepare("SELECT count(*) AS n FROM player_merges").first<{ n: number }>())!.n).toBe(0);
+
+    // With the default limit the merge goes through, and its undo is refused the same way.
+    const merged = await admin(`players/${Alfa}/merge`, { into: Alpha });
+    const { merge } = await merged.json<{ merge: { id: number } }>();
+    const undoRefused = await capped(`merges/${merge.id}/undo`);
+    expect(undoRefused.status).toBe(409);
+    expect(await undoRefused.json()).toMatchObject({ error: "too_large" });
   });
 
   it("refuses a head-to-head of a player with the one they were merged into", async () => {

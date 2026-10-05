@@ -23,6 +23,7 @@ export type AdminConfig = UpdateConfig &
     | "tourneyLobbyKeyDigits"
     | "tourneyLobbyKeyAttempts"
     | "playerNameMaxLength"
+    | "playerMergeMaxPairRows"
     | "playerSearchMinLength"
   >;
 

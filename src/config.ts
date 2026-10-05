@@ -87,6 +87,12 @@ export const defaults = {
    * characters. Game names are far shorter; the rank tags leave out names over 128.
    */
   playerNameMaxLength: 64,
+  /**
+   * Most head-to-head pair rows (`match_pairs`) a player merge or its undo may re-derive. Each costs
+   * about 5 rows written (the delete, the insert and their `pair_stats` updates), so 5,000 is about
+   * 25,000 of the 100,000 a day. A bigger merge is refused, with nothing written.
+   */
+  playerMergeMaxPairRows: 5000,
 
   /**
    * OpenSkill (Plackett-Luce) parameters for the ratings (`src/rating/`). A new player starts at

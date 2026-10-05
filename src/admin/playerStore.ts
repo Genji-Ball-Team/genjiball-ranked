@@ -436,3 +436,22 @@ export async function writeName(
       ];
   await db.batch([...statements, mergeActionStatement(db, log.adminId, "player_name", log.detail, log.at, "NULL")]);
 }
+
+/**
+ * Head-to-head pair rows a merge (`mergeId` null: every match player `?1` is in) or the undo of
+ * `mergeId` (the matches played under its aliases) would re-derive: what `playerMergeMaxPairRows` caps.
+ */
+export async function pairRowsToRederive(db: D1Database, playerId: number, mergeId: number | null): Promise<number> {
+  const matches = "SELECT match_id FROM match_players WHERE player_id = ?1";
+  const statement =
+    mergeId === null
+      ? db.prepare(`SELECT count(*) AS n FROM match_pairs WHERE match_id IN (${matches})`).bind(playerId)
+      : db
+          .prepare(
+            `SELECT count(*) AS n FROM match_pairs WHERE match_id IN (${matches}
+               AND alias_id IN (SELECT value FROM json_each((SELECT aliases FROM player_merges WHERE id = ?2))))`,
+          )
+          .bind(playerId, mergeId);
+  const row = await statement.first<{ n: number }>();
+  return row?.n ?? 0;
+}
