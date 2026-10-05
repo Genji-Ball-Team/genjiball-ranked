@@ -233,6 +233,45 @@ function roundNote(r) {
   return "";
 }
 
+const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+// A round's kills and deflects for a cell's tooltip, after a ", ". A legacy log has no deflects.
+function roundStats(p) {
+  const parts = [p.kills && count(p.kills, "kill"), p.deflects && count(p.deflects, "deflect")].filter(Boolean);
+  return parts.length ? `, ${parts.join(", ")}` : "";
+}
+
+// The match's recap (#15): the winner, then everyone's overall place and stats. A legacy log has no
+// deflects, so those columns are left out rather than shown as zeros.
+function summary(m, players) {
+  const won = players.filter((p) => p.place === 1 && p.roundWins > 0);
+  const podium = won.length
+    ? `<p class="podium">${trophy()}<span><small>${won.length > 1 ? "Shared win" : "Winner"}</small>
+        <b>${won.map((p) => `<a href="${playerLink(p.id)}">${esc(p.name)}</a>`).join(" & ")}</b>
+        <small>${count(won[0].roundWins, "round")} won, ${count(won[0].kills, "kill")}</small></span></p>`
+    : "";
+  const deflects = !m.legacy;
+  const rows = players
+    .map(
+      (p) => `<tr${p.place === 1 && won.length ? ' class="first"' : ""}>
+        <td class="place num">${p.place}</td>
+        <td class="name"><a href="${playerLink(p.id)}">${esc(p.name)}</a></td>
+        <td class="num">${p.roundWins}</td><td class="num">${p.kills}</td>
+        ${deflects ? `<td class="num">${p.deflects}</td><td class="num extra">${p.touches}</td>` : ""}
+        <td class="num extra">${p.longestStreak}</td>
+        <td class="delta">${change(p.ratingBefore, p.ratingAfter)}</td></tr>`,
+    )
+    .join("");
+  const th = (label, tip, cls = "") => `<th scope="col"${cls ? ` class="${cls}"` : ""} title="${tip}">${label}</th>`;
+  return `${podium}<div class="scroll"><table class="standings">
+    <thead><tr><th class="place" scope="col">#</th><th class="name" scope="col">Player</th>
+      ${th("Won", "Rounds won, rated or not")}${th("Kills", "Players they eliminated, not counting themselves")}
+      ${deflects ? th("Deflects", "Balls they deflected") + th("Touches", "Deflects, plus times a ball someone sent eliminated them", "extra") : ""}
+      ${th("Streak", "Most rounds won in a row", "extra")}<th class="delta" scope="col">Rating</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    ${m.legacy ? '<p class="note">An older game version: its log has no deflects.</p>' : ""}`;
+}
+
 // A match or tourney is in one region: the page takes its region, and the switch leads to the other
 // region's list.
 function ownRegion(list) {
@@ -257,7 +296,9 @@ async function matchPage() {
       .map((f) => `<li>${f}</li>`)
       .join("");
 
-    const players = [...m.players].sort((a, b) => b.wins - a.wins || (b.ratingAfter ?? -1) - (a.ratingAfter ?? -1));
+    // Overall place first (#15), as the API ranks them; the same place by rating.
+    const players = [...m.players].sort((a, b) => a.place - b.place || (b.ratingAfter ?? -1) - (a.ratingAfter ?? -1));
+    loaded($("summary"), m.rounds.length ? summary(m, players) : "");
     const places = m.rounds.map((r) => new Map(r.placements.map((p) => [p.playerId, p])));
     const head = m.rounds
       .map((r) => `<th class="r${r.rated ? "" : " unrated"}" scope="col"${r.rated ? "" : ` title="Not rated"`}>${r.number}</th>`)
@@ -269,30 +310,31 @@ async function matchPage() {
             const place = places[i].get(p.id);
             const cls = `r${r.rated ? "" : " unrated"}`;
             if (!place) return `<td class="${cls}"></td>`;
-            if (place.left) return `<td class="${cls} left" title="Left">L</td>`;
-            if (r.winner === p.id) return `<td class="${cls} first" title="Won"><span>1</span></td>`;
-            return `<td class="${cls}">${place.position ?? "–"}</td>`;
+            const tip = roundStats(place);
+            if (place.left) return `<td class="${cls} left" title="Left${tip}">L</td>`;
+            if (r.winner === p.id) return `<td class="${cls} first" title="Won${tip}"><span>1</span></td>`;
+            return `<td class="${cls}"${tip ? ` title="${tip.slice(2)}"` : ""}>${place.position ?? "–"}</td>`;
           })
           .join("");
-        return `<tr><td class="name"><a href="${playerLink(p.id)}">${esc(p.name)}</a></td>
-          <td class="won">${p.wins}</td><td class="delta">${change(p.ratingBefore, p.ratingAfter)}</td>${cells}</tr>`;
+        return `<tr><td class="name"><a href="${playerLink(p.id)}">${esc(p.name)}</a></td>${cells}</tr>`;
       })
       .join("");
     loaded(
       $("result"),
       `<div class="scroll"><table class="grid">
-        <thead><tr><th class="name" scope="col">Player</th><th scope="col">Won</th><th class="delta" scope="col">Rating</th>${head}</tr></thead>
+        <thead><tr><th class="name" scope="col">Player</th>${head}</tr></thead>
         <tbody>${rows}</tbody></table></div>`,
     );
     $("notes").innerHTML = [
-      m.rounds.length ? "Each numbered column is a round: where the player finished, or L if they left." : "No rounds.",
+      m.rounds.length ? "Each numbered column is a round: where the player finished, or L if they left. Hover a place for that round's kills and deflects." : "No rounds.",
       ...m.rounds.map(roundNote),
     ]
       .filter(Boolean)
       .join("<br>");
   } catch (error) {
     $("name").textContent = error.message === "not_found" ? "Match not found" : "Match";
-    showError($("result"), error, "match");
+    $("rounds-heading").hidden = $("result").hidden = true;
+    showError($("summary"), error, "match");
   }
 }
 

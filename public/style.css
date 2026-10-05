@@ -201,6 +201,7 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .grid td.r.left { color: var(--faint); }
 .grid .r.unrated { color: var(--faint); background: repeating-linear-gradient(135deg, transparent 0 4px, #ffffff06 4px 8px); }
 .grid thead th.r.unrated { text-decoration: line-through; }
+.recap { margin-top: 1.75rem; }
 
 /* Tourneys: a list of dates down the left, like a fixture board. */
 .chip.tourney { background: #2b2410; color: var(--gold); }
@@ -368,6 +369,7 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
   .lobby-body { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; }
   .podium b { font-size: 1.45rem; }
   .standings .name { max-width: 9rem; }
+  .standings .extra { display: none; }
 }
 
 /* Motion: the search sheet slides up from the tab bar and back down, a tab gives under the thumb,
