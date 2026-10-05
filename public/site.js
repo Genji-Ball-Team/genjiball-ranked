@@ -991,6 +991,7 @@ async function matchPage() {
             const tip = roundStats(place);
             const sr = tip ? `<span class="sr">${tip}</span>` : "";
             if (place.left) return `<td class="${cls} left" title="Left${tip}">L${sr}</td>`;
+            if (place.afk) return `<td class="${cls} left" title="Host AFK: not rated${tip}">AFK${sr}</td>`;
             if (r.winner === p.id) return `<td class="${cls} first" title="Won${tip}"><span>1</span>${sr}</td>`;
             return `<td class="${cls}"${tip ? ` title="${tip.slice(2)}"` : ""}>${place.position ?? "–"}${sr}</td>`;
           })
@@ -1005,7 +1006,7 @@ async function matchPage() {
         <tbody>${rows}</tbody></table></div>`,
     );
     $("notes").innerHTML = [
-      m.rounds.length ? "Each numbered column is a round: where the player finished, or L if they left. On a computer, hover a place for that round's kills and deflects." : "No rounds.",
+      m.rounds.length ? "Each numbered column is a round: where the player finished, L if they left, or AFK for a host who was away (not rated that round). On a computer, hover a place for that round's kills and deflects." : "No rounds.",
       ...m.rounds.map(roundNote),
     ]
       .filter(Boolean)

@@ -1,5 +1,6 @@
 import type { Config } from "../config";
 import type { ParsedMatch } from "../parser/types";
+import { dropsHost, unionRounds, withHostAfk, type HostAfk } from "./hostAfk";
 
 /**
  * What an upload does to the database, decided before anything is written. Pure: the endpoint
@@ -18,7 +19,11 @@ export interface StoredCopy {
   /** Why it's rejected, for a rejected match. */
   rejection: { code: string; message: string } | null;
   uploadId: number;
+  /** `content_hash` of that upload, for a `refresh` that leaves the match in it. */
+  uploadHash: string;
   region: string;
+  /** Host AFK rounds stored for the match (`matches.host_afk`). */
+  hostAfk: number[];
 }
 
 /** `rejection.code` of a match an admin rejected from the review queue. */
@@ -33,7 +38,13 @@ export type MatchAction =
   /** The stored copy is the same: point it at this upload, so the older file can go. */
   | "repoint"
   /** The stored copy is longer, or the match can't be stored: nothing to do. */
-  | "skip";
+  | "skip"
+  /**
+   * The upload brings host AFK rounds the stored match didn't have: its rows are rewritten from the
+   * stored copy (this file's when it's as long, else the stored log) with the new rounds. The match
+   * stays in its upload; this file isn't stored for it.
+   */
+  | "refresh";
 
 export interface MatchPlan {
   matchKey: string;
@@ -43,46 +54,101 @@ export interface MatchPlan {
   storedId: number | null;
   /** Upload the stored copy is in, so that upload can be deleted once nothing points at it. */
   storedUploadId: number | null;
+  /** For a `refresh`: `content_hash` of the upload the match stays in. `null`: this upload. */
+  uploadHash: string | null;
+  /** Host AFK rounds of the match after this upload: the stored ones and the header's. */
+  hostAfk: number[];
+  /**
+   * A `skip` that would be a `refresh` with the stored copy's log, which wasn't passed: read it
+   * (`storedMatches`) and plan again.
+   */
+  needsStoredCopy: boolean;
   /** The match's status after this upload (the stored one for `skip`). */
   status: MatchStatus;
   rejection: { code: string; message: string } | null;
   reviewReasons: string[];
+  /** The match as written: the host dropped from the `hostAfk` rounds (`withHostAfk`). */
   match: ParsedMatch;
 }
 
-export type PlanConfig = Pick<Config, "minMatchPlayers" | "untrustedHostUploads">;
+export type PlanConfig = Pick<Config, "minMatchPlayers" | "untrustedHostUploads" | "hostAfkMaxRounds">;
+
+export interface PlanOptions {
+  /** `X-Host-Afk`: the host's AFK rounds by `matchKey`. */
+  hostAfk?: HostAfk;
+  /** The longest stored copy of a match, parsed from its stored log, for a `refresh` (`needsStoredCopy`). */
+  storedMatches?: ReadonlyMap<string, ParsedMatch>;
+  /** This exact file is stored already: nothing is stored again, only a `refresh` can happen. */
+  duplicate?: boolean;
+}
 
 export function planUpload(
   matches: readonly ParsedMatch[],
   stored: readonly StoredCopy[],
   trust: HostTrust,
   config: PlanConfig,
+  options: PlanOptions = {},
 ): MatchPlan[] {
   const storedByKey = new Map(stored.map((copy) => [copy.matchKey, copy]));
-  return longestCopies(matches).map((match) => {
-    const verdict = judge(match, trust, config);
-    const copy = storedByKey.get(match.matchKey);
-    const plan: MatchPlan = {
-      matchKey: match.matchKey,
-      lineCount: match.lineCount,
-      action: "insert",
-      storedId: copy?.id ?? null,
-      storedUploadId: copy?.uploadId ?? null,
-      ...verdict,
-      match,
+  return longestCopies(matches).map((parsed) => {
+    const copy = storedByKey.get(parsed.matchKey);
+    const sent = parsed.matchKey ? options.hostAfk?.get(parsed.matchKey) : undefined;
+    // The union of every upload's rounds: a later upload never takes rounds away.
+    const hostAfk = unionRounds(copy?.hostAfk ?? [], sent ?? [], config.hostAfkMaxRounds);
+    const plan = (match: ParsedMatch, action: MatchAction): MatchPlan => {
+      const written = withHostAfk(match, hostAfk);
+      return {
+        matchKey: match.matchKey,
+        lineCount: match.lineCount,
+        action,
+        storedId: copy?.id ?? null,
+        storedUploadId: copy?.uploadId ?? null,
+        uploadHash: null,
+        hostAfk,
+        needsStoredCopy: false,
+        ...judge(written, trust, config),
+        match: written,
+      };
     };
+    const skip = (needsStoredCopy = false): MatchPlan => ({
+      ...plan(parsed, "skip"),
+      hostAfk: copy?.hostAfk ?? [],
+      needsStoredCopy,
+      ...(copy ? { status: copy.status } : {}),
+    });
 
-    if (!match.matchKey) return { ...plan, action: "skip" };
-    if (!copy) return plan;
-    if (copy.lineCount > match.lineCount) return { ...plan, action: "skip", status: copy.status };
-    const action = copy.lineCount === match.lineCount ? "repoint" : "replace";
+    if (!parsed.matchKey) return skip();
+    if (!copy) return options.duplicate ? skip() : plan(parsed, "insert");
+
+    let next: MatchPlan;
+    const equal = copy.lineCount === parsed.lineCount;
+    if (copy.lineCount > parsed.lineCount || equal) {
+      // The stored copy stays. AFK rounds that drop the host from one of its rounds rewrite its rows
+      // (`refresh`), from its own log when it's longer than this file. Rounds that change nothing
+      // aren't written on their own: the next upload of the match sends them again.
+      const storedMatch = equal ? parsed : options.storedMatches?.get(parsed.matchKey);
+      const added = hostAfk.filter((round) => !copy.hostAfk.includes(round));
+      if (!added.length || (storedMatch && !dropsHost(storedMatch, added))) {
+        if (!equal || options.duplicate) return skip();
+        next = { ...plan(parsed, "repoint"), hostAfk: copy.hostAfk };
+      } else if (storedMatch?.lineCount !== copy.lineCount) {
+        return skip(true);
+      } else {
+        next = { ...plan(storedMatch, "refresh"), uploadHash: copy.uploadHash };
+      }
+    } else if (options.duplicate) {
+      return skip();
+    } else {
+      next = plan(parsed, "replace");
+    }
+    const action = next.action;
     // An admin's rejection survives a longer copy of the match.
     if (copy.status === "rejected" && copy.rejection?.code === adminRejection) {
-      return { ...plan, action, status: "rejected", rejection: copy.rejection, reviewReasons: [] };
+      return { ...next, action, status: "rejected", rejection: copy.rejection, reviewReasons: [] };
     }
     // So does a void. The new copy's own verdict is kept with it, for an un-void (docs/api.md).
-    const status = copy.status === "void" ? "void" : plan.status;
-    return { ...plan, status, action };
+    const status = copy.status === "void" ? "void" : next.status;
+    return { ...next, status, action };
   });
 }
 
@@ -153,8 +219,10 @@ export function nameKey(name: string): string {
  * `store.ts`. Player fields are log ids, as in the log; names map to players through `aliases`.
  */
 export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
-  const written = plans.filter((plan) => plan.action === "insert" || plan.action === "replace");
-  const names = new Map<string, string>();
+  const written = plans.filter((plan) => plan.action === "insert" || plan.action === "replace" || plan.action === "refresh");
+  // `seen`: the name is in a match this upload brings. A `refresh` rewrites a match already stored,
+  // so its names don't count as seen again (`last_seen_at`).
+  const names = new Map<string, { name: string; seen: boolean }>();
   const matches = [];
   const players = [];
   const rounds = [];
@@ -180,12 +248,17 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
       preset: match.settings?.preset ?? null,
       playedAt,
       complete: match.endResult !== null ? 1 : 0,
+      hostAfk: plan.hostAfk.length ? JSON.stringify(plan.hostAfk) : null,
+      uploadHash: plan.uploadHash,
     });
 
     const stats = matchStats(match);
     for (const player of match.players) {
       const key = nameKey(player.name);
-      if (!names.has(key)) names.set(key, player.name);
+      const seen = plan.action !== "refresh";
+      const known = names.get(key);
+      if (!known) names.set(key, { name: player.name, seen });
+      else known.seen ||= seen;
       players.push({
         matchKey,
         logId: player.id,
@@ -224,6 +297,7 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
           position: position || null,
           place: elim?.place ?? null,
           leftRound: round.leftIds.includes(logId) ? 1 : 0,
+          afk: round.afkIds.includes(logId) ? 1 : 0,
           killerId: elim?.killerId ?? null,
           kills: stats.roundKills.get(roundKey(round.number, logId)) ?? 0,
           // Legacy logs have no DEFLECT lines: unknown, not 0.
@@ -242,7 +316,7 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
   }
 
   return {
-    names: [...names].map(([key, name]) => ({ key, name })),
+    names: [...names].map(([key, { name, seen }]) => ({ key, name, seen: seen ? 1 : 0 })),
     inserted: matches.filter((m) => m.id === null),
     replaced: matches.filter((m) => m.id !== null),
     players,

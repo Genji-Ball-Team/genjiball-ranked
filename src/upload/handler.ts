@@ -6,8 +6,20 @@ import { parseLog } from "../parser/parse";
 import type { ParsedMatch } from "../parser/types";
 import { rateNewMatches, rateNewMatchesMaxQueries, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
-import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus } from "./plan";
-import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUploadByHash, RowTooLarge, TooManyStatements, writeUpload, type Host } from "./store";
+import { parseHostAfkHeader, type HostAfk } from "./hostAfk";
+import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus, type PlanOptions, type StoredCopy } from "./plan";
+import {
+  countRecentUploads,
+  findHost,
+  findMatchStates,
+  findStoredCopies,
+  findUploadByHash,
+  findUploadLogs,
+  RowTooLarge,
+  TooManyStatements,
+  writeUpload,
+  type Host,
+} from "./store";
 
 /**
  * `POST /api/upload`: the host tool sends a Workshop log file (#5).
@@ -18,6 +30,9 @@ import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUp
  *   name has no time zone, so the host tool sends this; without it, the upload time is used.
  * - `X-Region` (optional): the region the matches were hosted in (#47). Without it, the host's home
  *   region; a host with neither gets `no_region`.
+ * - `X-Host-Afk` (optional): the rounds the host was AFK in, per match,
+ *   `<matchKey>:<round>,<round>[;<matchKey>:...]` (`hostAfk.ts`). The host is dropped from their
+ *   rating. A match keeps the union of every upload's rounds.
  *
  * The response says what happened to each match in the file (`UploadResponse`).
  */
@@ -25,8 +40,10 @@ import { countRecentUploads, findHost, findMatchStates, findStoredCopies, findUp
 export interface UploadResponse {
   /**
    * `stored`: the file was stored and at least one match was new or longer than before.
-   * `unchanged`: every match was already stored as long or longer; nothing was written.
-   * `duplicate`: this exact file was uploaded before.
+   * `unchanged`: every match was already stored as long or longer; the file isn't stored. Only new
+   *   host AFK rounds may have been written (`refresh`).
+   * `duplicate`: this exact file was uploaded before. Only new host AFK rounds may have been written
+   *   (`refresh`); `matches` is empty when nothing was.
    */
   result: "stored" | "unchanged" | "duplicate";
   uploadId: number | null;
@@ -40,12 +57,17 @@ export interface MatchResult {
   lineCount: number;
   /** The match's region: the upload's for a new match, the stored match's for another copy. */
   region: string;
-  /** `insert`: new. `replace`: longer than the stored copy. `repoint`/`skip`: the stored copy stays. */
+  /**
+   * `insert`: new. `replace`: longer than the stored copy. `repoint`/`skip`: the stored copy stays.
+   * `refresh`: the stored copy stays, rated again with new host AFK rounds.
+   */
   action: MatchAction;
   /** The match's status now: `accepted` counts, `review` waits for an admin, `rejected` never counts. */
   status: MatchStatus;
   rejection: { code: string; message: string } | null;
   reviewReasons: string[];
+  /** The rounds the host is dropped from as AFK, as stored for the match now. */
+  hostAfk: number[];
 }
 
 export type UploadError = ApiError;
@@ -60,6 +82,8 @@ export type UploadConfig = UpdateConfig &
     | "queriesPerRequest"
     | "minMatchPlayers"
     | "untrustedHostUploads"
+    | "hostMatchKeysMax"
+    | "hostAfkMaxRounds"
     | "legacyBotNames"
     | "legacyGameVersion"
     | "legacyRoundGapSeconds"
@@ -78,6 +102,8 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   if (host instanceof Response) return host;
   const region = hostRegion(request, host, config, "the matches were hosted in");
   if (region instanceof Response) return region;
+  const hostAfk = parseHostAfkHeader(request.headers.get("X-Host-Afk"), config);
+  if (typeof hostAfk === "string") return fail(400, "bad_request", hostAfk);
 
   const now = new Date();
   const limited = await rateLimit(db, host.id, now, config, log);
@@ -86,7 +112,7 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   const bytes = await readBody(request, config);
   if (bytes instanceof Response) return bytes;
   // Two queries so far: the host and the rate limit.
-  return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false, queriesBefore: 2 });
+  return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false, queriesBefore: 2, hostAfk });
 }
 
 /** The `429 rate_limited` for a host past `maxUploadsPerHour` stored uploads in the last hour, else null. */
@@ -174,6 +200,8 @@ export interface StoreLog {
   extra?: (db: D1Database) => D1PreparedStatement[];
   /** Queries the request made before: they count against `queriesPerRequest`. */
   queriesBefore: number;
+  /** `X-Host-Afk`: the host's AFK rounds by `matchKey`. */
+  hostAfk?: HostAfk;
 }
 
 /** The file's body, or the error response when it's empty or too large. */
@@ -191,19 +219,27 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
   const { host, region, bytes, request, now } = s;
   const contentHash = await sha256(bytes);
   const existing = await findUploadByHash(db, contentHash);
-  if (existing) {
-    log.debug("duplicate upload", { host: host.id, upload: existing.id });
-    return Response.json({ result: "duplicate", uploadId: existing.id, region, matches: [] } satisfies UploadResponse);
-  }
+  const duplicate = () => Response.json({ result: "duplicate", uploadId: existing!.id, region, matches: [] } satisfies UploadResponse);
+  if (existing) log.debug("duplicate upload", { host: host.id, upload: existing.id, hostAfkMatches: s.hostAfk?.size ?? 0 });
+  // A file sent again can still bring new host AFK rounds: read on only then.
+  if (existing && !s.hostAfk?.size) return duplicate();
 
   const parsedMatches = parseFile(bytes, contentHash, s.legacy, config);
-  if (parsedMatches instanceof Response) return parsedMatches;
+  if (parsedMatches instanceof Response) return existing ? duplicate() : parsedMatches;
 
   const keys = parsedMatches.map((m) => m.matchKey).filter((key) => key !== "");
   const stored = await findStoredCopies(db, host.id, keys);
   // Queries so far: the caller's, the hash, and the stored copies when there were keys to look up.
   let queries = s.queriesBefore + 1 + (keys.length ? 1 : 0);
-  const plans = planUpload(parsedMatches, stored, host.trust, config);
+  const options: PlanOptions = { hostAfk: s.hostAfk, duplicate: existing !== null };
+  let plans = planUpload(parsedMatches, stored, host.trust, config, options);
+  // New AFK rounds for a match stored longer than this file: its rows are rewritten from its own log.
+  const needed = plans.filter((p) => p.needsStoredCopy);
+  if (needed.length) {
+    options.storedMatches = await storedMatches(db, needed, stored, config);
+    queries += 1;
+    plans = planUpload(parsedMatches, stored, host.trust, config, options);
+  }
   for (const plan of plans) {
     log.debug("match", {
       matchKey: plan.matchKey,
@@ -212,6 +248,8 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       lines: plan.lineCount,
       rejection: plan.rejection,
       review: plan.reviewReasons,
+      hostAfk: plan.hostAfk,
+      afkRounds: plan.match.rounds.filter((r) => r.afkIds.length).map((r) => r.number),
       problems: plan.match.problems,
     });
   }
@@ -220,13 +258,16 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
   const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
   const regionOf = (plan: MatchPlan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
   const matches = plans.map((plan) => result(plan, regionOf(plan)));
-  if (!plans.some((p) => p.action === "insert" || p.action === "replace")) {
+  const stores = plans.some((p) => p.action === "insert" || p.action === "replace");
+  const refreshes = plans.some((p) => p.action === "refresh");
+  if (existing && !refreshes) return duplicate();
+  if (!stores && !refreshes) {
     return Response.json({ result: "unchanged", uploadId: null, region, matches } satisfies UploadResponse);
   }
 
   const receivedAt = isoSeconds(now);
   const playedAt = startedAt(request.headers.get("X-Log-Started-At"), now) ?? receivedAt;
-  let uploadId: number;
+  let uploadId: number | null;
   try {
     const written = await writeUpload(db, {
       hostId: host.id,
@@ -274,7 +315,9 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
     matches: matches.map((m) => `${m.matchKey}:${m.action}:${m.status}`),
   });
 
-  const toRate = new Set(matches.filter((m) => (m.action === "insert" || m.action === "replace") && m.status === "accepted").map((m) => m.region));
+  const toRate = new Set(
+    matches.filter((m) => (m.action === "insert" || m.action === "replace" || m.action === "refresh") && m.status === "accepted").map((m) => m.region),
+  );
   for (const matchRegion of toRate) {
     // The free plan's queries per request: what's left can't rate, so the cron does (within 10 minutes).
     if (queries + rateNewMatchesMaxQueries > config.queriesPerRequest) {
@@ -289,7 +332,33 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       log.error("rating after upload failed", { upload: uploadId, region: matchRegion, error: String(error) });
     }
   }
-  return Response.json({ result: "stored", uploadId, region, matches } satisfies UploadResponse);
+  const outcome = stores ? "stored" : existing ? "duplicate" : "unchanged";
+  return Response.json({ result: outcome, uploadId: uploadId ?? existing?.id ?? null, region, matches } satisfies UploadResponse);
+}
+
+/**
+ * The stored copies these plans need, parsed from their stored logs, by `matchKey`: one query for
+ * all of them. A copy whose log doesn't hold the match as stored is left out (its plan stays a `skip`).
+ */
+async function storedMatches(
+  db: D1Database,
+  plans: readonly MatchPlan[],
+  stored: readonly StoredCopy[],
+  config: UploadConfig,
+): Promise<Map<string, ParsedMatch>> {
+  const copies = stored.filter((copy) => plans.some((p) => p.matchKey === copy.matchKey));
+  const logs = await findUploadLogs(db, [...new Set(copies.map((copy) => copy.uploadId))]);
+  const found = new Map<string, ParsedMatch>();
+  for (const copy of copies) {
+    const bytes = logs.get(copy.uploadId);
+    if (!bytes) continue;
+    const text = new TextDecoder().decode(bytes);
+    const match = parseLog(text, { acceptedFormats: config.acceptedLogFormats }).matches.find(
+      (m) => m.matchKey === copy.matchKey && m.lineCount === copy.lineCount,
+    );
+    if (match) found.set(copy.matchKey, match);
+  }
+  return found;
 }
 
 /**
@@ -332,6 +401,7 @@ export function result(plan: MatchPlan, region: string): MatchResult {
     status: plan.status,
     rejection: plan.rejection,
     reviewReasons: plan.reviewReasons,
+    hostAfk: plan.hostAfk,
   };
 }
 

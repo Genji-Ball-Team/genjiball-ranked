@@ -156,7 +156,8 @@ class MatchParser {
         if (this.players.has(id)) return `player id ${id} joined twice`;
         const present = [...this.players.values()].some((p) => p.leaveTime === null && p.name === name);
         if (present && !this.match.review.includes("duplicate_name")) this.match.review.push("duplicate_name");
-        const player: ParsedPlayer = { id, name, joinTime: time, leaveTime: null };
+        // `host` was added at the end of the line in format 1: older logs don't have it (no host known).
+        const player: ParsedPlayer = { id, name, joinTime: time, leaveTime: null, host: f[2] === "1" };
         this.players.set(id, player);
         this.match.players.push(player);
         return;
@@ -304,6 +305,7 @@ function closeRound(round: OpenRound, endTime: number, result: RoundResult, winn
     playerIds: round.playerIds,
     elims: round.elims,
     leftIds: round.leftIds,
+    afkIds: [],
     winnerId: result === "WIN" ? winnerId : null,
     finishingOrder,
     broken,

@@ -59,6 +59,8 @@ export interface ParsedPlayer {
   joinTime: number;
   /** `time` of the `LEAVE`, or `null` if they stayed to the end. */
   leaveTime: number | null;
+  /** `JOIN` `host` is `1`: the lobby host (a host who rejoins has a new id, also marked). Always false in logs without the field. */
+  host: boolean;
 }
 
 export type RoundResult = "WIN" | "NONE" | "ABORT";
@@ -74,11 +76,16 @@ export interface ParsedRound {
   elims: ElimEvent[];
   /** Listed players who left during the round. They are dropped from the finishing order. */
   leftIds: number[];
+  /**
+   * Host ids dropped from the round because the host was AFK (`X-Host-Afk`, src/upload/hostAfk.ts),
+   * like leavers. Always empty from the parser: the log doesn't say.
+   */
+  afkIds: number[];
   /** Winner id for a `WIN` round. */
   winnerId: number | null;
   /**
    * For a `WIN` round that isn't broken: winner first, then the eliminated from last out to first,
-   * without the players who left. `null` for `NONE`, `ABORT` and broken rounds.
+   * without the players who left (or the host, in a round they were AFK in). `null` for `NONE`, `ABORT` and broken rounds.
    */
   finishingOrder: number[] | null;
   /** Why the round can't be rated even though it ended (a listed player with no `ELIM`, `LEAVE` or win). */

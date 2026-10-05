@@ -413,7 +413,16 @@ export function matchView({ match, players, rounds, roundPlayers }: MatchDetail)
             totals.longestStreak = Math.max(totals.longestStreak, streak);
           }
         }
-        return { playerId: p?.playerId ?? null, name: p?.name ?? null, position: rp.position, left: rp.left, kills: rp.kills, deflects, touches };
+        return {
+          playerId: p?.playerId ?? null,
+          name: p?.name ?? null,
+          position: rp.position,
+          left: rp.left,
+          afk: rp.afk,
+          kills: rp.kills,
+          deflects,
+          touches,
+        };
       });
     const winner = round.winnerId === null ? undefined : byLogId.get(round.winnerId);
     return { number: round.number, result: round.result, rated: round.rated, broken: round.broken, winner: winner?.playerId ?? null, placements };

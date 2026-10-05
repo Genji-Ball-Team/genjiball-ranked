@@ -34,12 +34,15 @@ async function uploadOk(body: string, token = tokens.trusted, headers: Record<st
   return res.json();
 }
 
-/** A 4-player match: Alpha wins round 1, Bravo round 2. `rounds` cuts it short, like an early copy. */
-function matchLog({ key = "000000000001", rounds = 2, end = true, extra = [] as string[] } = {}): string {
+/**
+ * A 4-player match: Alpha wins round 1, Bravo round 2. `rounds` cuts it short, like an early copy.
+ * With `host`, Alpha's `JOIN` marks them as the lobby host.
+ */
+function matchLog({ key = "000000000001", rounds = 2, end = true, extra = [] as string[], host = false } = {}): string {
   const lines = [
     `GBR|1.00|1|1.3.3R|${key}`,
     "MATCH_START|1.00|workshop-island-night|Default|0|",
-    "JOIN|1.00|1|Alpha",
+    host ? "JOIN|1.00|1|Alpha|1" : "JOIN|1.00|1|Alpha",
     "JOIN|1.00|2|Bravo",
     "JOIN|1.00|3|Charlie",
     "JOIN|1.00|4|Delta",
@@ -343,6 +346,111 @@ describe("upload: copies of a match", () => {
     const long = await uploadOk(matchLog());
     expect(long.matches[0]).toMatchObject({ action: "replace", status: "void" });
     expect(await storedMatch()).toMatchObject({ status: "void" });
+  });
+});
+
+describe("upload: host AFK (X-Host-Afk)", () => {
+  const key = "000000000001";
+  const afk = (rounds: string) => ({ "X-Host-Afk": `${key}:${rounds}` });
+  /** Each round's rated order by name, the AFK host (`afk`) and the stored AFK rounds. */
+  async function stored() {
+    const { results } = await db()
+      .prepare(
+        `SELECT r.number, r.rated, mp.name, rp.position, rp.afk FROM rounds r
+         JOIN round_players rp ON rp.round_id = r.id JOIN match_players mp ON mp.match_id = r.match_id AND mp.log_id = rp.log_id
+         ORDER BY r.number, rp.position IS NULL, rp.position, mp.log_id`,
+      )
+      .all<{ number: number; rated: number; name: string; position: number | null; afk: number }>();
+    const rounds = new Map<number, { order: string[]; afk: string[] }>();
+    for (const row of results) {
+      const round = rounds.get(row.number) ?? { order: [], afk: [] };
+      rounds.set(row.number, round);
+      if (row.position !== null) round.order.push(row.name);
+      if (row.afk) round.afk.push(row.name);
+    }
+    const match = await storedMatch(key);
+    return { rounds: [...rounds.values()], hostAfk: match?.host_afk ?? null };
+  }
+  const full = { order: ["Alpha", "Delta", "Charlie", "Bravo"], afk: [] };
+  const round2 = { order: ["Bravo", "Delta", "Charlie", "Alpha"], afk: [] };
+
+  it("drops the host from the AFK rounds only, and stores the rounds", async () => {
+    const body = await uploadOk(matchLog({ host: true }), tokens.trusted, afk("1"));
+    expect(body.matches[0]).toMatchObject({ action: "insert", status: "accepted", hostAfk: [1] });
+    expect(await stored()).toEqual({ rounds: [{ order: ["Delta", "Charlie", "Bravo"], afk: ["Alpha"] }, round2], hostAfk: "[1]" });
+    // Stats don't change: Alpha still won round 1.
+    const winner = await db().prepare("SELECT winner_id FROM rounds WHERE number = 1").first("winner_id");
+    expect(winner).toBe(1);
+    // The match page marks the host AFK in that round.
+    const id = (await storedMatch(key))!.id;
+    const page = await (await SELF.fetch(`https://example.com/api/matches/${id}`)).json<{
+      match: { rounds: { placements: { name: string; position: number | null; afk: boolean }[] }[] };
+    }>();
+    expect(page.match.rounds.map((r) => r.placements.filter((p) => p.afk).map((p) => p.name))).toEqual([["Alpha"], []]);
+  });
+
+  it("ignores a log without the host field, and a header without the match", async () => {
+    await uploadOk(matchLog(), tokens.trusted, afk("1,2"));
+    expect(await stored()).toEqual({ rounds: [full, round2], hostAfk: "[1,2]" });
+    await uploadOk(matchLog({ key: "000000000002", host: true }), tokens.trusted, afk("1"));
+    const other = await storedMatch("000000000002");
+    expect(other!.host_afk).toBeNull();
+  });
+
+  it("refuses a malformed header with 400, storing nothing", async () => {
+    const tooMany = Array.from({ length: defaults.hostAfkMaxRounds + 1 }, (_, i) => i + 1).join(",");
+    for (const header of ["1,2", `${key}:x`, `${key}:0`, `${key}:${tooMany}`]) {
+      const res = await upload(matchLog({ host: true }), tokens.trusted, { "X-Host-Afk": header });
+      expect(res.status, header).toBe(400);
+      const body = await res.json<{ error: string; message: string }>();
+      expect(body.error).toBe("bad_request");
+      expect(body.message).toMatch(/^X-Host-Afk: /);
+    }
+    expect(await count("uploads")).toBe(0);
+  });
+
+  it("keeps the union of the rounds across copies of the match", async () => {
+    await uploadOk(matchLog({ host: true, rounds: 1, end: false }), tokens.trusted, afk("1"));
+    const long = await uploadOk(matchLog({ host: true }), tokens.trusted, afk("2"));
+    expect(long.matches[0]).toMatchObject({ action: "replace", hostAfk: [1, 2] });
+    expect(await stored()).toEqual({
+      rounds: [
+        { order: ["Delta", "Charlie", "Bravo"], afk: ["Alpha"] },
+        { order: ["Bravo", "Delta", "Charlie"], afk: ["Alpha"] },
+      ],
+      hostAfk: "[1,2]",
+    });
+    // A longer copy without the header keeps them too.
+    await uploadOk(matchLog({ host: true, extra: ["DEFLECT|1.50|0|1|21|2"] }));
+    expect((await stored()).hostAfk).toBe("[1,2]");
+  });
+
+  it("re-rates the stored match when the same file comes again with new rounds", async () => {
+    const first = await uploadOk(matchLog({ host: true }), tokens.trusted, afk("1"));
+    const again = await uploadOk(matchLog({ host: true }), tokens.trusted, afk("1,2"));
+    expect(again).toMatchObject({ result: "duplicate", uploadId: first.uploadId, matches: [{ action: "refresh", hostAfk: [1, 2] }] });
+    expect((await stored()).rounds[1]).toEqual({ order: ["Bravo", "Delta", "Charlie"], afk: ["Alpha"] });
+    expect(await storedMatch(key)).toMatchObject({ upload_id: first.uploadId, host_afk: "[1,2]" });
+    expect(await count("uploads")).toBe(1);
+    // Nothing new: a plain duplicate.
+    const same = await uploadOk(matchLog({ host: true }), tokens.trusted, afk("2"));
+    expect(same).toEqual({ result: "duplicate", uploadId: first.uploadId, region: "eu", matches: [] });
+  });
+
+  it("re-rates a longer stored copy from its own log when a shorter one brings new rounds", async () => {
+    const long = await uploadOk(matchLog({ host: true }));
+    const short = await uploadOk(matchLog({ host: true, rounds: 1, end: false }), tokens.trusted, afk("1"));
+    expect(short).toMatchObject({ result: "unchanged", uploadId: null, matches: [{ action: "refresh", hostAfk: [1] }] });
+    expect(await stored()).toEqual({ rounds: [{ order: ["Delta", "Charlie", "Bravo"], afk: ["Alpha"] }, round2], hostAfk: "[1]" });
+    expect(await storedMatch(key)).toMatchObject({ upload_id: long.uploadId, complete: 1 });
+    expect(await count("uploads")).toBe(1);
+  });
+
+  it("writes nothing for rounds that don't drop the host from the stored copy", async () => {
+    await uploadOk(matchLog({ host: true }), tokens.trusted, afk("1"));
+    const short = await uploadOk(matchLog({ host: true, rounds: 1, end: false }), tokens.trusted, afk("1,7"));
+    expect(short).toMatchObject({ result: "unchanged", matches: [{ action: "skip", hostAfk: [1] }] });
+    expect((await stored()).hostAfk).toBe("[1]");
   });
 });
 
