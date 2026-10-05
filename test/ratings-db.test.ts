@@ -22,11 +22,11 @@ beforeEach(async () => {
   ]);
 });
 
-async function upload(body: string, startedAt: string): Promise<UploadResponse> {
+async function upload(body: string, startedAt: string, headers: Record<string, string> = {}): Promise<UploadResponse> {
   const res = await SELF.fetch("https://example.com/api/upload", {
     method: "POST",
     body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt },
+    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt, ...headers },
   });
   expect(res.status).toBe(200);
   return res.json();
@@ -224,6 +224,38 @@ describe("ratings: cron", () => {
     expect((await readState(db(), "eu")).staleFrom).not.toBeNull();
 
     await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "*/10 * * * *" }), env);
+    await expectUpToDate();
+  });
+});
+
+describe("ratings: host AFK", () => {
+  const rated = async () => {
+    const { results } = await db()
+      .prepare("SELECT p.name, r.rounds, r.wins FROM ratings r JOIN players p ON p.id = r.player_id ORDER BY p.name")
+      .all<{ name: string; rounds: number; wins: number }>();
+    return Object.fromEntries(results.map((r) => [r.name, [r.rounds, r.wins]]));
+  };
+
+  it("drops the host from the AFK rounds only, the same as a recompute from scratch", async () => {
+    // Alpha hosts and wins round 1, which they were AFK in: rated only in round 2.
+    await upload(matchLog({ host: 0 }), "2026-09-01T20:00:00Z", { "X-Host-Afk": "000000000001:1" });
+    expect(await rated()).toEqual({ Alpha: [1, 0], Bravo: [2, 1], Charlie: [2, 0], Delta: [2, 1] });
+    await expectUpToDate();
+    await markAllStale(db(), new Date());
+    await recomputeUntilDone();
+    expect(await rated()).toEqual({ Alpha: [1, 0], Bravo: [2, 1], Charlie: [2, 0], Delta: [2, 1] });
+    await expectUpToDate();
+  });
+
+  it("re-rates a rated match that gets new AFK rounds", async () => {
+    await upload(matchLog({ host: 0 }), "2026-09-01T20:00:00Z");
+    await upload(matchLog({ key: "000000000002" }), "2026-09-02T20:00:00Z");
+    expect((await rated()).Alpha).toEqual([4, 2]);
+    const again = await upload(matchLog({ host: 0 }), "2026-09-01T20:00:00Z", { "X-Host-Afk": "000000000001:1,2" });
+    expect(again.matches[0]).toMatchObject({ action: "refresh" });
+    expect((await readState(db(), "eu")).staleFrom).toMatchObject({ id: await matchId("000000000001") });
+    await recomputeUntilDone();
+    expect(await rated()).toMatchObject({ Alpha: [2, 1], Bravo: [4, 2] });
     await expectUpToDate();
   });
 });

@@ -38,15 +38,44 @@ export async function findStoredCopies(db: D1Database, hostId: number, matchKeys
   const { results } = await db
     .prepare(
       `SELECT id, match_key AS matchKey, line_count AS lineCount, status, upload_id AS uploadId, region,
-         rejection_code AS rejectionCode, rejection_message AS rejectionMessage
+         rejection_code AS rejectionCode, rejection_message AS rejectionMessage, host_afk AS hostAfk,
+         (SELECT u.content_hash FROM uploads u WHERE u.id = matches.upload_id) AS uploadHash
        FROM matches WHERE host_id = ?1 AND match_key IN (SELECT value FROM json_each(?2))`,
     )
     .bind(hostId, JSON.stringify(matchKeys))
-    .all<Omit<StoredCopy, "rejection"> & { status: MatchStatus; rejectionCode: string | null; rejectionMessage: string | null }>();
-  return results.map(({ rejectionCode, rejectionMessage, ...copy }) => ({
+    .all<
+      Omit<StoredCopy, "rejection" | "hostAfk"> & {
+        status: MatchStatus;
+        rejectionCode: string | null;
+        rejectionMessage: string | null;
+        hostAfk: string | null;
+      }
+    >();
+  return results.map(({ rejectionCode, rejectionMessage, hostAfk, ...copy }) => ({
     ...copy,
     rejection: rejectionCode === null ? null : { code: rejectionCode, message: rejectionMessage ?? "" },
+    hostAfk: hostAfk === null ? [] : (JSON.parse(hostAfk) as number[]),
   }));
+}
+
+/** The raw log of these uploads, gunzipped, by upload id: for a `refresh` from a stored copy. */
+export async function findUploadLogs(db: D1Database, uploadIds: readonly number[]): Promise<Map<number, Uint8Array>> {
+  const logs = new Map<number, Uint8Array>();
+  if (!uploadIds.length) return logs;
+  const { results } = await db
+    .prepare("SELECT id, raw_log AS rawLog FROM uploads WHERE id IN (SELECT value FROM json_each(?1))")
+    .bind(JSON.stringify(uploadIds))
+    .all<{ id: number; rawLog: ArrayBuffer | number[] }>();
+  for (const row of results) {
+    // D1 returns a BLOB as an array of byte values (docs/database.md).
+    logs.set(row.id, await gunzip(new Uint8Array(row.rawLog)));
+  }
+  return logs;
+}
+
+async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 export interface MatchState {
@@ -106,13 +135,13 @@ export class TooManyStatements extends Error {
 
 /**
  * Writes the upload and its matches in one transaction, including review after resolving aliases.
- * Returns the upload id, the matches sent to review, and how many statements (queries) it took;
+ * Returns the upload id (`null` when only `refresh`es were written: no file is stored), the matches sent to review, and how many statements (queries) it took;
  * throws `TooManyStatements`, writing nothing, past `maxStatements`.
  */
 export async function writeUpload(
   db: D1Database,
   w: UploadWrite,
-): Promise<{ uploadId: number; statements: number; reviews: { matchKey: string; reviewReasons: string[] }[] }> {
+): Promise<{ uploadId: number | null; statements: number; reviews: { matchKey: string; reviewReasons: string[] }[] }> {
   const json = (value: unknown) => JSON.stringify(value);
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
   // CROSS JOIN keeps json_each the outer loop: SQLite has no row count for it, and with a plain JOIN
@@ -121,17 +150,26 @@ export async function writeUpload(
   const matchJoin = "CROSS JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'";
 
   const replacedIds = w.rows.replaced.flatMap((m) => (m.id === null ? [] : [m.id]));
-  const repointIds = w.plans.filter((p) => p.action === "repoint").map((p) => p.storedId);
+  // A `refresh` (new host AFK rounds) rewrites a stored match's rows from its own copy: the file
+  // isn't stored for it, and a refresh alone stores no file at all.
+  const refreshIds = w.plans.filter((p) => p.action === "refresh").map((p) => p.storedId);
+  const newUpload = w.plans.some((p) => p.action === "insert" || p.action === "replace");
+  const repointIds = newUpload ? w.plans.filter((p) => p.action === "repoint").map((p) => p.storedId) : [];
+  const longerIds = w.plans.filter((p) => p.action === "replace").map((p) => p.storedId);
   const oldUploadIds = w.plans
-    .filter((p) => p.action === "replace" || p.action === "repoint")
+    .filter((p) => p.action === "replace" || (newUpload && p.action === "repoint"))
     .map((p) => p.storedUploadId);
 
   const statements: D1PreparedStatement[] = [
-    db
-      .prepare(
-        "INSERT INTO uploads (host_id, content_hash, raw_log, raw_size, file_name, received_at, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'parsed') RETURNING id",
-      )
-      .bind(w.hostId, w.contentHash, w.rawLog, w.rawSize, w.fileName, w.now),
+    ...(newUpload
+      ? [
+          db
+            .prepare(
+              "INSERT INTO uploads (host_id, content_hash, raw_log, raw_size, file_name, received_at, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'parsed') RETURNING id",
+            )
+            .bind(w.hostId, w.contentHash, w.rawLog, w.rawSize, w.fileName, w.now),
+        ]
+      : []),
 
     // Players: a name seen for the first time is a new player with that name as their alias. Every
     // player who isn't merged into another (#8) has at least one alias, so the players without one
@@ -152,11 +190,11 @@ export async function writeUpload(
       )
       .bind(json(w.rows.names), w.playedAt),
     // Known names: last seen, and the spelling seen most recently becomes the display name, unless
-    // an admin set the name (`name_fixed`).
+    // an admin set the name (`name_fixed`). Not for a refresh's names: that match was seen before.
     db
       .prepare(
         `UPDATE aliases SET name = e.value ->> 'name', last_seen_at = ?2
-         FROM json_each(?1) e WHERE aliases.name_key = e.value ->> 'key' AND aliases.last_seen_at <= ?2`,
+         FROM json_each(?1) e WHERE aliases.name_key = e.value ->> 'key' AND aliases.last_seen_at <= ?2 AND e.value ->> 'seen' = 1`,
       )
       .bind(json(w.rows.names), w.playedAt),
     db
@@ -180,13 +218,15 @@ export async function writeUpload(
       db.prepare(`DELETE FROM ${table} WHERE match_id IN (SELECT value FROM json_each(?1))`).bind(json(replacedIds)),
     ),
     // A longer log changes the standings the screenshot was checked against, at the same match id.
+    // Host AFK changes only the rating, not the standings: a refresh keeps the verification.
     db.prepare(
       `UPDATE tourney_lobbies SET verified_by = NULL, verified_at = NULL, version = version + 1
        WHERE match_id IN (SELECT value FROM json_each(?))`,
-    ).bind(json(replacedIds)),
+    ).bind(json(longerIds)),
     db
       .prepare(
-        `UPDATE matches SET upload_id = ${uploadId}, line_count = e.value ->> 'lineCount', format = e.value ->> 'format',
+        `UPDATE matches SET upload_id = coalesce((SELECT u.id FROM uploads u WHERE u.content_hash = e.value ->> 'uploadHash'), ${uploadId}),
+           host_afk = e.value ->> 'hostAfk', line_count = e.value ->> 'lineCount', format = e.value ->> 'format',
            game_version = e.value ->> 'gameVersion', status = e.value ->> 'status',
            rejection_code = e.value ->> 'rejectionCode', rejection_message = e.value ->> 'rejectionMessage',
            review_reasons = e.value ->> 'reviewReasons', unranked = e.value ->> 'unranked',
@@ -197,17 +237,19 @@ export async function writeUpload(
       .bind(json(w.rows.replaced), w.contentHash),
     // A rated match whose rounds just changed: the ratings are stale from it (docs/rating.md).
     staleFromMatchesStatement(db, replacedIds, w.now, true),
+    // A refresh doesn't go through the match feed, which the records follow: queue its recount.
+    db.prepare("INSERT INTO match_stats_recount (match_id) SELECT value FROM json_each(?1)").bind(json(refreshIds)),
     db
       .prepare(`UPDATE matches SET upload_id = ${uploadId} WHERE id IN (SELECT value FROM json_each(?1))`)
       .bind(json(repointIds), w.contentHash),
     db
       .prepare(
         `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, legacy, status, rejection_code,
-           rejection_message, review_reasons, unranked, map, preset, played_at, complete, region)
+           rejection_message, review_reasons, unranked, map, preset, played_at, complete, region, host_afk)
          SELECT ${uploadId.replace("?2", "?3")}, ?2, e.value ->> 'matchKey', e.value ->> 'lineCount', e.value ->> 'format',
            e.value ->> 'gameVersion', e.value ->> 'legacy', e.value ->> 'status', e.value ->> 'rejectionCode', e.value ->> 'rejectionMessage',
            e.value ->> 'reviewReasons', e.value ->> 'unranked', e.value ->> 'map', e.value ->> 'preset',
-           e.value ->> 'playedAt', e.value ->> 'complete', ?4
+           e.value ->> 'playedAt', e.value ->> 'complete', ?4, e.value ->> 'hostAfk'
          FROM json_each(?1) e`,
       )
       .bind(json(w.rows.inserted), w.hostId, w.contentHash, w.region),
@@ -235,9 +277,9 @@ export async function writeUpload(
     ...jsonChunks(w.rows.roundPlayers, w.chunkBytes).map((rows) =>
       db
         .prepare(
-          `INSERT INTO round_players (round_id, log_id, player_id, position, place, left_round, killer_id, kills, deflects)
+          `INSERT INTO round_players (round_id, log_id, player_id, position, place, left_round, afk, killer_id, kills, deflects)
            SELECT r.id, e.value ->> 'logId', mp.player_id, e.value ->> 'position', e.value ->> 'place',
-             e.value ->> 'leftRound', e.value ->> 'killerId', e.value ->> 'kills', e.value ->> 'deflects'
+             e.value ->> 'leftRound', e.value ->> 'afk', e.value ->> 'killerId', e.value ->> 'kills', e.value ->> 'deflects'
            FROM json_each(?1) e ${matchJoin}
            CROSS JOIN rounds r ON r.match_id = m.id AND r.number = e.value ->> 'round'
            CROSS JOIN match_players mp ON mp.match_id = m.id AND mp.log_id = e.value ->> 'logId'`,
@@ -268,7 +310,7 @@ export async function writeUpload(
          AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.upload_id = uploads.id)`,
       )
       .bind(json(oldUploadIds), w.contentHash),
-    db.prepare("UPDATE hosts SET last_upload_at = ?2 WHERE id = ?1").bind(w.hostId, w.now),
+    ...(newUpload ? [db.prepare("UPDATE hosts SET last_upload_at = ?2 WHERE id = ?1").bind(w.hostId, w.now)] : []),
     ...(w.extra ?? []),
   ];
 
@@ -290,7 +332,7 @@ export async function writeUpload(
   if (statements.length > w.maxStatements) throw new TooManyStatements(statements.length);
   const results = await db.batch<{ id: number; matchKey: string; reviewReasons: string }>(statements);
   return {
-    uploadId: results[0]!.results[0]!.id,
+    uploadId: newUpload ? results[0]!.results[0]!.id : null,
     statements: statements.length,
     reviews: results[reviewIndex]!.results.map((r) => ({ matchKey: r.matchKey, reviewReasons: r.reviewReasons.split(",") })),
   };

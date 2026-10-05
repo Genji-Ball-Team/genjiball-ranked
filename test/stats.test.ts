@@ -210,7 +210,7 @@ describe("match stats (#15)", () => {
   });
   const player = (logId: number, playerId: number, kills: number) => ({ logId, playerId, name: String(playerId), kills, ratingBefore: null, ratingAfter: null });
   const entry = (roundId: number, logId: number, position: number | null, left = false) =>
-    ({ roundId, logId, position, place: null, left, killerId: null, kills: 0, deflects: 1 });
+    ({ roundId, logId, position, place: null, left, afk: false, killerId: null, kills: 0, deflects: 1 });
 
   it("adds up a player who rejoined under a new log id; a round they left doesn't break a streak", () => {
     const view = matchView(
@@ -496,7 +496,7 @@ describe("a KILL after its round's ROUND_END in the same tick", () => {
 describe("matchStats", () => {
   it("counts a round-less KILL in its ELIM's round only for new logs, never for legacy ones", () => {
     const round = {
-      number: 1, startTime: 2, endTime: 5, result: "WIN" as const, playerIds: [1, 2], leftIds: [], winnerId: 1, finishingOrder: [1, 2], broken: [],
+      number: 1, startTime: 2, endTime: 5, result: "WIN" as const, playerIds: [1, 2], leftIds: [], afkIds: [], winnerId: 1, finishingOrder: [1, 2], broken: [],
       elims: [{ time: 5, id: 2, killerId: 1, place: 2 }],
     };
     const kill = { time: 5, attackerName: "Alpha", victimName: "Bravo", attackerId: 1, victimId: 2, round: null };

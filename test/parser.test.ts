@@ -51,6 +51,11 @@ describe("parseLog: the spec example", () => {
     expect(match.review).toEqual(["duplicate_name"]);
   });
 
+  it("marks Sparrow as the host from JOIN's host field, and no one else", () => {
+    expect(match.players.filter((p) => p.host).map((p) => p.id)).toEqual([1]);
+    expect(match.rounds.every((r) => r.afkIds.length === 0)).toBe(true);
+  });
+
   it("gives the finishing orders from the spec", () => {
     expect(match.rounds.map((r) => [r.number, r.result, r.playerIds, r.finishingOrder, r.leftIds])).toEqual([
       [1, "WIN", [1, 2, 3, 4, 5], [1, 5, 3, 4], [2]],
@@ -318,5 +323,17 @@ describe("parseLog: players", () => {
     expect(match.problems.map((p) => p.message)).toEqual([
       "ROUND_START: round 1 lists players that never joined: 7",
     ]);
+  });
+  it("reads the host field: 1 is the host, a host who rejoins is marked again, an older log has no host", () => {
+    const match = parse(log(...header, "JOIN|1|1|A|1", "JOIN|1|2|B|", "LEAVE|2|1", "JOIN|3|3|A|1", "JOIN|3|4|C|0")).matches[0]!;
+    expect(match.players.map((p) => [p.id, p.host])).toEqual([
+      [1, true],
+      [2, false],
+      [3, true],
+      [4, false],
+    ]);
+    expect(match.problems).toEqual([]);
+    const old = parse(log(...header, "JOIN|1|1|A", "JOIN|1|2|B")).matches[0]!;
+    expect(old.players.map((p) => p.host)).toEqual([false, false]);
   });
 });

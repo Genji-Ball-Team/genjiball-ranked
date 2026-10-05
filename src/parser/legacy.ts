@@ -114,6 +114,7 @@ export function parseLegacyLog(text: string, options: LegacyOptions): ParsedMatc
       playerIds,
       elims,
       leftIds: [],
+      afkIds: [],
       winnerId: winner === null ? null : id(winner),
       finishingOrder: winner !== null && !reasons.length ? [id(winner), ...elims.map((e) => e.id).reverse()] : null,
       broken: reasons,
@@ -174,6 +175,8 @@ export function parseLegacyLog(text: string, options: LegacyOptions): ParsedMatc
     name,
     joinTime: kills[first.get(name)!]!.time,
     leaveTime: null,
+    // v1.3.2 logs don't say who hosted.
+    host: false,
   }));
 
   return {

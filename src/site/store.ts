@@ -260,6 +260,8 @@ export interface RoundPlayerRow {
   position: number | null;
   place: number | null;
   left: boolean;
+  /** The host, dropped from the round's rating as AFK (`X-Host-Afk`). */
+  afk: boolean;
   /** Log id of the player whose deflect eliminated them (`ELIM` killer). */
   killerId: number | null;
   /** `KILL` lines in the round with them as attacker, not a self-kill. */
@@ -309,7 +311,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       .bind(id),
     db
       .prepare(
-        `SELECT rp.round_id AS roundId, rp.log_id AS logId, rp.position, rp.place, rp.left_round AS "left", rp.killer_id AS killerId, rp.kills, rp.deflects
+        `SELECT rp.round_id AS roundId, rp.log_id AS logId, rp.position, rp.place, rp.left_round AS "left", rp.afk, rp.killer_id AS killerId, rp.kills, rp.deflects
          FROM matches m JOIN rounds r ON r.match_id = m.id JOIN round_players rp ON rp.round_id = r.id
          WHERE m.id = ? AND m.status IN ${publicStatuses}`,
       )
@@ -330,7 +332,11 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
     },
     players: (players!.results as MatchPlayerRow[]).map((p) => ({ ...p, ratingBefore: p.ratingAfter === null ? null : p.ratingBefore })),
     rounds: (rounds!.results as (Omit<RoundRow, "rated"> & { rated: number })[]).map((r) => ({ ...r, rated: r.rated === 1 })),
-    roundPlayers: (roundPlayers!.results as (Omit<RoundPlayerRow, "left"> & { left: number })[]).map((rp) => ({ ...rp, left: rp.left === 1 })),
+    roundPlayers: (roundPlayers!.results as (Omit<RoundPlayerRow, "left" | "afk"> & { left: number; afk: number })[]).map((rp) => ({
+      ...rp,
+      left: rp.left === 1,
+      afk: rp.afk === 1,
+    })),
   };
 }
 

@@ -58,6 +58,12 @@ export const defaults = {
   untrustedHostUploads: "review" as "review" | "reject",
   /** Most match keys the host tool can ask the status of in one `GET /api/host/matches`. */
   hostMatchKeysMax: 50,
+  /**
+   * Host AFK (`X-Host-Afk` on an upload, docs/api.md): most rounds one match may list, in one header
+   * and stored for the match (the union of every upload's). A match has a few dozen rounds; this
+   * only bounds the header and the stored list.
+   */
+  hostAfkMaxRounds: 1000,
 
   /**
    * Legacy v1.3.2 logs (#4, docs/legacy.md). A round one of these AI bots played in isn't rated: new

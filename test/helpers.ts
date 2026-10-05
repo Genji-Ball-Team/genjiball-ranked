@@ -8,10 +8,13 @@ import { readRounds, readState } from "../src/rating/store";
 
 const db = () => env.DB;
 
-/** A 4-player match of two rounds: `players[0]` wins round 1, `players[1]` round 2. */
-export function matchLog({ key = "000000000001", players = ["Alpha", "Bravo", "Charlie", "Delta"], rounds = 2, end = true } = {}): string {
+/**
+ * A 4-player match of two rounds: `players[0]` wins round 1, `players[1]` round 2. `host`: the
+ * index of the lobby host in `players` (`JOIN` `host` `1`), none if left out.
+ */
+export function matchLog({ key = "000000000001", players = ["Alpha", "Bravo", "Charlie", "Delta"], rounds = 2, end = true, host = -1 } = {}): string {
   const lines = [`GBR|1.00|1|1.3.3R|${key}`, "MATCH_START|1.00|workshop-island-night|Default|0|"];
-  players.forEach((name, i) => lines.push(`JOIN|1.00|${i + 1}|${name}`));
+  players.forEach((name, i) => lines.push(`JOIN|1.00|${i + 1}|${name}|${i === host ? "1" : ""}`));
   lines.push("ROUND_START|2.00|1|1,2,3,4", "ELIM|3.00|1|2|1|4", "ELIM|4.00|1|3|1|3", "ELIM|5.00|1|4|1|2", "ROUND_END|5.00|1|1|WIN");
   if (rounds >= 2) {
     lines.push("ROUND_START|6.00|2|1,2,3,4", "ELIM|7.00|2|1|2|4", "ELIM|8.00|2|3|2|3", "ELIM|9.00|2|4|2|2", "ROUND_END|9.00|2|2|WIN");
