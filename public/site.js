@@ -531,11 +531,14 @@ function compareTable(players) {
 }
 
 // Two players' record against each other (#18): rounds one finished above the other, and kills.
-async function headToHeadSection(a, b) {
+// `current()` says whether these are still the players shown: a slow answer for an earlier pair is dropped.
+async function headToHeadSection(a, b, current) {
   const box = $("h2h");
   $("h2h-section").hidden = false;
+  box.innerHTML = "";
   try {
     const d = await api(`head-to-head?a=${a.id}&b=${b.id}&${inRegion()}`);
+    if (!current()) return;
     if (!d.rounds && !d.a.kills && !d.b.kills) {
       box.innerHTML = `<p class="empty">${esc(a.name)} and ${esc(b.name)} haven't met in a rated round in ${regionName(site.region)} yet.</p>`;
       return;
@@ -550,7 +553,7 @@ async function headToHeadSection(a, b) {
       ${bar("Finished ahead", d.a.ahead, d.b.ahead, "rounds finished ahead of the other")}
       ${bar("Eliminated the other", d.a.kills, d.b.kills, "times eliminated the other")}`;
   } catch (error) {
-    showError(box, error, "head-to-head record");
+    if (current()) showError(box, error, "head-to-head record");
   }
 }
 
@@ -601,7 +604,7 @@ async function comparePage() {
         compareTable(players) +
         (players.length === 1 ? '<p class="note">Add another player to compare them with.</p>' : ""),
     );
-    if (players.length === 2) headToHeadSection(players[0], players[1]);
+    if (players.length === 2) headToHeadSection(players[0], players[1], () => run === shown);
     const series = players
       .map((p, i) => ({ name: p.name, points: p.history.points, peak: p.history.peak, color: seriesColors[i] }))
       .filter((s) => s.points.length);
