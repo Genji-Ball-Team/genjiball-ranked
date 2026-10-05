@@ -129,7 +129,7 @@ Tourney lobbies (#25) will add an optional `tourneyLobbyId` to the heartbeat; un
 
 ## Assigned tourneys: `GET /api/host/tourneys`
 
-The host tool's "Scheduled" list and its "Copy tourney code" (host-tool #8, #9) read this: the tourney lobbies an admin assigned to the token's host, in tourneys that are `scheduled` or `live`, soonest start first. `Authorization: Bearer <host token>`, as for an upload. Code: `src/tourney/host.ts`.
+The host tool's "Scheduled" list and its "Copy tourney code" (host-tool #8, #9) read this: the tourney lobbies an admin assigned to the token's host, in tourneys that are `scheduled` or `live`, and in `done` ones until their screenshot is verified (the host still has to upload it; `code` is `null`), soonest start first. `Authorization: Bearer <host token>`, as for an upload. Code: `src/tourney/host.ts`.
 
 `?region=eu` (or `X-Region: eu`; the query wins) lists only that region's lobbies; without either, every region's, since an admin may assign a host a lobby outside their home region. Each lobby says its region, which is its tourney's.
 
@@ -166,7 +166,7 @@ No assigned lobby: `lobbies` is empty. The errors are an upload's (`401`, `403 r
 
 The lobby's assigned host uploads the screenshot of the final standings (host-tool #10), or deletes or replaces it, until an admin has verified it. `Authorization: Bearer <host token>`. The same limits and storage as the admin's upload ([Admin](#admin-apiadmin)): PNG, JPEG or WebP whatever made it, at most `screenshotMaxBytes` (8 MB), stored in R2, the old one deleted, the oldest expired past the caps. Each change is logged in `host_actions`. Code: `src/tourney/host.ts`, `src/tourney/upload.ts`.
 
-`200 { lobby }`, the lobby as in `GET /api/host/tourneys`. `X-Region` (or `?region=`) is optional; sent, it must be the lobby's region.
+`200 { lobby }`, the lobby as in `GET /api/host/tourneys`, or `{ "lobby": null }` if it stopped being this host's right after the change. `X-Region` (or `?region=`) is optional; sent, it must be the lobby's region. The checks are made again in the write's transaction: if the host's token is revoked, the lobby reassigned or verified, or its tourney cancelled or moved to another region while the image uploads, it's a `409` and the image is deleted.
 
 | Status | `error` | When |
 |---|---|---|
@@ -178,7 +178,7 @@ The lobby's assigned host uploads the screenshot of the final standings (host-to
 | 405 | `method_not_allowed` | Not `PUT` or `DELETE` |
 | 409 | `verified` | An admin verified the screenshot: only an admin can change it now (or un-verify it) |
 | 409 | `wrong_region` | The region sent isn't the lobby's |
-| 409 | `conflict` | The tourney was cancelled, `DELETE` with no screenshot, storage full while cleanup is pending, or the lobby changed meanwhile (reassigned, verified, replaced). Reload and try again |
+| 409 | `conflict` | The tourney was cancelled, `DELETE` with no screenshot, storage full while cleanup is pending, or something changed meanwhile (token revoked, lobby reassigned, verified or replaced, tourney cancelled or moved). Reload and try again |
 | 413 | `too_large` | Over `screenshotMaxBytes` |
 | 415 | `unsupported_type` | Not a PNG, JPEG or WebP |
 

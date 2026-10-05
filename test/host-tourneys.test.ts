@@ -1,7 +1,10 @@
 import { env, SELF } from "cloudflare:test";
-import { beforeEach, describe, expect, it } from "vitest";
-import { defaults } from "../src/config";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { handleAdmin } from "../src/admin/handler";
+import { defaults, loadConfig } from "../src/config";
+import { createLogger } from "../src/log";
 import { codeFrom, newLobbyKey, roundLimitOf, tourneyCode, type CodeLobby } from "../src/tourney/code";
+import { handleHostLobby } from "../src/tourney/host";
 import { findLobby, isLobbyChanged, setScreenshot } from "../src/tourney/store";
 import { sha256 } from "../src/upload/handler";
 import { matchId, matchLog } from "./helpers";
@@ -206,11 +209,11 @@ describe("GET /api/host/tourneys", () => {
   it("lists only the host's lobbies of scheduled and live tourneys, soonest first", async () => {
     const later = await newTourney(3 * 24 * 60, { name: "Later Cup" });
     const soon = await newTourney(2 * 24 * 60, { name: "Soon Cup", status: "live" });
-    const done = await newTourney(-24 * 60, { name: "Done Cup", status: "done" });
+    const cancelled = await newTourney(-24 * 60, { name: "Cancelled Cup", status: "cancelled" });
     const mine = await newLobby(later, { hostId: 1 });
     const live = await newLobby(soon, { hostId: 1, label: "Lobby 2/2", roundLimit: 15 });
     await newLobby(soon, { hostId: 2 });
-    await newLobby(done, { hostId: 1 });
+    await newLobby(cancelled, { hostId: 1 });
     await newLobby(later);
 
     const answer = await hostLobbies();
@@ -228,6 +231,21 @@ describe("GET /api/host/tourneys", () => {
       code: null,
     });
     expect((await hostLobbies("", {}, otherToken)).lobbies.map((l) => l.label)).toEqual(["Lobby 1/2"]);
+  });
+
+  it("keeps a done tourney's lobby, with no code, until its screenshot is verified", async () => {
+    const tourney = await newTourney(-120, { name: "Done Cup" });
+    const lobby = await newLobby(tourney, { hostId: 1 });
+    await adminOk(`lobbies/${lobby.id}`, { matchId: await uploadMatch() });
+    await adminOk(`tourneys/${tourney}`, { status: "done" });
+    const [listed] = (await hostLobbies()).lobbies;
+    expect(listed).toMatchObject({ id: lobby.id, tourney: { status: "done" }, verified: false, code: null });
+
+    // The host can still upload the proof after the tourney is marked done.
+    expect((await putShot(lobby.id)).status).toBe(200);
+    const { version } = (await findLobby(db(), lobby.id))!;
+    await adminOk(`lobbies/${lobby.id}/verify`, { verified: true, version });
+    expect((await hostLobbies()).lobbies).toEqual([]);
   });
 
   it("gives the code values from tourneyCodeLeadMinutes before the start until the lobby has a match", async () => {
@@ -382,11 +400,137 @@ describe("host screenshot: /api/host/lobbies/:id/screenshot", () => {
     const lobby = await newLobby(await newTourney(30), { hostId: 1 });
     const snapshot = (await findLobby(db(), lobby.id))!;
     await adminOk(`lobbies/${lobby.id}`, { hostId: 2 });
-    const hostLog = { hostId: 1, action: "lobby_screenshot", at: new Date().toISOString() };
+    const hostLog = { hostId: 1, action: "lobby_screenshot", region: "eu", at: new Date().toISOString() };
     await expect(setScreenshot(db(), snapshot, null, null, hostLog)).rejects.toSatisfy(isLobbyChanged);
     // Even at the current version, the guard checks the host and that it's unverified.
     const current = (await findLobby(db(), lobby.id))!;
     await expect(setScreenshot(db(), current, null, null, hostLog)).rejects.toSatisfy(isLobbyChanged);
     expect(await db().prepare("SELECT count(*) AS n FROM host_actions").first("n")).toBe(0);
+  });
+});
+
+describe("host screenshot: changes during the R2 upload", () => {
+  const log = createLogger("error");
+
+  /** R2 that runs `during` (an admin's change) while it stores the image, like a slow upload. */
+  function racingProofs(during: () => Promise<unknown>): R2Bucket {
+    return {
+      put: async (...args: Parameters<R2Bucket["put"]>) => {
+        await during();
+        return env.PROOFS.put(...args);
+      },
+      delete: (keys: string | string[]) => env.PROOFS.delete(keys),
+    } as unknown as R2Bucket;
+  }
+
+  /** R2's keys: storage is per test file, so earlier tests' objects are there too. */
+  const r2Keys = async () => (await env.PROOFS.list()).objects.map((o) => o.key).sort();
+  let r2Before: string[] = [];
+
+  async function racePut(lobby: number, during: () => Promise<unknown>, headers: Record<string, string> = {}) {
+    r2Before = await r2Keys();
+    const request = new Request(`https://example.com/api/host/lobbies/${lobby}/screenshot`, {
+      method: "PUT",
+      body: png,
+      headers: { Authorization: `Bearer ${hostToken}`, ...headers },
+    });
+    return handleHostLobby(request, db(), racingProofs(during), loadConfig({}), log);
+  }
+
+  /** The race lost: 409, nothing attached or logged, and the uploaded object deleted from R2. */
+  async function expectRolledBack(res: Response, lobby: number) {
+    expect(res.status, await res.clone().text()).toBe(409);
+    expect((await findLobby(db(), lobby))!.screenshotKey).toBeNull();
+    expect(await db().prepare("SELECT count(*) AS n FROM host_actions").first("n")).toBe(0);
+    expect(await r2Keys()).toEqual(r2Before);
+  }
+
+  it("refuses the write when the host is revoked meanwhile", async () => {
+    const lobby = await newLobby(await newTourney(30), { hostId: 1 });
+    const res = await racePut(lobby.id, () => adminOk("hosts/1/revoke", {}));
+    await expectRolledBack(res, lobby.id);
+  });
+
+  it("refuses the write, and shows no code, when the lobby is reassigned meanwhile", async () => {
+    const lobby = await newLobby(await newTourney(30), { hostId: 1 });
+    const res = await racePut(lobby.id, () => adminOk(`lobbies/${lobby.id}`, { hostId: 2 }));
+    await expectRolledBack(res, lobby.id);
+    expect(JSON.stringify(await res.json())).not.toContain(lobby.lobbyKey);
+  });
+
+  it("refuses the write when the tourney is cancelled meanwhile", async () => {
+    const tourney = await newTourney(30);
+    const lobby = await newLobby(tourney, { hostId: 1 });
+    const res = await racePut(lobby.id, () => adminOk(`tourneys/${tourney}`, { status: "cancelled" }));
+    await expectRolledBack(res, lobby.id);
+  });
+
+  it("refuses the write when the tourney moves to another region meanwhile, region sent or not", async () => {
+    const tourney = await newTourney(30);
+    const sent = await newLobby(tourney, { hostId: 1 });
+    await expectRolledBack(await racePut(sent.id, () => adminOk(`tourneys/${tourney}`, { region: "na" }), { "X-Region": "eu" }), sent.id);
+
+    const other = await newTourney(30);
+    const unsent = await newLobby(other, { hostId: 1 });
+    await expectRolledBack(await racePut(unsent.id, () => adminOk(`tourneys/${other}`, { region: "na" })), unsent.id);
+  });
+
+  it("answers with no lobby when it stopped being the host's after the write", async () => {
+    const lobby = await newLobby(await newTourney(30), { hostId: 1 });
+    expect((await putShot(lobby.id)).status).toBe(200);
+    // Replacing it: the write succeeds, then the old image's R2 delete runs before the answer is
+    // read. The admin reassigns the lobby right then.
+    const proofs = {
+      put: (...args: Parameters<R2Bucket["put"]>) => env.PROOFS.put(...args),
+      delete: async (keys: string | string[]) => {
+        await env.PROOFS.delete(keys);
+        await adminOk(`lobbies/${lobby.id}`, { hostId: 2 });
+      },
+    } as unknown as R2Bucket;
+    const request = new Request(`https://example.com/api/host/lobbies/${lobby.id}/screenshot`, {
+      method: "PUT",
+      body: png,
+      headers: { Authorization: `Bearer ${hostToken}` },
+    });
+    const res = await handleHostLobby(request, db(), proofs, loadConfig({}), log);
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(JSON.parse(body)).toEqual({ lobby: null });
+    expect(body).not.toContain(lobby.lobbyKey);
+    expect((await findLobby(db(), lobby.id))!.hostId).toBe(2);
+  });
+});
+
+describe("admin: lobby keys", () => {
+  it("tries another lobby key when the random one is taken", async () => {
+    const tourney = await newTourney(60);
+    const taken = await newLobby(tourney);
+    await db().prepare("UPDATE tourney_lobbies SET lobby_key = '000000000000' WHERE id = ?").bind(taken.id).run();
+    // The first key is all zeros: taken.
+    const spy = vi.spyOn(crypto, "getRandomValues").mockImplementationOnce((array) => {
+      new Uint8Array(array.buffer).fill(0);
+      return array;
+    });
+    try {
+      const request = new Request(`https://example.com/api/admin/tourneys/${tourney}/lobbies`, {
+        method: "POST",
+        body: JSON.stringify({ label: "Lobby 2/2", hostId: 1 }),
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      const res = await handleAdmin(request, db(), env.PROOFS, loadConfig({}), createLogger("error"));
+      expect(res.status, await res.clone().text()).toBe(201);
+      const { lobby } = await res.json<{ lobby: AdminLobby }>();
+      expect(lobby.lobbyKey).toMatch(/^\d{12}$/);
+      expect(lobby.lobbyKey).not.toBe("000000000000");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("logs the assigned host on lobby creation", async () => {
+    const lobby = await newLobby(await newTourney(60), { hostId: 2 });
+    const action = await db().prepare("SELECT host_id AS hostId, detail FROM admin_actions WHERE action = 'lobby_create'").first<{ hostId: number; detail: string }>();
+    expect(action!.hostId).toBe(2);
+    expect(JSON.parse(action!.detail)).toMatchObject({ lobby: lobby.id, hostId: 2 });
   });
 });

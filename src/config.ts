@@ -158,6 +158,8 @@ export const defaults = {
   tourneyCodeLeadMinutes: 60,
   /** Random digits in a lobby's `lobbyKey`, the server's id for it in the game's tourney rule and log. */
   tourneyLobbyKeyDigits: 12,
+  /** New lobby keys tried when adding a lobby, should one already be taken (about 1 in 10^12 per lobby). */
+  tourneyLobbyKeyAttempts: 3,
   /** Largest verify screenshot (#28), in bytes. A 1440p PNG of the standings is about 2 MB. */
   screenshotMaxBytes: 8 * 1024 * 1024,
   /**

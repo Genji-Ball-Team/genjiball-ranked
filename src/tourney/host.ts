@@ -35,7 +35,12 @@ export async function handleHostTourneys(request: Request, db: D1Database, confi
   });
 }
 
-/** `/api/host/lobbies/:id/screenshot`: `PUT` the image, or `DELETE` it, until an admin has verified it. */
+/**
+ * `/api/host/lobbies/:id/screenshot`: `PUT` the image, or `DELETE` it, until an admin has verified it.
+ * The checks below are repeated inside the write's transaction (`setScreenshot`), so a revocation,
+ * reassignment, verification, cancellation or region move during the R2 upload makes it a 409 and
+ * the uploaded object is queued for deletion.
+ */
 export async function handleHostTourneyLobby(request: Request, db: D1Database, proofs: R2Bucket, config: HostTourneyConfig, log: Logger): Promise<Response> {
   const path = /^\/api\/host\/lobbies\/([1-9]\d{0,15})\/screenshot\/?$/.exec(new URL(request.url).pathname);
   if (!path) return fail(404, "not_found", "No such host route");
@@ -56,6 +61,7 @@ export async function handleHostTourneyLobby(request: Request, db: D1Database, p
   const action = (name: string, detail: Record<string, unknown> = {}): HostActionLog => ({
     hostId: host.id,
     action: name,
+    region: lobby.region,
     detail: { lobby: id, tourney: lobby.tourneyId, ...detail },
     at: isoSeconds(now),
   });
@@ -68,7 +74,8 @@ export async function handleHostTourneyLobby(request: Request, db: D1Database, p
     if (failed) return failed;
     log.info("host: screenshot deleted", { host: host.id, lobby: id });
   }
-  const after = await findHostLobby(db, id);
+  // Only while it's still this host's, with an unrevoked token: a lobby reassigned since shows them nothing.
+  const after = await findHostLobby(db, id, host.id);
   return Response.json({ lobby: after && hostLobbyView(after, config, now) });
 }
 

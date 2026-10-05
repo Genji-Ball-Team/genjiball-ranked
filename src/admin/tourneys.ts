@@ -12,6 +12,7 @@ import {
   findTourney,
   isLinkedElsewhere,
   isLobbyChanged,
+  isLobbyKeyTaken,
   listAllTourneys,
   listLobbies,
   setVerified,
@@ -115,13 +116,22 @@ async function addLobby(ctx: Context, tourneyId: number, data: Record<string, un
   if (!(await findTourney(ctx.db, tourneyId))) return fail(404, "not_found", "No such tourney");
   const fields = await lobbyFields(ctx, data, { label, hostId: null, roundLimit: null });
   if (fields instanceof Response) return fields;
-  const id = await createLobby(
-    ctx.db,
-    tourneyId,
-    fields,
-    newLobbyKey(ctx.config.tourneyLobbyKeyDigits),
-    { ...log(ctx, "lobby_create", { tourney: tourneyId, ...fields }), hostId: fields.hostId },
-  );
+  let id: number | null = null;
+  for (let attempt = 1; id === null; attempt++) {
+    try {
+      id = await createLobby(
+        ctx.db,
+        tourneyId,
+        fields,
+        newLobbyKey(ctx.config.tourneyLobbyKeyDigits),
+        { ...log(ctx, "lobby_create", { tourney: tourneyId, ...fields }), hostId: fields.hostId },
+      );
+    } catch (error) {
+      // A random key already taken: nothing was written, try another.
+      if (!isLobbyKeyTaken(error) || attempt >= ctx.config.tourneyLobbyKeyAttempts) throw error;
+      ctx.log.info("admin: lobby key taken, retrying", { tourney: tourneyId, attempt });
+    }
+  }
   ctx.log.info("admin: lobby created", { admin: ctx.admin.id, tourney: tourneyId, lobby: id });
   return Response.json({ lobby: await lobbyJson(ctx, id) }, { status: 201 });
 }

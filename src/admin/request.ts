@@ -21,6 +21,7 @@ export type AdminConfig = UpdateConfig &
     | "tourneyRoundLimit"
     | "tourneyRoundLimitMax"
     | "tourneyLobbyKeyDigits"
+    | "tourneyLobbyKeyAttempts"
   >;
 
 export interface Context {

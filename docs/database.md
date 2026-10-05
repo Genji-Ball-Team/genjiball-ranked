@@ -59,7 +59,7 @@ Removing, replacing or expiring a screenshot queues its R2 deletion in the same 
 
 Uploads reserve their random key and bytes in `screenshot_deletions` before writing to R2. The reservation cannot be cleaned up for `screenshotUploadGraceSeconds` (15 minutes), and attaching it removes that record atomically. Once the grace ends, attachment is rejected so cleanup can never delete a newly attached image. A failed or interrupted upload therefore leaves a key the cron can clean up, even if D1 failed after R2 stored it. When pending or staged keys remain, new uploads cannot reserve space past the storage caps; retry after cleanup succeeds.
 
-`tourney_lobbies.version` increases on edits, screenshot changes, expiry and longer-copy uploads. Admin and host writes check their snapshot version atomically (the `admin_actions` or `host_actions` row is written only if it still matches, else the batch fails); a host's write also needs the lobby still assigned to them and unverified. Verification also requires the version displayed to the admin, and a longer match log clears verification even when the match id stays the same.
+`tourney_lobbies.version` increases on edits, screenshot changes, expiry and longer-copy uploads. Admin and host writes check their snapshot version atomically (the `admin_actions` or `host_actions` row is written only if it still matches, else the batch fails); a host's write also needs, at that moment, the lobby still assigned to them and unverified, their token not revoked, and the tourney not cancelled and still in the region checked (tourney edits don't change lobby versions). Verification also requires the version displayed to the admin, and a longer match log clears verification even when the match id stays the same.
 
 ## Free tier
 
