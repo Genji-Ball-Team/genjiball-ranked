@@ -286,6 +286,18 @@ describe("regions: admin", () => {
     expect(JSON.parse(logged!.detail)).toEqual({ from: "eu", to: "na" });
   });
 
+  it("lists a moved match again in the feed: removed from the old region's, in the new one's", async () => {
+    await uploadOk(matchLog(), tokens.eu, hoursAgo(1));
+    const id = await matchId("000000000001");
+    const { cursor } = await get<{ cursor: number }>("matches?after=latest");
+    expect((await admin(`matches/${id}/region`, { region: "na" })).status).toBe(200);
+
+    type Feed = { matches: { id: number; removed: boolean; region?: string }[] };
+    expect((await get<Feed>(`matches?after=${cursor}&region=eu`)).matches).toEqual([{ id, removed: true }]);
+    expect((await get<Feed>(`matches?after=${cursor}&region=na`)).matches).toMatchObject([{ id, removed: false, region: "na" }]);
+    expect((await get<Feed>(`matches?after=${cursor}`)).matches).toMatchObject([{ id, removed: false, region: "na" }]);
+  });
+
   it("refuses a move to the same region, to no region, or of a tourney lobby's match", async () => {
     await uploadOk(matchLog(), tokens.eu, hoursAgo(1));
     const id = await matchId("000000000001");
