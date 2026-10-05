@@ -1,4 +1,4 @@
-import { findRegion, type Config } from "../config";
+import { findRegion, type Config, type Region } from "../config";
 import { fail, type ApiError } from "../http";
 import type { Logger } from "../log";
 import { parseLegacyLog } from "../parser/legacy";
@@ -75,14 +75,8 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
 
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
-  const header = request.headers.get("X-Region");
-  const region = findRegion(config.regions, header ?? host.region);
-  if (header !== null && !region) {
-    return fail(400, "bad_request", `X-Region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
-  }
-  if (!region) {
-    return fail(422, "no_region", "This host has no home region: send the region the matches were hosted in as X-Region");
-  }
+  const region = hostRegion(request, host, config, "the matches were hosted in");
+  if (region instanceof Response) return region;
 
   const now = new Date();
   const recent = await countRecentUploads(db, host.id, isoSeconds(new Date(now.getTime() - hourMs)));
@@ -127,8 +121,24 @@ export async function handleHostMatches(request: Request, db: D1Database, config
   return Response.json({ matches: await findMatchStates(db, host.id, keys) });
 }
 
-/** The host whose token the request carries, or the error: no or unknown token (401), revoked (403). */
-async function authHost(request: Request, db: D1Database): Promise<Host | Response> {
+/**
+ * Where a host request was played (#47): `X-Region`, else the host's home region. `400 bad_request`
+ * for an `X-Region` that isn't a region, `422 no_region` with neither. `what` ends the 422's message.
+ */
+export function hostRegion(request: Request, host: Host, config: Pick<Config, "regions">, what: string): Region | Response {
+  const header = request.headers.get("X-Region");
+  const region = findRegion(config.regions, header ?? host.region);
+  if (header !== null && !region) {
+    return fail(400, "bad_request", `X-Region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+  }
+  return region ?? fail(422, "no_region", `This host has no home region: send the region ${what} as X-Region`);
+}
+
+/**
+ * The host whose token the request carries, or the error: no or unknown token (401), revoked (403).
+ * Every host endpoint uses it (the live lobby heartbeat too, src/lobby/handler.ts).
+ */
+export async function authHost(request: Request, db: D1Database): Promise<Host | Response> {
   const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
   if (!token) return fail(401, "unauthorized", "Send the host token as Authorization: Bearer <token>");
   const host = await findHost(db, await sha256(token));

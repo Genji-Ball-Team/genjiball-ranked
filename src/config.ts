@@ -211,6 +211,28 @@ export const defaults = {
   matchFeedLimit: 20,
   /** How long a browser may keep a public read (leaderboard, player, match), in seconds. */
   publicCacheSeconds: 60,
+
+  /**
+   * Live lobbies (#11): how often the host tool sends a heartbeat while a ranked lobby is open, in
+   * seconds. The heartbeat's answer says this, so the host tool follows the server. Each heartbeat is
+   * one row written: a lobby open an hour is 60 (docs/database.md, "Free tier").
+   */
+  lobbyHeartbeatSeconds: 60,
+  /**
+   * Shortest time between two heartbeats of one host, in seconds. A sooner one gets 429 and writes
+   * nothing, so a host tool gone wrong can't cost more than 2 rows a minute.
+   */
+  lobbyHeartbeatMinSeconds: 30,
+  /** A lobby with no heartbeat for this long is gone: it isn't listed, and the cron deletes it. Three missed heartbeats. */
+  lobbyTtlSeconds: 180,
+  /** Longest lobby name a heartbeat can send, in characters. */
+  lobbyNameMaxLength: 64,
+  /** Most players a heartbeat can report: an Overwatch custom game holds 12. */
+  lobbyPlayersMax: 12,
+  /** Largest heartbeat body, in bytes. The JSON is a few dozen. */
+  lobbyBodyMaxBytes: 1024,
+  /** How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. */
+  lobbiesCacheSeconds: 15,
 };
 
 export type Config = typeof defaults;

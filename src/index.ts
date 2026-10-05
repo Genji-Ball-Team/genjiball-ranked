@@ -1,6 +1,7 @@
 import { handleAdmin } from "./admin/handler";
 import { loadConfig } from "./config";
 import type { Env } from "./env";
+import { clearStaleLobbies, handleHostLobby } from "./lobby/handler";
 import { createLogger } from "./log";
 import { updateRatings } from "./rating/update";
 import { handleSite } from "./site/handler";
@@ -31,6 +32,10 @@ export default {
       return handleHostMatches(request, env.DB, config);
     }
 
+    if (url.pathname === "/api/host/lobby") {
+      return handleHostLobby(request, env.DB, config, log);
+    }
+
     if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
       return handleAdmin(request, env.DB, env.PROOFS, config, log);
     }
@@ -48,10 +53,17 @@ export default {
   // The cron in wrangler.toml: rates incomplete matches whose grace period has passed, and
   // recomputes the ratings when they're stale (docs/rating.md). Also retries queued screenshot
   // deletes and expires screenshots past screenshotKeepDays, when that's set (src/tourney/expiry.ts).
+  // And deletes the live lobbies whose heartbeats stopped (src/lobby/handler.ts).
   async scheduled(controller, env): Promise<void> {
     const config = loadConfig(env);
     const log = createLogger(config.logLevel);
     const now = new Date(controller.scheduledTime);
+    try {
+      await clearStaleLobbies(env.DB, config, now, log);
+    } catch (error) {
+      // Stale lobbies aren't listed anyway: the next run deletes them.
+      log.error("stale lobby cleanup failed", { error: String(error) });
+    }
     try {
       await updateRatings(env.DB, config, now, log);
     } finally {
