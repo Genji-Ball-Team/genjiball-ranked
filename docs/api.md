@@ -324,9 +324,33 @@ Each of `players` changes on the leaderboard: `{ playerId, name, before, after, 
 | 405 | `method_not_allowed` | Wrong method. `Allow` says which |
 | 409 | `conflict` | The action doesn't fit the status (voiding a match in review, un-revoking a host), or another admin changed it at the same time |
 
+## Public API: CORS and caching
+
+Everything a community tool can read without a token: the [Site](#site-apileaderboard-apiplayersid-apiplayerssearch-apimatchesid-apimatchesafter-apitourneys-apilobbies) routes (the live lobbies included), the [rank tags](#rank-tags-get-apirank-tagsregioneu), `/api/server` and `/api/health`. A page on any website can read them from the browser. Code: `src/public.ts`, applied to every route in `src/index.ts`, so a handler doesn't set any of this itself.
+
+**The rule.** A path is public when its first segment after `/api/` is in `publicReadRoutes` (`src/public.ts`): `health`, `server`, `leaderboard`, `players`, `matches`, `tourneys`, `lobbies`, `head-to-head`, `records`, `rank-tags`, `screenshots`, and everything under them (`/api/players/12/history` is under `players`). **A new public route lists its first segment there**; one under an existing segment gets it already. `admin`, `host` and `upload` (`privateRoutes`) need a token: they never get CORS headers, whatever the list says, and every answer on them is `Cache-Control: no-store`.
+
+On a public path:
+
+| | |
+|---|---|
+| Methods | `GET` and `HEAD`. Anything else is `405 method_not_allowed` |
+| `Access-Control-Allow-Origin` | `*` on every answer, errors included. No cookies or credentials are used, so there's no `Access-Control-Allow-Credentials` and no `Vary: Origin` (the answer is the same for every origin) |
+| `OPTIONS` (preflight) | `204` with `Access-Control-Allow-Methods: GET, HEAD`, `Access-Control-Allow-Headers: *` and `Access-Control-Max-Age: corsMaxAgeSeconds` (2 h). A plain `GET` without custom headers needs no preflight |
+| `Access-Control-Expose-Headers` | `ETag`, so a script can read it |
+| `Cache-Control` | A route's own when it sets one (rank tags: `rankTagsCacheSeconds`, live lobbies: `lobbiesCacheSeconds`, screenshots: `screenshotCacheSeconds`, `/api/health`: `no-store`); else `public, max-age=publicCacheSeconds` (60 s). An error (4xx, 5xx) is always `no-store`: a match in review is a `404` until an admin accepts it |
+| `ETag` | Every JSON `200` gets a weak ETag (`W/"…"`, from a hash of the body); screenshots have R2's. Send it back as `If-None-Match` and an unchanged answer is a `304` with no body. That saves the download, not the server's work: the answer is still computed |
+
+```js
+// From any web page: the EU top 10.
+const res = await fetch("https://genjiball.us/api/leaderboard?region=eu");
+const { players } = await res.json();
+console.log(players.slice(0, 10).map((p) => `${p.rank}. ${p.name} ${Math.round(p.rating)}`));
+```
+
 ## Site: `/api/leaderboard`, `/api/players/:id`, `/api/players?search=`, `/api/matches/:id`, `/api/matches?after=`, `/api/tourneys`, `/api/lobbies`
 
-What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). The pages show one region too, with the same `?region=` in their URL (#48): without it, the last region the browser viewed, else a guess from its time zone (the Americas: `na`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s; the live lobbies `lobbiesCacheSeconds`, 15 s). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
+What the website's pages read (`/`, `/player?id=`, `/match?id=`, `/tourneys`, `/tourney?id=`). The pages show one region too, with the same `?region=` in their URL (#48): without it, the last region the browser viewed, else a guess from its time zone (the Americas: `na`). Public: no token, `GET` only, and a browser may cache an answer for `publicCacheSeconds` (60 s; the live lobbies `lobbiesCacheSeconds`, 15 s); CORS and caching as in [Public API](#public-api-cors-and-caching). Code: `src/site/`. Only `accepted` and `void` matches are public; any other match is a `404 not_found`, like an unknown player or match.
 
 The leaderboard, a player's rating and matches, the Tourneys page and the live lobbies are one region's: `?region=eu` ([Regions](#regions)), the first of `regions` without it, `400 bad_request` for one that isn't a region. Their answers say which (`region`). A match and a tourney have their own `region`.
 
