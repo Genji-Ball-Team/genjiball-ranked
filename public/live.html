@@ -4,24 +4,25 @@
   <meta charset="utf-8">
   <meta name="theme-color" content="#090b10">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Tourney – Genji Ball Ranked</title>
+  <title>Live lobbies – Genji Ball Ranked</title>
+  <meta name="description" content="The ranked Genji Ball lobbies open right now.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
   <script src="/region.js"></script>
 </head>
-<body data-page="tourney">
+<body data-page="live">
   <header class="top">
     <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
-    <nav><a href="/">Leaderboard</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys" aria-current="page">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
+    <nav><a href="/">Leaderboard</a><a href="/live" aria-current="page">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
   </header>
   <main>
-    <div class="headline"><h1 id="name">&nbsp;</h1><span id="flags"></span></div>
-    <ul id="facts" class="facts"></ul>
-    <p id="notes" class="lede"></p>
-    <div id="lobbies" aria-busy="true" data-loading>
-      <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
-    </div>
+    <h1 id="heading">Live lobbies</h1>
+    <p class="lede">The ranked lobbies open in <span id="region-name">this region</span> right now, as the hosts' host tool reports them. This list updates on its own.</p>
+    <ol id="lobbies" class="lobbies" aria-busy="true" aria-live="polite" data-loading>
+      <li class="skeleton"></li><li class="skeleton"></li>
+    </ol>
+    <p id="checked" class="note"></p>
   </main>
   <footer>Genji Ball is an Overwatch custom game. Play ranked on the <a href="https://discord.gg/sv9VVjh5pT">Discord</a>.</footer>
   <script src="/banner.js"></script>

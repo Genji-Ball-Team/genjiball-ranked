@@ -763,6 +763,59 @@ async function recordsPage() {
   }
 }
 
+// Live lobbies (#20)
+
+// How often the list asks again: the API's `lobbiesCacheSeconds`, so every ask can be a fresh answer.
+const lobbiesRefreshMs = 15000;
+
+// "12 min", "1 h 5 min": how long a lobby has been open.
+function openFor(iso) {
+  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60000));
+  if (minutes < 1) return "<1 min";
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`;
+}
+
+async function livePage() {
+  const short = site.short(site.region);
+  title(`${short} live lobbies`);
+  $("heading").textContent = `${short} live lobbies`;
+  $("region-name").innerHTML = regionName(site.region);
+  const box = $("lobbies");
+  let timer;
+  const refresh = async () => {
+    clearTimeout(timer);
+    try {
+      const { lobbies } = await api(`lobbies?${inRegion()}`);
+      loaded(
+        box,
+        lobbies.length
+          ? lobbies
+              .map(
+                (l) => `<li><span class="dot" aria-hidden="true"></span>
+                  <span class="what"><b>${esc(l.name ?? `${l.hostName}'s lobby`)}</b><small>Hosted by ${esc(l.hostName)}${l.tourney ? " · tourney" : ""}</small></span>
+                  <span class="count"><b class="num">${l.players}</b><small>${l.players === 1 ? "player" : "players"}</small></span>
+                  <span class="since"><b class="num">${esc(openFor(l.openedAt))}</b><small>open</small></span></li>`,
+              )
+              .join("")
+          : `<li class="empty"><b>No ranked lobby is open in ${regionName(site.region)} right now.</b>
+              Ranked lobbies are hosted by community hosts, who run the host tool so their matches are rated. Ask on the
+              <a href="https://discord.gg/sv9VVjh5pT">Discord</a> when the next one opens, or how to become a host.</li>`,
+      );
+      $("checked").textContent = `Checked ${new Date().toLocaleTimeString(undefined, { timeStyle: "short" })}.`;
+    } catch (error) {
+      showError(box, error, "lobby list");
+    }
+    // Only while the page is in view: a background tab doesn't ask.
+    if (!document.hidden) timer = setTimeout(refresh, lobbiesRefreshMs);
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refresh();
+    else clearTimeout(timer);
+  });
+  refresh();
+}
+
 // Match
 
 function roundNote(r) {
@@ -1060,12 +1113,10 @@ async function tourneyPage() {
 // the inner pages. Hidden by the stylesheet above phone widths, where the header does the same job.
 const icons = {
   board: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+  live: '<circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/>',
   records: '<path d="m12 3.5 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/>',
   find: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
   trophy: '<path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H4.5a3 3 0 0 0 3.5 4M16 6h3.5a3 3 0 0 1-3.5 4M12 13v4M9.5 17h5v3h-5z"/>',
-  // Discord's logo (simpleicons.org).
-  discord:
-    '<path class="fill" d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.028C.533 9.046-.32 13.58.099 18.058a.082.082 0 0 0 .031.056 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.042-.106 13.1 13.1 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.011c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.06.06 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>',
 };
 
 function tabBar(page) {
@@ -1076,12 +1127,12 @@ function tabBar(page) {
   bar.setAttribute("aria-label", "Sections");
   bar.innerHTML =
     tab("/", "board", "Leaderboard", page === "leaderboard") +
+    tab("/live", "live", "Live", page === "live") +
     tab("/records", "records", "Records", page === "records") +
     tab("/tourneys", "trophy", "Tourneys", page === "tourneys" || page === "tourney") +
-    tab("/?find", "find", "Find a player", false) +
-    tab("https://discord.gg/sv9VVjh5pT", "discord", "Discord", false);
+    tab("/?find", "find", "Find a player", false);
   document.body.append(bar);
-  bar.children[3].addEventListener("click", (e) => {
+  bar.children[4].addEventListener("click", (e) => {
     e.preventDefault();
     searchSheet().showModal();
   });
@@ -1152,7 +1203,7 @@ function backButton() {
 }
 
 const page = document.body.dataset.page;
-if (["leaderboard", "player", "compare", "records", "tourneys"].includes(page)) site.pin();
+if (["leaderboard", "player", "compare", "live", "records", "tourneys"].includes(page)) site.pin();
 tabBar(page);
 backButton();
-({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, records: recordsPage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();
+({ leaderboard: leaderboardPage, player: playerPage, compare: comparePage, records: recordsPage, live: livePage, match: matchPage, tourneys: tourneysPage, tourney: tourneyPage })[page]?.();
