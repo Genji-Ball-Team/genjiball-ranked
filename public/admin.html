@@ -187,6 +187,8 @@
     function lobbyRow(body, t, l) {
       const tr = body.insertRow();
       cell(tr, l.label);
+      cell(tr, l.hostId ? `${l.hostName} (#${l.hostId})` : "none");
+      cell(tr, l.roundLimitDefault ? `${l.roundLimit} (default)` : l.roundLimit);
       const match = cell(tr, "");
       if (l.matchId) { const a = document.createElement("a"); a.href = `/match?id=${l.matchId}`; a.textContent = `#${l.matchId}`; match.append(a); }
       const shot = cell(tr, "");
@@ -213,6 +215,19 @@
       if (l.verifiedAt || (l.matchId && l.screenshotKey)) {
         button(actions, l.verifiedAt ? "Unverify" : "Verify", () => act(`verify ${l.label}`, () => post(`lobbies/${l.id}/verify`, { verified: !l.verifiedAt, version: l.version }).then(() => (l.verifiedAt ? `${l.label} is unverified.` : `${l.label} is verified.`))));
       }
+      button(actions, "Host", () => {
+        const answer = prompt(`Host id for ${l.label} (from the hosts list), or empty for none. They get the tourney code and upload the screenshot.`, l.hostId ?? "");
+        if (answer === null) return;
+        const hostId = answer.trim() ? Number(answer.trim().replace(/^#\s*/, "")) : null;
+        if (hostId !== null && !(Number.isSafeInteger(hostId) && hostId > 0)) return say("Enter a host id, like 3, or nothing.", true);
+        act(`host ${l.label}`, () => post(`lobbies/${l.id}`, { hostId }).then(() => (hostId ? `${l.label} is hosted by host ${hostId}.` : `${l.label} has no host.`)));
+      });
+      button(actions, "Round limit", () => {
+        const answer = prompt(`Rounds for ${l.label}, or empty for the default`, l.roundLimitDefault ? "" : l.roundLimit);
+        if (answer === null) return;
+        const roundLimit = answer.trim() ? Number(answer.trim()) : null;
+        act(`round limit ${l.label}`, () => post(`lobbies/${l.id}`, { roundLimit }).then(() => `${l.label} plays ${roundLimit ?? "the default number of"} rounds.`));
+      });
       button(actions, "Rename", () => { const label = prompt("Lobby label", l.label); if (label) act("rename lobby", () => post(`lobbies/${l.id}`, { label }).then(() => `Renamed to ${label}.`)); });
       button(actions, "Delete", () => confirm(`Delete ${l.label}? Its match stops being a tourney match.`) && act("delete lobby", async () => `${l.label} deleted.` + staleNote(await api(`lobbies/${l.id}`, { method: "DELETE" }))));
     }
@@ -248,7 +263,7 @@
         if (!t.lobbies.length) continue;
         const wrap = document.createElement("div"); wrap.className = "scroll";
         const table = document.createElement("table"); table.className = "data";
-        table.createTHead().innerHTML = "<tr><th>Lobby</th><th>Match</th><th>Screenshot</th><th>Verified</th><th>Actions</th></tr>";
+        table.createTHead().innerHTML = "<tr><th>Lobby</th><th>Host</th><th>Rounds</th><th>Match</th><th>Screenshot</th><th>Verified</th><th>Actions</th></tr>";
         const body = table.createTBody();
         for (const l of t.lobbies) lobbyRow(body, t, l);
         wrap.append(table); box.append(wrap);

@@ -7,7 +7,8 @@ What the server offers the host tool ([genjiball-host-tool](https://github.com/G
 EU and NA play apart (#47). Every match belongs to the region it was hosted in, and each region has its own ratings, leaderboard, rank tags and tourneys; a player who plays in both has a rating in each. Players and their names are shared. The regions are `regions` in `src/config.ts`: `eu` (Europe) and `na` (North America). `GET /api/server` lists them (`{ testServer, regions: [{ id, label }] }`).
 
 - **Uploads** and **live lobby heartbeats** say their region with `X-Region`, or get the host's home region, which an admin sets. Neither: `422 no_region`. The Workshop can't read the server region, so the log doesn't say it.
-- **Reads** of regional data take `?region=` and answer for the first region without it.
+- **Reads** of regional data take `?region=` and answer for the first region without it. Except a host's assigned tourney lobbies (`GET /api/host/tourneys`): every region's without it, each lobby saying its region.
+- **Tourney lobbies** are their tourney's region; an assigned host from anywhere hosts them there.
 - Matches stored before regions were all put in `eu` (`migrations/0011_regions.sql`).
 
 ## Upload a log: `POST /api/upload`
@@ -126,6 +127,61 @@ The host tool says a ranked lobby is open, so the site can list it (#11, Genji-B
 
 Tourney lobbies (#25) will add an optional `tourneyLobbyId` to the heartbeat; until then the list's `tourney` is always `null`.
 
+## Assigned tourneys: `GET /api/host/tourneys`
+
+The host tool's "Scheduled" list and its "Copy tourney code" (host-tool #8, #9) read this: the tourney lobbies an admin assigned to the token's host, in tourneys that are `scheduled` or `live`, soonest start first. `Authorization: Bearer <host token>`, as for an upload. Code: `src/tourney/host.ts`.
+
+`?region=eu` (or `X-Region: eu`; the query wins) lists only that region's lobbies; without either, every region's, since an admin may assign a host a lobby outside their home region. Each lobby says its region, which is its tourney's.
+
+```json
+{
+  "region": null,
+  "codeLeadMinutes": 60,
+  "lobbies": [
+    {
+      "id": 7,
+      "label": "Lobby 1/2",
+      "region": "eu",
+      "roundLimit": 30,
+      "tourney": { "id": 3, "name": "October Cup", "region": "eu", "startsAt": "2026-10-10T17:00:00Z", "status": "scheduled" },
+      "matchId": null,
+      "screenshot": null,
+      "screenshotExpired": false,
+      "verified": false,
+      "codeFrom": "2026-10-10T16:00:00Z",
+      "code": { "lobbyKey": "482913507226", "roundLimit": 30, "name": "October Cup", "label": "Lobby 1/2" }
+    }
+  ]
+}
+```
+
+- `region`: the region asked for, `null` for every region.
+- `roundLimit`: the lobby's own (an admin sets it) or `tourneyRoundLimit` (30).
+- `code`: the values for the game's `TOURNEY - generated` rule (GenjiBall-CE#143), from `codeFrom` (`tourneyCodeLeadMinutes`, 60, before the start) until the lobby is done: its match is linked, or the tourney is `done` or `cancelled`. `null` outside that window. `lobbyKey` is the server's id for the lobby (random digits, text); the game logs it so the server can tell which lobby a match was (GenjiBall-CE#142). `name` and `label` are for the game's display label.
+- `matchId`, `screenshot`, `screenshotExpired`, `verified`: as on the [Tourneys page](#site-apileaderboard-apiplayersid-apiplayerssearch-apimatchesid-apimatchesafter-apitourneys), but `matchId` whatever the match's status.
+
+No assigned lobby: `lobbies` is empty. The errors are an upload's (`401`, `403 revoked`, `405`), and `400 bad_request` for a region that isn't one.
+
+## Verify screenshot: `PUT`/`DELETE /api/host/lobbies/:id/screenshot`
+
+The lobby's assigned host uploads the screenshot of the final standings (host-tool #10), or deletes or replaces it, until an admin has verified it. `Authorization: Bearer <host token>`. The same limits and storage as the admin's upload ([Admin](#admin-apiadmin)): PNG, JPEG or WebP whatever made it, at most `screenshotMaxBytes` (8 MB), stored in R2, the old one deleted, the oldest expired past the caps. Each change is logged in `host_actions`. Code: `src/tourney/host.ts`, `src/tourney/upload.ts`.
+
+`200 { lobby }`, the lobby as in `GET /api/host/tourneys`. `X-Region` (or `?region=`) is optional; sent, it must be the lobby's region.
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `empty` | `PUT` with no body |
+| 400 | `bad_request` | The region isn't one of `regions` |
+| 401, 403 | `unauthorized`, `revoked` | As for an upload |
+| 403 | `not_assigned` | The lobby isn't assigned to this host (any more) |
+| 404 | `not_found` | No such lobby |
+| 405 | `method_not_allowed` | Not `PUT` or `DELETE` |
+| 409 | `verified` | An admin verified the screenshot: only an admin can change it now (or un-verify it) |
+| 409 | `wrong_region` | The region sent isn't the lobby's |
+| 409 | `conflict` | The tourney was cancelled, `DELETE` with no screenshot, storage full while cleanup is pending, or the lobby changed meanwhile (reassigned, verified, replaced). Reload and try again |
+| 413 | `too_large` | Over `screenshotMaxBytes` |
+| 415 | `unsupported_type` | Not a PNG, JPEG or WebP |
+
 ## Admin: `/api/admin/*`
 
 For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/`. Every request needs `Authorization: Bearer <admin token>`; without a valid, unrevoked one it's `401 unauthorized`. Every change is written to `admin_actions` (who, what, when, which match or host) in the same transaction.
@@ -149,11 +205,11 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/matches/:id/region` | Body `{ "region": "na" }`: moves a match hosted in another region than it was stored in (a host uploaded under the wrong one). Its ratings leave the old region's leaderboard (stale from it, recomputed) and it's rated in the new one like a late upload. `409` for its own region, or while a tourney lobby links it (unlink it first). `{ match, ratingsStale }` |
 | `GET /api/admin/actions` | `{ actions }`: the action log, newest first, at most `adminListLimit` |
 | `POST /api/admin/matches/:id/tournament` | Body: `{"tournament": true}` or `false`. Marks the match as a tournament: it counts `tournamentWeight` times as much and nobody gains or loses more than `tournamentMaxChange` display points in it. A rated match makes the ratings stale from it. `409` if it already is that way or clearing the flag while a tourney lobby still links the match; unlink it first |
-| `GET /api/admin/tourneys` | `{ tourneys }`: latest start first, at most `adminListLimit`, each with `lobbies` (`id, version, label, matchId, screenshotKey, screenshotAt, verifiedAt, verifiedBy`) |
+| `GET /api/admin/tourneys` | `{ tourneys }`: latest start first, at most `adminListLimit`, each with `lobbies` (`id, version, label, hostId, hostName, roundLimit, roundLimitDefault, lobbyKey, matchId, screenshotKey, screenshotAt, verifiedAt, verifiedBy`; `roundLimitDefault`: `roundLimit` is `tourneyRoundLimit`) |
 | `POST /api/admin/tourneys` | Body `{ "name", "region", "startsAt", "notes"?, "status"? }`. `region`: where it's played; its lobbies' matches must be from there. `startsAt` is ISO 8601 with a time zone. `status`: `scheduled` (default), `live`, `done`, `cancelled`. `201 { tourney }` |
 | `POST /api/admin/tourneys/:id` | Same fields, all optional: changes the ones sent. `409` for a new `region` while a lobby has a match |
-| `POST /api/admin/tourneys/:id/lobbies` | Body `{ "label": "Lobby 1/2" }`. `201 { lobby }` |
-| `POST /api/admin/lobbies/:id` | Body `{ "label"?, "matchId"? }`. `matchId` links the lobby's match (`null` unlinks it): the match becomes a tournament ([rating.md](rating.md)), and a new match clears the verification. `409` if the match is another lobby's or from another region than the tourney. `{ lobby, ratingsStale }` |
+| `POST /api/admin/tourneys/:id/lobbies` | Body `{ "label": "Lobby 1/2", "hostId"?, "roundLimit"? }` (as below). The lobby gets a random `lobbyKey`. `201 { lobby }` |
+| `POST /api/admin/lobbies/:id` | Body `{ "label"?, "hostId"?, "roundLimit"?, "matchId"? }`. `hostId` assigns the lobby's host (`null`: none), who gets its code values and uploads its screenshot ([Assigned tourneys](#assigned-tourneys-get-apihosttourneys)): any host, whatever its home region, as the lobby is played in the tourney's; `404` for an unknown host, `409` for a revoked one. `roundLimit`: 1 to `tourneyRoundLimitMax` (50), `null` for `tourneyRoundLimit` (30). `matchId` links the lobby's match (`null` unlinks it): the match becomes a tournament ([rating.md](rating.md)), and a new match clears the verification. `409` if the match is another lobby's or from another region than the tourney. `{ lobby, ratingsStale }` |
 | `DELETE /api/admin/lobbies/:id` | Deletes the lobby and its screenshot; its match is no longer a tournament. `{ ratingsStale }` |
 | `PUT /api/admin/lobbies/:id/screenshot` | Body: the image, PNG, JPEG or WebP (told apart by its first bytes, so any tool's image works), at most `screenshotMaxBytes` (8 MB). Replaces the old one, which needs verifying again, then expires the oldest screenshots past the storage caps ([database.md](database.md), "Screenshots in R2"). `{ lobby, expired }`, `expired` how many were detached and queued for R2 cleanup. `409` for a concurrent lobby change or storage full while cleanup is pending; `413 too_large`, `415 unsupported_type` |
 | `DELETE /api/admin/lobbies/:id/screenshot` | Deletes the screenshot |
@@ -166,7 +222,7 @@ A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voidi
 
 Lobby mutations return `409 conflict` if another edit, replacement, expiry or longer log changed their snapshot before the write. A longer log also clears its lobby's verification. Screenshot removal is immediate at the public API; R2 failures leave durable cleanup records for later uploads or the cron to retry.
 
-`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action.
+`admin_actions.action`: `host_create`, `host_trust`, `host_revoke`, `host_region`, `match_region`, `match_accept`, `match_reject`, `match_void`, `match_unvoid`, `legacy_import`, `match_tournament`, `tourney_create`, `tourney_edit`, `lobby_create`, `lobby_edit`, `lobby_delete`, `lobby_screenshot`, `lobby_screenshot_delete`, `lobby_verify`. `detail` is JSON: the name and trust of a new host, `from` and `to` of a change, the `reason` when one was given, the `file` of an import, and the `tourney` and `lobby` ids of a tourney action (with `hostId` and `roundLimit` for a lobby; `host_id` is the lobby's assigned host). A host's own screenshot changes go to `host_actions` instead (`lobby_screenshot`, `lobby_screenshot_delete`).
 
 ### Errors
 

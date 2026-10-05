@@ -11,7 +11,17 @@ import type { Admin } from "./store";
 export type AdminConfig = UpdateConfig &
   UploadConfig &
   ExpiryConfig &
-  Pick<Config, "hostTokenBytes" | "adminListLimit" | "adminTextMaxLength" | "tourneyNotesMaxLength" | "screenshotMaxBytes">;
+  Pick<
+    Config,
+    | "hostTokenBytes"
+    | "adminListLimit"
+    | "adminTextMaxLength"
+    | "tourneyNotesMaxLength"
+    | "screenshotMaxBytes"
+    | "tourneyRoundLimit"
+    | "tourneyRoundLimitMax"
+    | "tourneyLobbyKeyDigits"
+  >;
 
 export interface Context {
   db: D1Database;
