@@ -6,14 +6,25 @@ import { parseLog } from "../parser/parse";
 import type { ParsedMatch } from "../parser/types";
 import { rateNewMatches, rateNewMatchesMaxQueries, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
+import { roundLimitOf } from "../tourney/code";
 import { parseHostAfkHeader, type HostAfk } from "./hostAfk";
-import { matchRows, planUpload, type MatchAction, type MatchPlan, type MatchStatus, type PlanOptions, type StoredCopy } from "./plan";
+import {
+  matchRows,
+  planUpload,
+  type MatchAction,
+  type MatchPlan,
+  type MatchStatus,
+  type PlanOptions,
+  type StoredCopy,
+  type TourneyContext,
+} from "./plan";
 import {
   countRecentUploads,
   findHost,
   findMatchStates,
   findStoredCopies,
   findUploadByHash,
+  findUploadLobbies,
   findUploadLogs,
   RowTooLarge,
   TooManyStatements,
@@ -89,6 +100,7 @@ export type UploadConfig = UpdateConfig &
     | "legacyRoundGapSeconds"
     | "legacyResurrectSeconds"
     | "regions"
+    | "tourneyRoundLimit"
   >;
 
 const hourMs = 60 * 60 * 1000;
@@ -229,9 +241,11 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
 
   const keys = parsedMatches.map((m) => m.matchKey).filter((key) => key !== "");
   const stored = await findStoredCopies(db, host.id, keys);
-  // Queries so far: the caller's, the hash, and the stored copies when there were keys to look up.
-  let queries = s.queriesBefore + 1 + (keys.length ? 1 : 0);
-  const options: PlanOptions = { hostAfk: s.hostAfk, duplicate: existing !== null };
+  const tourney = await tourneyContext(db, parsedMatches, stored, host.id, region, config);
+  // Queries so far: the caller's, the hash, the stored copies when there were keys to look up, and
+  // the lobbies when the file has a tourney match.
+  let queries = s.queriesBefore + 1 + (keys.length ? 1 : 0) + (tourney ? 1 : 0);
+  const options: PlanOptions = { hostAfk: s.hostAfk, duplicate: existing !== null, tourney };
   let plans = planUpload(parsedMatches, stored, host.trust, config, options);
   // New AFK rounds for a match stored longer than this file: its rows are rewritten from its own log.
   const needed = plans.filter((p) => p.needsStoredCopy);
@@ -248,6 +262,8 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       lines: plan.lineCount,
       rejection: plan.rejection,
       review: plan.reviewReasons,
+      tourney: plan.match.tourney,
+      lobby: plan.lobbyId,
       hostAfk: plan.hostAfk,
       afkRounds: plan.match.rounds.filter((r) => r.afkIds.length).map((r) => r.number),
       problems: plan.match.problems,
@@ -282,6 +298,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       rows: matchRows(plans, playedAt),
       botNames: config.legacyBotNames,
       chunkBytes: config.insertChunkBytes,
+      tourneyRoundLimit: config.tourneyRoundLimit,
       maxStatements: config.queriesPerRequest - queries,
       extra: s.extra?.(db) ?? [],
     });
@@ -360,6 +377,27 @@ async function storedMatches(
     if (match) found.set(copy.matchKey, match);
   }
   return found;
+}
+
+/**
+ * The tourney lobbies the file's tourney matches name, or their stored copies are linked to, for
+ * linking them (`tourneyCheck` in plan.ts): one query. `undefined`, with no query, when the file has
+ * no tourney match. `hostId` and `region` are the upload's (`null`: not checked, for a dry run).
+ */
+export async function tourneyContext(
+  db: D1Database,
+  matches: readonly ParsedMatch[],
+  stored: readonly StoredCopy[],
+  hostId: number | null,
+  region: string | null,
+  config: Pick<Config, "tourneyRoundLimit">,
+): Promise<TourneyContext | undefined> {
+  const tourneyMatches = matches.filter((m) => m.tourney !== null);
+  if (!tourneyMatches.length) return undefined;
+  const lobbyKeys = [...new Set(tourneyMatches.map((m) => m.tourney!.lobbyKey))];
+  const storedIds = stored.filter((copy) => tourneyMatches.some((m) => m.matchKey === copy.matchKey)).map((copy) => copy.id);
+  const lobbies = await findUploadLobbies(db, lobbyKeys, storedIds);
+  return { hostId, region, lobbies: lobbies.map((l) => ({ ...l, roundLimit: roundLimitOf(l.roundLimit, config) })) };
 }
 
 /**

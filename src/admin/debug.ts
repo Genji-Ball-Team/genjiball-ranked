@@ -3,7 +3,7 @@ import { fail } from "../http";
 import type { ParsedMatch } from "../parser/types";
 import { fromStart, staleFromStatement } from "../rating/store";
 import { isoSeconds } from "../time";
-import { hostRegion, parseFile, rateLimit, readBody, result, sha256 } from "../upload/handler";
+import { hostRegion, parseFile, rateLimit, readBody, result, sha256, tourneyContext } from "../upload/handler";
 import { isRated, planUpload, type MatchPlan } from "../upload/plan";
 import { findStoredCopies, findUploadByHash, type Host } from "../upload/store";
 import { BadRequest, regionField, type Context } from "./request";
@@ -97,7 +97,10 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
   // A legacy import is as from a trusted host; so is a dry run with no host.
   const trust = legacy || !host ? "trusted" : host.trust;
   const stored = host ? await findStoredCopies(ctx.db, host.id, matches.map((m) => m.matchKey).filter((key) => key !== "")) : [];
-  const plans = planUpload(matches, stored, trust, ctx.config);
+  // Tourney matches are checked against their lobbies as the upload would: as `host` in `region`, each
+  // left unchecked without one.
+  const tourney = await tourneyContext(ctx.db, matches, stored, host?.id ?? null, region, ctx.config);
+  const plans = planUpload(matches, stored, trust, ctx.config, { tourney });
 
   const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
   const regionOf = (plan: MatchPlan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
@@ -143,6 +146,8 @@ function describe(plan: MatchPlan, region: string | null) {
     storedMatchId: plan.storedId,
     format: m.format,
     gameVersion: m.gameVersion,
+    tourney: m.tourney,
+    lobbyId: plan.lobbyId,
     startLine: m.startLine,
     unranked: m.unranked,
     settings: m.settings,

@@ -25,8 +25,11 @@ export const defaults = {
     { id: "na", label: "North America" },
   ] as Region[],
 
-  /** Log format versions (the `format` field of `GBR`) the parser accepts. */
-  acceptedLogFormats: [1] as number[],
+  /**
+   * Log format versions (the `format` field of `GBR`) the parser accepts. 2 added tourney matches
+   * (`TOURNEY`, `MATCH_END` `ROUNDS`); a format 1 match is read as a ranked match, as before.
+   */
+  acceptedLogFormats: [1, 2] as number[],
 
   /**
    * Largest log file the upload endpoint takes, in bytes. A match is about 30 KB and a new match

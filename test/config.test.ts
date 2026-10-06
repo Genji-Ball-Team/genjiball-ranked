@@ -28,6 +28,6 @@ describe("loadConfig", () => {
 
   it("doesn't share state between calls", () => {
     loadConfig({}).acceptedLogFormats.push(99);
-    expect(defaults.acceptedLogFormats).toEqual([1]);
+    expect(defaults.acceptedLogFormats).toEqual([1, 2]);
   });
 });

@@ -1,6 +1,6 @@
 import { staleFromMatchesStatement } from "../rating/store";
 import { matchPairsInsert } from "./pairs";
-import { nameKey, type HostTrust, type MatchPlan, type MatchRows, type MatchStatus, type StoredCopy } from "./plan";
+import { nameKey, tourneyReasons, type HostTrust, type MatchPlan, type MatchRows, type MatchStatus, type StoredCopy, type UploadLobby } from "./plan";
 
 /**
  * The upload endpoint's D1 queries. Writes go in one `db.batch` (a transaction) with a fixed number
@@ -56,6 +56,28 @@ export async function findStoredCopies(db: D1Database, hostId: number, matchKeys
     rejection: rejectionCode === null ? null : { code: rejectionCode, message: rejectionMessage ?? "" },
     hostAfk: hostAfk === null ? [] : (JSON.parse(hostAfk) as number[]),
   }));
+}
+
+/** A lobby as `findUploadLobbies` reads it: `roundLimit` is the lobby's own, `null` for `tourneyRoundLimit`. */
+export type StoredLobby = Omit<UploadLobby, "roundLimit"> & { roundLimit: number | null };
+
+/**
+ * The tourney lobbies with these `lobbyKey`s (the file's `TOURNEY` lines) or linked to these stored
+ * matches, with their tourney's region and status: one query, through the unique indexes on
+ * `lobby_key` and `match_id`.
+ */
+export async function findUploadLobbies(db: D1Database, lobbyKeys: readonly string[], matchIds: readonly number[]): Promise<StoredLobby[]> {
+  if (!lobbyKeys.length && !matchIds.length) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT l.id, l.lobby_key AS lobbyKey, l.host_id AS hostId, l.round_limit AS roundLimit, l.match_id AS matchId,
+         t.region, t.status AS tourneyStatus
+       FROM tourney_lobbies l JOIN tourneys t ON t.id = l.tourney_id
+       WHERE l.lobby_key IN (SELECT value FROM json_each(?1)) OR l.match_id IN (SELECT value FROM json_each(?2))`,
+    )
+    .bind(JSON.stringify(lobbyKeys), JSON.stringify(matchIds))
+    .all<StoredLobby>();
+  return results;
 }
 
 /** The raw log of these uploads, gunzipped, by upload id: for a `refresh` from a stored copy. */
@@ -122,6 +144,8 @@ export interface UploadWrite {
   botNames: readonly string[];
   /** Most bytes of JSON a bulk insert binds (`insertChunkBytes`). */
   chunkBytes: number;
+  /** The round limit of a lobby without its own (`tourneyRoundLimit`), for linking tourney matches. */
+  tourneyRoundLimit: number;
   /** Most statements the batch may have: what's left of `queriesPerRequest`. */
   maxStatements: number;
   /** More statements for the same transaction. */
@@ -161,6 +185,10 @@ export async function writeUpload(
   const oldUploadIds = w.plans
     .filter((p) => p.action === "replace" || (newUpload && p.action === "repoint"))
     .map((p) => p.storedUploadId);
+  // Tourney matches linked to their lobby (`tourneyCheck` in plan.ts), as an admin's link does.
+  const links = w.plans.flatMap((p) =>
+    p.lobbyId === null ? [] : [{ matchKey: p.matchKey, lobbyId: p.lobbyId, roundLimit: p.match.tourney?.roundLimit ?? null }],
+  );
 
   const statements: D1PreparedStatement[] = [
     ...(newUpload
@@ -255,6 +283,7 @@ export async function writeUpload(
          FROM json_each(?1) e`,
       )
       .bind(json(w.rows.inserted), w.hostId, w.contentHash, w.region),
+    ...linkStatements(db, links, w.hostId, w.tourneyRoundLimit),
 
     ...jsonChunks(w.rows.players, w.chunkBytes).map((rows) =>
       db
@@ -316,14 +345,26 @@ export async function writeUpload(
     ...(w.extra ?? []),
   ];
 
+  // A link the lobby didn't take (an admin linked another match, reassigned the lobby or cancelled
+  // the tourney since the read): the match waits for an admin instead of counting as a ranked one.
+  const linkReviewIndex = links.length ? statements.length : null;
+  if (links.length) {
+    statements.push(
+      db.prepare(
+        `UPDATE matches SET status = 'review', review_reasons = ${appendReason("?3")}
+         WHERE host_id = ?1 AND match_key IN (SELECT e.value ->> 'matchKey' FROM json_each(?2) e) AND status IN ('accepted', 'review')
+           AND NOT EXISTS (SELECT 1 FROM tourney_lobbies l WHERE l.match_id = matches.id)
+         RETURNING match_key AS matchKey, review_reasons AS reviewReasons`,
+      ).bind(w.hostId, json(links), tourneyReasons.lobbyTaken),
+    );
+  }
+
   // Check the resolved ids in this transaction: a concurrent merge may have changed the aliases
   // since parsing. Different aliases of one player in a round need review, like duplicate_name.
   const reviewIndex = statements.length;
   statements.push(
     db.prepare(
-      `UPDATE matches SET status = 'review',
-         review_reasons = CASE WHEN instr(',' || coalesce(review_reasons, '') || ',', ',merged_names,') > 0
-           THEN review_reasons ELSE coalesce(review_reasons || ',', '') || 'merged_names' END
+      `UPDATE matches SET status = 'review', review_reasons = ${appendReason("'merged_names'")}
        WHERE host_id = ?1 AND match_key IN (SELECT value FROM json_each(?2)) AND status IN ('accepted', 'review')
          AND EXISTS (SELECT 1 FROM rounds r JOIN round_players rp ON rp.round_id = r.id
            JOIN match_players mp ON mp.match_id = r.match_id AND mp.log_id = rp.log_id
@@ -333,11 +374,60 @@ export async function writeUpload(
   );
   if (statements.length > w.maxStatements) throw new TooManyStatements(statements.length);
   const results = await db.batch<{ id: number; matchKey: string; reviewReasons: string }>(statements);
+  // A match's reasons now are those of the last statement that sent it to review.
+  const reviews = new Map<string, string[]>();
+  for (const index of [linkReviewIndex, reviewIndex]) {
+    if (index !== null) for (const r of results[index]!.results) reviews.set(r.matchKey, r.reviewReasons.split(","));
+  }
   return {
     uploadId: newUpload ? results[0]!.results[0]!.id : null,
     statements: statements.length,
-    reviews: results[reviewIndex]!.results.map((r) => ({ matchKey: r.matchKey, reviewReasons: r.reviewReasons.split(",") })),
+    reviews: [...reviews].map(([matchKey, reviewReasons]) => ({ matchKey, reviewReasons })),
   };
+}
+
+/** `review_reasons` with `reason` (an SQL expression) added, unless it's there already. */
+function appendReason(reason: string): string {
+  return `CASE WHEN instr(',' || coalesce(review_reasons, '') || ',', ',' || ${reason} || ',') > 0
+    THEN review_reasons ELSE coalesce(review_reasons || ',', '') || ${reason} END`;
+}
+
+/**
+ * Links tourney matches to their lobbies, as an admin's link does (`POST /api/admin/lobbies/:id`,
+ * src/admin/tourneys.ts): the lobby gets the match (its `version` goes up and its verification is
+ * cleared), and the match becomes a tournament, which lists it in the match feed again (a trigger).
+ * The checks are made again in the transaction: the lobby still has no match and is still the host's,
+ * still plays the logged round limit, its tourney isn't cancelled and is in the match's region, and the match isn't another lobby's. A
+ * link that fails them isn't made, and the review after it catches the match. The ratings need
+ * nothing: a newly linked match was never rated (`tourneyCheck` links only a new match or a copy of
+ * one in review or rejected), and the rating reads `tournament` when it rates it.
+ */
+function linkStatements(
+  db: D1Database,
+  links: readonly { matchKey: string; lobbyId: number; roundLimit: number | null }[],
+  hostId: number,
+  defaultRoundLimit: number,
+): D1PreparedStatement[] {
+  if (!links.length) return [];
+  const json = JSON.stringify(links);
+  return [
+    db
+      .prepare(
+        `UPDATE tourney_lobbies SET match_id = m.id, version = version + 1, verified_by = NULL, verified_at = NULL
+         FROM json_each(?1) e CROSS JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'
+         WHERE tourney_lobbies.id = e.value ->> 'lobbyId' AND tourney_lobbies.match_id IS NULL AND tourney_lobbies.host_id = ?2
+           AND coalesce(tourney_lobbies.round_limit, ?3) = e.value ->> 'roundLimit'
+           AND NOT EXISTS (SELECT 1 FROM tourney_lobbies o WHERE o.match_id = m.id)
+           AND EXISTS (SELECT 1 FROM tourneys t WHERE t.id = tourney_lobbies.tourney_id AND t.status <> 'cancelled' AND t.region = m.region)`,
+      )
+      .bind(json, hostId, defaultRoundLimit),
+    db
+      .prepare(
+        `UPDATE matches SET tournament = 1 WHERE tournament = 0 AND host_id = ?2
+           AND id IN (SELECT l.match_id FROM json_each(?1) e CROSS JOIN tourney_lobbies l ON l.id = e.value ->> 'lobbyId')`,
+      )
+      .bind(json, hostId),
+  ];
 }
 
 /** A row is bigger than a bulk insert may bind (`insertChunkBytes`): nothing was written. */

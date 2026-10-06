@@ -67,9 +67,47 @@ export interface MatchPlan {
   status: MatchStatus;
   rejection: { code: string; message: string } | null;
   reviewReasons: string[];
+  /**
+   * The tourney lobby this upload links the match to (`TOURNEY` `lobbyKey`, `tourneyCheck`), only
+   * when it writes the match (`insert`, `replace`, `refresh`). `null`: no link to make, or it's linked already.
+   */
+  lobbyId: number | null;
   /** The match as written: the host dropped from the `hostAfk` rounds (`withHostAfk`). */
   match: ParsedMatch;
 }
+
+/** A tourney lobby a tourney match of the file names, or that a stored copy of one is linked to. */
+export interface UploadLobby {
+  id: number;
+  lobbyKey: string | null;
+  /** The assigned host: the only one whose upload links a match to the lobby. */
+  hostId: number | null;
+  /** The round limit the lobby plays: its own or `tourneyRoundLimit`. */
+  roundLimit: number;
+  matchId: number | null;
+  /** Its tourney's region and status. */
+  region: string;
+  tourneyStatus: string;
+}
+
+/** What linking the file's tourney matches to their lobbies needs (`tourneyCheck`). */
+export interface TourneyContext {
+  /** The uploading host. `null` (a dry run without a host): not checked. */
+  hostId: number | null;
+  /** The upload's region, for a new match. `null` (a dry run without one): not checked. */
+  region: string | null;
+  lobbies: readonly UploadLobby[];
+}
+
+/** Review reasons of a tourney match that isn't linked to its lobby (docs/api.md, "Tourney matches"). */
+export const tourneyReasons = {
+  unknownLobby: "tourney_unknown_lobby",
+  cancelled: "tourney_cancelled",
+  wrongHost: "tourney_wrong_host",
+  wrongRegion: "tourney_wrong_region",
+  lobbyTaken: "tourney_lobby_taken",
+  roundLimit: "tourney_round_limit",
+} as const;
 
 export type PlanConfig = Pick<Config, "minMatchPlayers" | "untrustedHostUploads" | "hostAfkMaxRounds">;
 
@@ -80,6 +118,8 @@ export interface PlanOptions {
   storedMatches?: ReadonlyMap<string, ParsedMatch>;
   /** This exact file is stored already: nothing is stored again, only a `refresh` can happen. */
   duplicate?: boolean;
+  /** The lobbies of the file's tourney matches. Without it, a tourney match is judged as a ranked one. */
+  tourney?: TourneyContext;
 }
 
 export function planUpload(
@@ -90,7 +130,7 @@ export function planUpload(
   options: PlanOptions = {},
 ): MatchPlan[] {
   const storedByKey = new Map(stored.map((copy) => [copy.matchKey, copy]));
-  return longestCopies(matches).map((parsed) => {
+  const plans = longestCopies(matches).map((parsed): MatchPlan => {
     const copy = storedByKey.get(parsed.matchKey);
     const sent = parsed.matchKey ? options.hostAfk?.get(parsed.matchKey) : undefined;
     // The union of every upload's rounds: a later upload never takes rounds away.
@@ -106,7 +146,7 @@ export function planUpload(
         uploadHash: null,
         hostAfk,
         needsStoredCopy: false,
-        ...judge(written, trust, config),
+        ...tourneyCheck(written, copy, judge(written, trust, config), options.tourney),
         match: written,
       };
     };
@@ -144,11 +184,70 @@ export function planUpload(
     const action = next.action;
     // An admin's rejection survives a longer copy of the match.
     if (copy.status === "rejected" && copy.rejection?.code === adminRejection) {
-      return { ...next, action, status: "rejected", rejection: copy.rejection, reviewReasons: [] };
+      return { ...next, action, status: "rejected", rejection: copy.rejection, reviewReasons: [], lobbyId: null };
     }
     // So does a void. The new copy's own verdict is kept with it, for an un-void (docs/api.md).
     const status = copy.status === "void" ? "void" : next.status;
     return { ...next, status, action };
+  });
+  return oneMatchPerLobby(plans);
+}
+
+/**
+ * Whether a tourney match is linked to its lobby (`lobbyId`) or waits for an admin (`tourney_*`
+ * review reasons), on top of its own verdict (`judged`). Its lobby is the one with its `TOURNEY`
+ * `lobbyKey`. It's linked when the lobby is the uploading host's, in the match's region, its tourney
+ * isn't cancelled, it has no match yet and it plays the logged round limit. Never for a match that
+ * doesn't count anyway (`rejected`). Left as it is:
+ *
+ * - a match already linked to a lobby (by an upload or an admin): a longer copy keeps the link.
+ * - a copy of a stored match that is accepted or void without a lobby: only an admin makes one (by
+ *   accepting it from review, or unlinking it), and their decision lasts.
+ */
+function tourneyCheck(
+  match: ParsedMatch,
+  copy: StoredCopy | undefined,
+  judged: Pick<MatchPlan, "status" | "rejection" | "reviewReasons">,
+  context: TourneyContext | undefined,
+): Pick<MatchPlan, "status" | "rejection" | "reviewReasons" | "lobbyId"> {
+  const unchanged = { ...judged, lobbyId: null };
+  const tourney = match.tourney;
+  if (!tourney || !context || judged.status === "rejected") return unchanged;
+  if (copy && context.lobbies.some((l) => l.matchId === copy.id)) return unchanged;
+  if (copy && (copy.status === "accepted" || copy.status === "void")) return unchanged;
+
+  const lobby = context.lobbies.find((l) => l.lobbyKey === tourney.lobbyKey);
+  const reasons: string[] = [];
+  if (!lobby) {
+    reasons.push(tourneyReasons.unknownLobby);
+  } else {
+    const region = copy?.region ?? context.region;
+    if (lobby.tourneyStatus === "cancelled") reasons.push(tourneyReasons.cancelled);
+    if (context.hostId !== null && lobby.hostId !== context.hostId) reasons.push(tourneyReasons.wrongHost);
+    if (region !== null && lobby.region !== region) reasons.push(tourneyReasons.wrongRegion);
+    if (lobby.matchId !== null) reasons.push(tourneyReasons.lobbyTaken);
+    if (tourney.roundLimit !== lobby.roundLimit) reasons.push(tourneyReasons.roundLimit);
+  }
+  if (lobby && !reasons.length) return { ...judged, lobbyId: lobby.id };
+  return { status: "review", rejection: null, reviewReasons: [...judged.reviewReasons, ...reasons], lobbyId: null };
+}
+
+/**
+ * A link is made only by a plan that writes the match. Two matches of one file for the same lobby:
+ * the first gets it, the others wait for an admin.
+ */
+function oneMatchPerLobby(plans: MatchPlan[]): MatchPlan[] {
+  const claimed = new Set<number>();
+  return plans.map((plan) => {
+    const writes = plan.action === "insert" || plan.action === "replace" || plan.action === "refresh";
+    if (plan.lobbyId === null) return plan;
+    if (!writes) return { ...plan, lobbyId: null };
+    if (!claimed.has(plan.lobbyId)) {
+      claimed.add(plan.lobbyId);
+      return plan;
+    }
+    const status = plan.status === "accepted" ? "review" : plan.status;
+    return { ...plan, status, reviewReasons: [...plan.reviewReasons, tourneyReasons.lobbyTaken], lobbyId: null };
   });
 }
 
