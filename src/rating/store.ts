@@ -62,6 +62,12 @@ export async function anyStale(db: D1Database): Promise<boolean> {
   return (await db.prepare("SELECT 1 FROM rating_state WHERE stale_played_at IS NOT NULL LIMIT 1").first()) !== null;
 }
 
+/** The regions whose ratings are stale: a recompute is under way there (`/api/server`). */
+export async function staleRegions(db: D1Database): Promise<string[]> {
+  const { results } = await db.prepare("SELECT board FROM rating_state WHERE stale_played_at IS NOT NULL ORDER BY board").all<{ board: string }>();
+  return results.map((row) => row.board);
+}
+
 /** The region's accepted matches that aren't rated, in play order (index `matches_unrated`). */
 export async function readUnrated(db: D1Database, board: string): Promise<CandidateMatch[]> {
   const { results } = await db

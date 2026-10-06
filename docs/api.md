@@ -4,7 +4,7 @@ What the server offers the host tool ([genjiball-host-tool](https://github.com/G
 
 ## Regions
 
-EU and NA play apart (#47). Every match belongs to the region it was hosted in, and each region has its own ratings, leaderboard, rank tags and tourneys; a player who plays in both has a rating in each. Players and their names are shared. The regions are `regions` in `src/config.ts`: `eu` (Europe) and `na` (North America). `GET /api/server` lists them (`{ testServer, regions: [{ id, label }] }`).
+EU and NA play apart (#47). Every match belongs to the region it was hosted in, and each region has its own ratings, leaderboard, rank tags and tourneys; a player who plays in both has a rating in each. Players and their names are shared. The regions are `regions` in `src/config.ts`: `eu` (Europe) and `na` (North America). `GET /api/server` lists them (`{ testServer, regions: [{ id, label }], ratingsUpdating }`). `ratingsUpdating` holds the ids of the regions whose ratings are being recomputed: until it's done, a player's rating and the last point of their rating history can differ, and the site shows a banner.
 
 - **Uploads** and **live lobby heartbeats** say their region with `X-Region`, or get the host's home region, which an admin sets. Neither: `422 no_region`. The Workshop can't read the server region, so the log doesn't say it.
 - **Reads** of regional data take `?region=` and answer for the first region without it. Except a host's assigned tourney lobbies (`GET /api/host/tourneys`): every region's without it, each lobby saying its region.
