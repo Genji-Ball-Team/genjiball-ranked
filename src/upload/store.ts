@@ -144,6 +144,8 @@ export interface UploadWrite {
   botNames: readonly string[];
   /** Most bytes of JSON a bulk insert binds (`insertChunkBytes`). */
   chunkBytes: number;
+  /** The round limit of a lobby without its own (`tourneyRoundLimit`), for linking tourney matches. */
+  tourneyRoundLimit: number;
   /** Most statements the batch may have: what's left of `queriesPerRequest`. */
   maxStatements: number;
   /** More statements for the same transaction. */
@@ -184,7 +186,9 @@ export async function writeUpload(
     .filter((p) => p.action === "replace" || (newUpload && p.action === "repoint"))
     .map((p) => p.storedUploadId);
   // Tourney matches linked to their lobby (`tourneyCheck` in plan.ts), as an admin's link does.
-  const links = w.plans.flatMap((p) => (p.lobbyId === null ? [] : [{ matchKey: p.matchKey, lobbyId: p.lobbyId }]));
+  const links = w.plans.flatMap((p) =>
+    p.lobbyId === null ? [] : [{ matchKey: p.matchKey, lobbyId: p.lobbyId, roundLimit: p.match.tourney?.roundLimit ?? null }],
+  );
 
   const statements: D1PreparedStatement[] = [
     ...(newUpload
@@ -279,7 +283,7 @@ export async function writeUpload(
          FROM json_each(?1) e`,
       )
       .bind(json(w.rows.inserted), w.hostId, w.contentHash, w.region),
-    ...linkStatements(db, links, w.hostId),
+    ...linkStatements(db, links, w.hostId, w.tourneyRoundLimit),
 
     ...jsonChunks(w.rows.players, w.chunkBytes).map((rows) =>
       db
@@ -393,12 +397,17 @@ function appendReason(reason: string): string {
  * src/admin/tourneys.ts): the lobby gets the match (its `version` goes up and its verification is
  * cleared), and the match becomes a tournament, which lists it in the match feed again (a trigger).
  * The checks are made again in the transaction: the lobby still has no match and is still the host's,
- * its tourney isn't cancelled and is in the match's region, and the match isn't another lobby's. A
+ * still plays the logged round limit, its tourney isn't cancelled and is in the match's region, and the match isn't another lobby's. A
  * link that fails them isn't made, and the review after it catches the match. The ratings need
  * nothing: a newly linked match was never rated (`tourneyCheck` links only a new match or a copy of
  * one in review or rejected), and the rating reads `tournament` when it rates it.
  */
-function linkStatements(db: D1Database, links: readonly { matchKey: string; lobbyId: number }[], hostId: number): D1PreparedStatement[] {
+function linkStatements(
+  db: D1Database,
+  links: readonly { matchKey: string; lobbyId: number; roundLimit: number | null }[],
+  hostId: number,
+  defaultRoundLimit: number,
+): D1PreparedStatement[] {
   if (!links.length) return [];
   const json = JSON.stringify(links);
   return [
@@ -407,10 +416,11 @@ function linkStatements(db: D1Database, links: readonly { matchKey: string; lobb
         `UPDATE tourney_lobbies SET match_id = m.id, version = version + 1, verified_by = NULL, verified_at = NULL
          FROM json_each(?1) e CROSS JOIN matches m ON m.host_id = ?2 AND m.match_key = e.value ->> 'matchKey'
          WHERE tourney_lobbies.id = e.value ->> 'lobbyId' AND tourney_lobbies.match_id IS NULL AND tourney_lobbies.host_id = ?2
+           AND coalesce(tourney_lobbies.round_limit, ?3) = e.value ->> 'roundLimit'
            AND NOT EXISTS (SELECT 1 FROM tourney_lobbies o WHERE o.match_id = m.id)
            AND EXISTS (SELECT 1 FROM tourneys t WHERE t.id = tourney_lobbies.tourney_id AND t.status <> 'cancelled' AND t.region = m.region)`,
       )
-      .bind(json, hostId),
+      .bind(json, hostId, defaultRoundLimit),
     db
       .prepare(
         `UPDATE matches SET tournament = 1 WHERE tournament = 0 AND host_id = ?2

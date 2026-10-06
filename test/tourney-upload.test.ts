@@ -230,6 +230,23 @@ describe("upload: tourney matches", () => {
     }
   });
 
+  it("holds a match whose lobby got another round limit between the read and the write", async () => {
+    await db()
+      .prepare(
+        `CREATE TRIGGER change_limit AFTER INSERT ON matches WHEN NEW.match_key = '${matchKey}'
+         BEGIN UPDATE tourney_lobbies SET round_limit = 5 WHERE id = 1; END`,
+      )
+      .run();
+    try {
+      const body = await upload(tourneyExample);
+      expect(body.matches[0]).toMatchObject({ status: "review", reviewReasons: ["tourney_lobby_taken"] });
+      expect(await match()).toMatchObject({ status: "review", tournament: 0 });
+      expect((await lobby()).matchId).toBeNull();
+    } finally {
+      await db().prepare("DROP TRIGGER change_limit").run();
+    }
+  });
+
   it("shows the same in a dry-run parse, writing nothing", async () => {
     const res = await SELF.fetch("https://example.com/api/admin/parse?host=2", {
       method: "POST",

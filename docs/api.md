@@ -52,7 +52,7 @@ It's linked only when all of these hold. Otherwise it waits in the review queue 
 | The lobby has no match yet | `tourney_lobby_taken`; also for a second match of the same file for the lobby |
 | The logged `roundLimit` is the one the lobby plays (its own, else `tourneyRoundLimit`) | `tourney_round_limit`: the host's code wasn't the lobby's (an admin changed the limit after it was copied, or it was edited), so its standings may not be the ones the tourney meant |
 
-A match that doesn't count anyway (`rejected`: `UNRANKED`, too few players) isn't linked and gets no `tourney_*` reason. The checks are made again in the upload's transaction: a lobby linked to another match, reassigned or cancelled meanwhile sends the match to review (`tourney_lobby_taken`) instead.
+A match that doesn't count anyway (`rejected`: `UNRANKED`, too few players) isn't linked and gets no `tourney_*` reason. The checks are made again in the upload's transaction: a lobby linked to another match, reassigned, given another round limit or cancelled meanwhile sends the match to review (`tourney_lobby_taken`) instead.
 
 - **Copies of the match.** `TOURNEY` is in every copy. A longer copy of a linked match keeps the link (and its lobby's verification is cleared, as for any longer copy). A longer copy of a match that wasn't linked is checked again, so a first copy rejected for having no rated round yet is linked by the full one. A copy of a match an admin accepted or voided without a lobby, or unlinked, stays as the admin left it.
 - **In review.** An admin reads the reason, then links the match to its lobby (`POST /api/admin/lobbies/:id` with `matchId`) and accepts it, accepts it as a ranked match, or rejects it.

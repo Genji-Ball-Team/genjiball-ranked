@@ -298,6 +298,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       rows: matchRows(plans, playedAt),
       botNames: config.legacyBotNames,
       chunkBytes: config.insertChunkBytes,
+      tourneyRoundLimit: config.tourneyRoundLimit,
       maxStatements: config.queriesPerRequest - queries,
       extra: s.extra?.(db) ?? [],
     });
