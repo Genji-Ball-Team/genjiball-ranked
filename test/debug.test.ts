@@ -421,7 +421,7 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
 
   it("counts an incomplete match only after the grace period", async () => {
     await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await uploadLog(matchLog({ key: "000000000002", end: false }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000002", end: false }), tokens.eu, hoursAgo(defaults.ratingIncompleteGraceHours / 2));
     const now = await dryRun("eu");
     expect(now).toMatchObject({ accepted: 2, counted: 1 });
     expect(now.summary.identical).toBe(true);

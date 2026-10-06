@@ -130,9 +130,11 @@ export const defaults = {
 
   /**
    * A match with no MATCH_END is rated once this many hours have passed since it started: until
-   * then, a longer copy may still arrive. A complete match is rated as soon as it's uploaded.
+   * then, a longer copy may still arrive. A complete match is rated as soon as it's uploaded. A longer
+   * copy that comes after it was rated replaces it and the ratings are recomputed from it, so the wait
+   * only saves that recompute: 1 h covers most matches, and an unfinished game counts the same evening.
    */
-  ratingIncompleteGraceHours: 6,
+  ratingIncompleteGraceHours: 1,
   /**
    * Most matches rated in one go (one upload, one cron run); a longer recompute is spread over runs.
    * Rating costs about 0.5 ms of CPU a match. The Workers Standard plan allows 30 s an invocation,

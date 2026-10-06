@@ -103,7 +103,7 @@ describe("ratings: new matches", () => {
 
 describe("ratings: incomplete matches", () => {
   it("rates a match with no MATCH_END once its grace period has passed", async () => {
-    const started = new Date(Date.now() - 60 * 60 * 1000);
+    const started = new Date(Date.now() - (defaults.ratingIncompleteGraceHours / 2) * 3600_000);
     await upload(matchLog({ end: false }), started.toISOString());
     expect(await ratingsTable()).toEqual([]);
 

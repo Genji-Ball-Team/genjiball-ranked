@@ -398,7 +398,7 @@ describe("tourney mutation integrity", () => {
   });
 
   it("clears verification when a longer log changes a linked match at the same id", async () => {
-    const startedAt = new Date(Date.now() - 2 * 3600000).toISOString();
+    const startedAt = new Date(Date.now() - (defaults.ratingIncompleteGraceHours / 2) * 3600000).toISOString();
     const send = (body: string) => SELF.fetch("https://example.com/api/upload", {
       method: "POST", body, headers: { Authorization: `Bearer ${hostToken}`, "X-Log-Started-At": startedAt },
     });
