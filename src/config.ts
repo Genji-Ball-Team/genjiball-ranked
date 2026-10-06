@@ -68,7 +68,8 @@ export const defaults = {
   /**
    * Legacy v1.3.2 logs (#4, docs/legacy.md). A round one of these AI bots played in isn't rated: new
    * logs reject a whole match with a bot, but a legacy file is often a long lobby where a bot was in
-   * only some rounds.
+   * only some rounds. A player with one of these names is a bot (`players.bot`): no head-to-head and
+   * no records. Migration 0018 marked the stored ones by these names: a new name only marks new players.
    */
   legacyBotNames: ["Genji Bot", "zSh4d0Ws bozo"] as string[],
   /** `game_version` stored for a legacy match: the log doesn't say. */

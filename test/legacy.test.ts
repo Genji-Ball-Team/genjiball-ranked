@@ -163,6 +163,22 @@ describe("POST /api/admin/legacy-import", () => {
     expect(action).toEqual({ adminId: 1, action: "legacy_import", hostId: 1, detail: JSON.stringify({ file: "Log-2026-09-22-21-27-16.txt" }) });
   });
 
+  it("marks a bot's player, and keeps it out of head-to-head", async () => {
+    const res = await importLegacy(log("10.00|Alpha|Bravo", "11.00|Genji Bot|Alpha", "20.00|Alpha|Genji Bot", "30.00|Bravo|Alpha"));
+    expect(res.status).toBe(200);
+    const players = await db().prepare("SELECT name, bot FROM players ORDER BY name").all();
+    expect(players.results).toEqual([
+      { name: "Alpha", bot: 0 },
+      { name: "Bravo", bot: 0 },
+      { name: "Genji Bot", bot: 1 },
+    ]);
+    const pairs = await db().prepare("SELECT p.name, o.name AS opponent, kills FROM match_pairs JOIN players p ON p.id = player_id JOIN players o ON o.id = opponent_id ORDER BY 1, 2").all();
+    expect(pairs.results).toEqual([
+      { name: "Alpha", opponent: "Bravo", kills: 1 },
+      { name: "Bravo", opponent: "Alpha", kills: 1 },
+    ]);
+  });
+
   it("says duplicate for the same file again", async () => {
     await importLegacy(legacyFile);
     expect(((await (await importLegacy(legacyFile)).json()) as UploadResponse).result).toBe("duplicate");

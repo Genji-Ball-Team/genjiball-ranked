@@ -8,8 +8,8 @@
 /**
  * Inserts the pairs of players of the matches `matchIds` (an SQL query of match ids) into
  * `match_pairs`: rated rounds both finished, rounds ahead, and `KILL` lines between them both ways
- * (a self-kill or the kill of a player with no id isn't one). Reads each match's rounds and events
- * once, by key.
+ * (a self-kill or the kill of a player with no id isn't one). A bot (`players.bot`) has no pairs:
+ * kills by and of one aren't counted. Reads each match's rounds and events once, by key.
  */
 export function matchPairsInsert(matchIds: string): string {
   return `INSERT INTO match_pairs (match_id, player_id, opponent_id, rounds, ahead, kills, deaths)
@@ -28,6 +28,7 @@ export function matchPairsInsert(matchIds: string): string {
       CROSS JOIN (SELECT 0 AS flip UNION ALL SELECT 1) d
       WHERE e.type = 'KILL' AND e.match_id IN (${matchIds})
     )
+    WHERE player_id NOT IN (SELECT id FROM players WHERE bot = 1) AND opponent_id NOT IN (SELECT id FROM players WHERE bot = 1)
     GROUP BY match_id, player_id, opponent_id`;
 }
 
