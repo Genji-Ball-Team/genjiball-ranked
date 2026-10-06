@@ -35,6 +35,28 @@ export const publicReadRoutes: readonly string[] = [
 /** First path segments that need a token: never public, whatever `publicReadRoutes` says. */
 export const privateRoutes: readonly string[] = ["admin", "host", "upload"];
 
+/** A tourney sign-up: `/api/tourneys/:id/signups` (src/tourney/signups.ts). */
+export const signupRoute = /^\/api\/tourneys\/[^/]+\/signups\/?$/;
+
+/**
+ * Public writes: the routes anyone may `POST` to without a token (a tourney sign-up, #31). They're
+ * for the site's own pages, so they're same-origin only: no CORS headers (the preflight of a public
+ * path allows only `GET` and `HEAD`), a request whose `Origin` is another site's is refused, and
+ * every answer is `Cache-Control: no-store`, like a private route's.
+ */
+const publicWrites: readonly RegExp[] = [signupRoute];
+
+/** Whether this is a public write (`POST /api/tourneys/:id/signups`). */
+export function isPublicWrite(method: string, pathname: string): boolean {
+  return method === "POST" && publicWrites.some((route) => route.test(pathname));
+}
+
+/** Whether a public write comes from this site's own pages: no `Origin` (not a browser), or this origin. */
+export function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("Origin");
+  return origin === null || origin === new URL(request.url).origin;
+}
+
 /** Response headers a page on another origin may read besides the CORS-safelisted ones. */
 const exposedHeaders = "ETag";
 

@@ -4,7 +4,10 @@ import { secondsBefore } from "../lobby/handler";
 import { listLiveLobbies } from "../lobby/store";
 import { isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
+import { capacityOf } from "../tourney/code";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
+import { countSignups, listSignupNames } from "../tourney/signupStore";
+import { signupSummary } from "../tourney/signups";
 import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
 import { noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
@@ -65,6 +68,7 @@ export type SiteConfig = RankTagsConfig &
     | "rankTagsCacheSeconds"
     | "testServer"
     | "tourneysPageSize"
+    | "tourneyLobbyCapacity"
     | "screenshotCacheSeconds"
     | "regions"
     | "lobbyTtlSeconds"
@@ -150,7 +154,7 @@ export async function handleSite(
   if (path.length === 2 && (route === "players" || route === "matches" || route === "tourneys")) {
     if (!isRead(request)) return notAllowed();
     const id = playerIdParam(path[1]!);
-    const read = { players: () => player(db, config, region!, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, id!) }[route];
+    const read = { players: () => player(db, config, region!, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, config, id!) }[route];
     const body = id === null ? null : await read();
     if (!body) return fail(404, "not_found", { players: "No such player", matches: "No such match", tourneys: "No such tourney" }[route]);
     return cached(body, config.publicCacheSeconds);
@@ -453,23 +457,28 @@ async function tourneys(db: D1Database, config: SiteConfig, region: Region, page
     listPast(db, region.id, size + 1, (page - 1) * size),
   ]);
   const shown = [...upcoming, ...past.slice(0, size)];
-  const views = await tourneyViews(db, shown);
+  const views = await tourneyViews(db, config, shown);
   return { region: region.id, page, pageSize: size, hasMore: past.length > size, upcoming: views.slice(0, upcoming.length), past: views.slice(upcoming.length) };
 }
 
-async function tourney(db: D1Database, id: number) {
+async function tourney(db: D1Database, config: SiteConfig, id: number) {
   const found = await findTourney(db, id);
   if (!found) return null;
-  const [view] = await tourneyViews(db, [found]);
+  const [view] = await tourneyViews(db, config, [found], true);
   return { tourney: view };
 }
 
-/** Tourneys with their lobbies, and each public match's standings. */
-async function tourneyViews(db: D1Database, list: TourneyRow[]) {
-  const lobbies = await listLobbies(
-    db,
-    list.map((t) => t.id),
-  );
+/**
+ * Tourneys with their lobbies, each public match's standings, and the sign-ups (#31): how many, and
+ * the tourney's capacity, the sum of its lobbies'. `withNames`: the names too, for one tourney's page.
+ */
+async function tourneyViews(db: D1Database, config: SiteConfig, list: TourneyRow[], withNames = false) {
+  const ids = list.map((t) => t.id);
+  const [lobbies, signups, names] = await Promise.all([
+    listLobbies(db, ids),
+    countSignups(db, ids),
+    withNames && list.length === 1 ? listSignupNames(db, list[0]!.id) : null,
+  ]);
   const standings = await readStandings(
     db,
     lobbies.filter((l) => l.matchPublic).map((l) => l.matchId!),
@@ -484,9 +493,15 @@ async function tourneyViews(db: D1Database, list: TourneyRow[]) {
     // Deleted to stay inside the storage caps: the result and verified mark stay.
     screenshotExpired: l.screenshotKey === null && l.screenshotExpiredAt !== null,
     verified: l.verifiedAt !== null,
+    capacity: capacityOf(l.capacity, config),
     standings: l.matchPublic ? standings.get(l.matchId!)! : [],
   });
-  return list.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id).map(lobbyView) }));
+  return list.map((t) => {
+    const own = lobbies.filter((l) => l.tourneyId === t.id).map(lobbyView);
+    const capacity = own.reduce((sum, l) => sum + l.capacity, 0);
+    const summary = signupSummary(t.status, signups.get(t.id) ?? 0, capacity);
+    return { ...t, capacity, signups: names ? { ...summary, names } : summary, lobbies: own };
+  });
 }
 
 /** A currently attached verify screenshot from R2, cached for the configured lifetime. */

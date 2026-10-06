@@ -205,6 +205,7 @@
       cell(tr, l.label);
       cell(tr, l.hostId ? `${l.hostName} (#${l.hostId})` : "none");
       cell(tr, l.roundLimitDefault ? `${l.roundLimit} (default)` : l.roundLimit);
+      cell(tr, l.capacityDefault ? `${l.capacity} (default)` : l.capacity);
       const match = cell(tr, "");
       if (l.matchId) { const a = document.createElement("a"); a.href = `/match?id=${l.matchId}`; a.textContent = `#${l.matchId}`; match.append(a); }
       const shot = cell(tr, "");
@@ -220,7 +221,9 @@
         if (!/^[1-9]\d*$/.test(digits) || !Number.isSafeInteger(matchId)) return say("Enter a positive whole match id, like 123 or #123.", true);
         act(`link ${l.label}`, async () => `${l.label} is match ${matchId}.` + staleNote(await post(`lobbies/${l.id}`, { matchId })));
       });
-      if (l.matchId) button(actions, "Unlink", () => act(`unlink ${l.label}`, async () => `${l.label} has no match.` + staleNote(await post(`lobbies/${l.id}`, { matchId: null }))));
+      // Unlinking the match is moving it back to ranked: it stops being a tourney match and is rated as a normal one.
+      if (l.matchId) button(actions, "Move match to ranked", () => confirm(`Move match ${l.matchId} out of ${l.label} and back to ranked? It stops being a tourney match, is rated as a normal ranked match, and the lobby has no result until a match is linked again.`) &&
+        act(`move ${l.label}'s match to ranked`, async () => `Match ${l.matchId} is a ranked match again; ${l.label} has no match.` + staleNote(await post(`lobbies/${l.id}`, { matchId: null }))));
       button(actions, l.screenshotKey ? "Replace screenshot" : "Upload screenshot", () => {
         const input = document.createElement("input");
         input.type = "file"; input.accept = "image/png,image/jpeg,image/webp";
@@ -244,6 +247,13 @@
         const roundLimit = answer.trim() ? Number(answer.trim()) : null;
         if (roundLimit !== null && !(Number.isSafeInteger(roundLimit) && roundLimit > 0)) return say("Enter a number of rounds, like 30, or nothing for the default.", true);
         act(`round limit ${l.label}`, () => post(`lobbies/${l.id}`, { roundLimit }).then(() => `${l.label} plays ${roundLimit ?? "the default number of"} rounds.`));
+      });
+      button(actions, "Capacity", () => {
+        const answer = prompt(`Players ${l.label} holds, or empty for the default`, l.capacityDefault ? "" : l.capacity);
+        if (answer === null) return;
+        const capacity = answer.trim() ? Number(answer.trim()) : null;
+        if (capacity !== null && !(Number.isSafeInteger(capacity) && capacity > 0)) return say("Enter a number of players, like 10, or nothing for the default.", true);
+        act(`capacity ${l.label}`, () => post(`lobbies/${l.id}`, { capacity }).then((r) => `${l.label} holds ${r.lobby.capacity} players.`));
       });
       button(actions, "Rename", () => { const label = prompt("Lobby label", l.label); if (label) act("rename lobby", () => post(`lobbies/${l.id}`, { label }).then(() => `Renamed to ${label}.`)); });
       button(actions, "Delete", () => confirm(`Delete ${l.label}? Its match stops being a tourney match.`) && act("delete lobby", async () => `${l.label} deleted.` + staleNote(await api(`lobbies/${l.id}`, { method: "DELETE" }))));
@@ -277,14 +287,59 @@
         });
         box.append(head);
         if (t.notes) { const p = document.createElement("p"); p.className = "muted"; p.textContent = t.notes; box.append(p); }
+        box.append(signupLine(t));
+        if (openSignups.has(t.id)) box.append(await signupTable(t));
         if (!t.lobbies.length) continue;
         const wrap = document.createElement("div"); wrap.className = "scroll";
         const table = document.createElement("table"); table.className = "data";
-        table.createTHead().innerHTML = "<tr><th>Lobby</th><th>Host</th><th>Rounds</th><th>Match</th><th>Screenshot</th><th>Verified</th><th>Actions</th></tr>";
+        table.createTHead().innerHTML = "<tr><th>Lobby</th><th>Host</th><th>Rounds</th><th>Capacity</th><th>Match</th><th>Screenshot</th><th>Verified</th><th>Actions</th></tr>";
         const body = table.createTBody();
         for (const l of t.lobbies) lobbyRow(body, t, l);
         wrap.append(table); box.append(wrap);
       }
+    }
+
+    // Sign-ups (#31): how many against the capacity (the sum of the lobbies'), and past it how many
+    // more lobbies it takes. The names are loaded for the tourneys whose list is open.
+    const openSignups = new Set();
+    function signupLine(t) {
+      const p = document.createElement("p"); p.className = "row";
+      const count = document.createElement("span");
+      count.textContent = `Sign-ups: ${t.signups.count} / ${t.capacity}${t.signups.open ? "" : " (closed)"}`;
+      p.append(count);
+      const over = t.signups.count - t.capacity;
+      if (over > 0) {
+        const warn = document.createElement("span"); warn.className = "error";
+        warn.textContent = `${over} over capacity: add a lobby (or another tourney)`;
+        p.append(warn);
+      }
+      button(p, openSignups.has(t.id) ? "Hide sign-ups" : "Show sign-ups", () => {
+        if (!openSignups.delete(t.id)) openSignups.add(t.id);
+        loadTourneys().catch((e) => say(e.message, true));
+      });
+      return p;
+    }
+
+    async function signupTable(t) {
+      const { signups } = await api(`tourneys/${t.id}/signups`);
+      const wrap = document.createElement("div"); wrap.className = "scroll";
+      if (!signups.length) { wrap.textContent = "No sign-ups yet."; wrap.className = "muted"; return wrap; }
+      const table = document.createElement("table"); table.className = "data";
+      table.createTHead().innerHTML = "<tr><th>#</th><th>Name</th><th>Signed up</th><th>Removed</th><th>Actions</th></tr>";
+      const body = table.createTBody();
+      let place = 0;
+      for (const s of signups) {
+        const tr = body.insertRow();
+        if (!s.removedAt) place++;
+        cell(tr, s.removedAt ? "" : place > t.capacity ? `${place} (over)` : place);
+        cell(tr, s.name); cell(tr, s.signedUpAt); cell(tr, s.removedAt ? `${s.removedBy}, ${s.removedAt}` : "");
+        const actions = cell(tr, "");
+        if (s.removedAt) button(actions, "Restore", () => act(`restore ${s.name}`, () => post(`signups/${s.id}`, { removed: false }).then(() => `${s.name} is signed up again.`)));
+        else button(actions, "Remove", () => confirm(`Remove ${s.name} from ${t.name}'s sign-ups? The name can't sign up again unless you restore it.`) &&
+          act(`remove ${s.name}`, () => post(`signups/${s.id}`, { removed: true }).then(() => `${s.name} removed from the sign-ups.`)));
+      }
+      wrap.append(table);
+      return wrap;
     }
 
     async function loadActions() {

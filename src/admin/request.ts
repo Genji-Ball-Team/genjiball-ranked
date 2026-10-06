@@ -20,6 +20,8 @@ export type AdminConfig = UpdateConfig &
     | "screenshotMaxBytes"
     | "tourneyRoundLimit"
     | "tourneyRoundLimitMax"
+    | "tourneyLobbyCapacity"
+    | "tourneyLobbyCapacityMax"
     | "tourneyLobbyKeyDigits"
     | "tourneyLobbyKeyAttempts"
     | "playerNameMaxLength"

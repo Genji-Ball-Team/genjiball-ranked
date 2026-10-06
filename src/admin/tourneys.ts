@@ -2,7 +2,9 @@ import { fail } from "../http";
 import { anyStale, staleFromMatchesStatement } from "../rating/store";
 import { updateRatings } from "../rating/update";
 import { isoSeconds } from "../time";
-import { newLobbyKey, roundLimitOf } from "../tourney/code";
+import { capacityOf, newLobbyKey, roundLimitOf } from "../tourney/code";
+import { countSignups, findSignup, isSignupChanged, listSignups, setSignupRemoved } from "../tourney/signupStore";
+import { signupSummary } from "../tourney/signups";
 import { flushScreenshotDeletions } from "../tourney/expiry";
 import {
   createLobby,
@@ -51,10 +53,12 @@ export async function handleTourneyAdmin(ctx: Context, request: Request, path: s
       return notAllowed("GET, POST");
     }
     if (id !== null && path.length === 2) return method === "POST" ? editTourney(ctx, id, await body(request)) : notAllowed("POST");
+    if (id !== null && path.length === 3 && path[2] === "signups") return method === "GET" ? signups(ctx, id) : notAllowed("GET");
     if (id !== null && path.length === 3 && path[2] === "lobbies") {
       return method === "POST" ? addLobby(ctx, id, await body(request)) : notAllowed("POST");
     }
   }
+  if (path[0] === "signups" && id !== null && path.length === 2) return method === "POST" ? removeSignup(ctx, id, await body(request)) : notAllowed("POST");
   if (path[0] === "lobbies" && id !== null) {
     if (path.length === 2) {
       if (method === "POST") return editLobby(ctx, id, await body(request));
@@ -71,14 +75,52 @@ export async function handleTourneyAdmin(ctx: Context, request: Request, path: s
   return null;
 }
 
-/** `GET /api/admin/tourneys`: every tourney, latest start first, with its lobbies. */
+/**
+ * `GET /api/admin/tourneys`: every tourney, latest start first, with its lobbies, its capacity (the
+ * sum of its lobbies') and its sign-ups, as the Tourneys page counts them.
+ */
 async function listTourneys(ctx: Context): Promise<Response> {
   const tourneys = await listAllTourneys(ctx.db, ctx.config.adminListLimit);
-  const lobbies = await listLobbies(
-    ctx.db,
-    tourneys.map((t) => t.id),
-  );
-  return Response.json({ tourneys: tourneys.map((t) => ({ ...t, lobbies: lobbies.filter((l) => l.tourneyId === t.id).map((l) => lobbyView(ctx, l)) })) });
+  const ids = tourneys.map((t) => t.id);
+  const [lobbies, counts] = await Promise.all([listLobbies(ctx.db, ids), countSignups(ctx.db, ids)]);
+  return Response.json({
+    tourneys: tourneys.map((t) => {
+      const own = lobbies.filter((l) => l.tourneyId === t.id).map((l) => lobbyView(ctx, l));
+      const capacity = own.reduce((sum, l) => sum + l.capacity, 0);
+      return { ...t, capacity, signups: signupSummary(t.status, counts.get(t.id) ?? 0, capacity), lobbies: own };
+    }),
+  });
+}
+
+/** `GET /api/admin/tourneys/:id/signups`: every sign-up, removed ones too, first come first. */
+async function signups(ctx: Context, tourneyId: number): Promise<Response> {
+  if (!(await findTourney(ctx.db, tourneyId))) return fail(404, "not_found", "No such tourney");
+  return Response.json({ signups: await listSignups(ctx.db, tourneyId) });
+}
+
+/**
+ * `POST /api/admin/signups/:id` with `{ "removed": true }` (or `false`): removes a sign-up (a joke
+ * name, a double), or restores it. The row stays, marked removed by the admin: the name can't sign up
+ * again, and it no longer counts.
+ */
+async function removeSignup(ctx: Context, id: number, data: Record<string, unknown>): Promise<Response> {
+  if (typeof data.removed !== "boolean") throw new BadRequest("removed must be true or false");
+  const signup = await findSignup(ctx.db, id);
+  if (!signup) return fail(404, "not_found", "No such sign-up");
+  if ((signup.removedAt !== null) === data.removed) return fail(409, "conflict", `The sign-up is ${data.removed ? "already" : "not"} removed`);
+  try {
+    await setSignupRemoved(
+      ctx.db,
+      id,
+      data.removed,
+      log(ctx, data.removed ? "signup_remove" : "signup_restore", { tourney: signup.tourneyId, signup: id, name: signup.name }),
+    );
+  } catch (error) {
+    if (isSignupChanged(error)) return changedMeanwhile();
+    throw error;
+  }
+  ctx.log.info("admin: sign-up", { admin: ctx.admin.id, signup: id, removed: data.removed });
+  return Response.json({ signup: await findSignup(ctx.db, id) });
 }
 
 /** `POST /api/admin/tourneys` with `{ name, region, startsAt, notes?, status? }`. */
@@ -114,7 +156,7 @@ async function addLobby(ctx: Context, tourneyId: number, data: Record<string, un
   const label = text(data.label, ctx.config, "label");
   if (!label) throw new BadRequest("label is required");
   if (!(await findTourney(ctx.db, tourneyId))) return fail(404, "not_found", "No such tourney");
-  const fields = await lobbyFields(ctx, data, { label, hostId: null, roundLimit: null });
+  const fields = await lobbyFields(ctx, data, { label, hostId: null, roundLimit: null, capacity: null });
   if (fields instanceof Response) return fields;
   let id: number | null = null;
   for (let attempt = 1; id === null; attempt++) {
@@ -146,7 +188,7 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
   if (!lobby) return fail(404, "not_found", "No such lobby");
   const label = data.label === undefined ? lobby.label : text(data.label, ctx.config, "label");
   if (!label) throw new BadRequest("label can't be blank");
-  const fields = await lobbyFields(ctx, data, { label, hostId: lobby.hostId, roundLimit: lobby.roundLimit });
+  const fields = await lobbyFields(ctx, data, { label, hostId: lobby.hostId, roundLimit: lobby.roundLimit, capacity: lobby.capacity });
   if (fields instanceof Response) return fields;
   let matchId = lobby.matchId;
   if (data.matchId !== undefined) {
@@ -160,12 +202,14 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
   const tourney = await findTourney(ctx.db, lobby.tourneyId);
   const relink = await relinkStatements(ctx, tourney!.region, lobby.matchId, matchId, at);
   if (relink instanceof Response) return relink;
+  // The log keeps the match that left the lobby too: unlinking moves it back to ranked.
+  const fromMatchId = lobby.matchId !== matchId ? lobby.matchId : undefined;
   try {
     await updateLobby(
       ctx.db,
       lobby,
       { ...fields, matchId },
-      { ...log(ctx, "lobby_edit", { lobby: id, tourney: lobby.tourneyId, ...fields, matchId }), matchId, hostId: fields.hostId },
+      { ...log(ctx, "lobby_edit", { lobby: id, tourney: lobby.tourneyId, ...fields, matchId, fromMatchId }), matchId: matchId ?? lobby.matchId, hostId: fields.hostId },
       relink.statements,
     );
   } catch (error) {
@@ -252,9 +296,18 @@ async function verify(ctx: Context, id: number, data: Record<string, unknown>): 
   return Response.json({ lobby: await lobbyJson(ctx, id) });
 }
 
-/** A lobby as the admin API shows it: `roundLimit` is the one it plays, its own or `tourneyRoundLimit`. */
+/**
+ * A lobby as the admin API shows it: `roundLimit` is the one it plays, its own or `tourneyRoundLimit`,
+ * and `capacity` the players it holds, its own or `tourneyLobbyCapacity`.
+ */
 function lobbyView(ctx: Context, lobby: LobbyRow) {
-  return { ...lobby, roundLimit: roundLimitOf(lobby.roundLimit, ctx.config), roundLimitDefault: lobby.roundLimit === null };
+  return {
+    ...lobby,
+    roundLimit: roundLimitOf(lobby.roundLimit, ctx.config),
+    roundLimitDefault: lobby.roundLimit === null,
+    capacity: capacityOf(lobby.capacity, ctx.config),
+    capacityDefault: lobby.capacity === null,
+  };
 }
 
 async function lobbyJson(ctx: Context, id: number) {
@@ -263,9 +316,10 @@ async function lobbyJson(ctx: Context, id: number) {
 }
 
 /**
- * The host and round limit sent for a lobby, else `from`'s. `hostId`: any host whose token isn't
- * revoked, whatever its home region (the lobby is played in its tourney's region). `roundLimit`: 1
- * to `tourneyRoundLimitMax`, or null for `tourneyRoundLimit`.
+ * The host, round limit and capacity sent for a lobby, else `from`'s. `hostId`: any host whose token
+ * isn't revoked, whatever its home region (the lobby is played in its tourney's region). `roundLimit`:
+ * 1 to `tourneyRoundLimitMax`, or null for `tourneyRoundLimit`. `capacity`: 1 to
+ * `tourneyLobbyCapacityMax` players, or null for `tourneyLobbyCapacity`.
  */
 async function lobbyFields(ctx: Context, data: Record<string, unknown>, from: LobbyFields): Promise<LobbyFields | Response> {
   const isId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
@@ -285,7 +339,13 @@ async function lobbyFields(ctx: Context, data: Record<string, unknown>, from: Lo
     if (data.roundLimit !== null && !(isId(data.roundLimit) && data.roundLimit <= max)) throw new BadRequest(`roundLimit must be 1 to ${max}, or null for the default`);
     roundLimit = data.roundLimit;
   }
-  return { label: from.label, hostId, roundLimit };
+  let capacity = from.capacity;
+  if (data.capacity !== undefined) {
+    const max = ctx.config.tourneyLobbyCapacityMax;
+    if (data.capacity !== null && !(isId(data.capacity) && data.capacity <= max)) throw new BadRequest(`capacity must be 1 to ${max} players, or null for the default`);
+    capacity = data.capacity;
+  }
+  return { label: from.label, hostId, roundLimit, capacity };
 }
 
 // Helpers

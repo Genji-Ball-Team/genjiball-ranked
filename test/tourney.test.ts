@@ -171,7 +171,19 @@ describe("admin: tourneys", () => {
   it("schedules a tourney in UTC and edits it", async () => {
     const id = await newTourney({ notes: "Bring a friend" });
     const { tourneys } = await adminOk<{ tourneys: Tourney[] }>("tourneys");
-    expect(tourneys).toEqual([{ id, name: "October Cup", region: "eu", startsAt: "2026-10-10T17:00:00Z", status: "scheduled", notes: "Bring a friend", lobbies: [] }]);
+    expect(tourneys).toEqual([
+      {
+        id,
+        name: "October Cup",
+        region: "eu",
+        startsAt: "2026-10-10T17:00:00Z",
+        status: "scheduled",
+        notes: "Bring a friend",
+        capacity: 0,
+        signups: { open: true, count: 0, full: false },
+        lobbies: [],
+      },
+    ]);
 
     await adminOk(`tourneys/${id}`, { body: { status: "live" } });
     expect((await adminOk<{ tourneys: Tourney[] }>("tourneys")).tourneys[0]).toMatchObject({ name: "October Cup", status: "live" });
