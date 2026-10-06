@@ -403,6 +403,32 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .thumbs img { width: 4.5rem; height: 2.75rem; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); background: var(--panel); }
 #upcoming-section h2 { margin-top: 2.25rem; }
 
+/* Sign-ups on a tourney's page: the count against the places, a box for a name, the names as pills. */
+.signup-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: .25rem .5rem; margin: 0; max-width: 26rem; }
+.signup-count b { font-size: 2rem; font-weight: 650; font-stretch: var(--narrow); line-height: 1; }
+.signup-count .chip { vertical-align: 0; align-self: center; }
+.signup-count .track { display: block; flex-basis: 100%; margin-top: .5rem; --tier: var(--accent); }
+.signup-form { display: flex; gap: .5rem; max-width: 26rem; margin-top: 1.25rem; }
+.signup-form input {
+  flex: 1; min-width: 0; padding: .55rem .75rem; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--fg); font: inherit; font-size: 1rem;
+}
+.signup-form input::placeholder { color: var(--faint); }
+.signup-form input:focus-visible { outline: 0; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.signup-form button {
+  padding: .55rem 1.1rem; border: 0; border-radius: 6px; background: var(--accent); color: var(--bg);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.signup-form button:disabled { opacity: .6; cursor: wait; }
+.signup-form + .note:empty { display: none; }
+.signups { list-style: none; display: flex; flex-wrap: wrap; gap: .4rem; margin: 1.25rem 0 0; padding: 0; }
+.signups li {
+  padding: .15rem .65rem; border-radius: 999px; border: 1px solid var(--line); background: var(--panel);
+  font-weight: 600; font-stretch: var(--narrow); overflow-wrap: anywhere;
+}
+.signups li.over { border-style: dashed; background: none; color: var(--soft); }
+.signups li.cut { flex-basis: 100%; padding: .5rem 0 0; border: 0; background: none; color: var(--muted); font-size: .8rem; font-weight: 400; font-stretch: normal; }
+
 .lobby { margin-top: 2.5rem; }
 .lobby-head { display: flex; align-items: center; gap: .5rem .75rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .lobby-head h2 { margin: 0; }

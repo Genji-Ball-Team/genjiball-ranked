@@ -35,6 +35,8 @@ export interface LobbyRow {
   hostName: string | null;
   /** The lobby's own round limit; null: `tourneyRoundLimit` (`roundLimitOf`). */
   roundLimit: number | null;
+  /** Players the lobby holds; null: `tourneyLobbyCapacity` (`capacityOf`). */
+  capacity: number | null;
   /** The server's id for the lobby in the game's tourney rule and log. */
   lobbyKey: string | null;
   matchId: number | null;
@@ -84,7 +86,7 @@ export async function findTourney(db: D1Database, id: number): Promise<TourneyRo
 }
 
 const lobbyColumns = `l.id, l.version, l.tourney_id AS tourneyId, l.label, l.host_id AS hostId, h.name AS hostName,
-  l.round_limit AS roundLimit, l.lobby_key AS lobbyKey, l.match_id AS matchId,
+  l.round_limit AS roundLimit, l.capacity, l.lobby_key AS lobbyKey, l.match_id AS matchId,
   coalesce(m.status IN ('accepted', 'void'), 0) AS matchPublic, coalesce(m.status = 'void', 0) AS matchVoid,
   l.screenshot_key AS screenshotKey, l.screenshot_at AS screenshotAt, l.screenshot_expired_at AS screenshotExpiredAt, l.verified_at AS verifiedAt, a.name AS verifiedBy`;
 const lobbyFrom = `tourney_lobbies l LEFT JOIN matches m ON m.id = l.match_id LEFT JOIN admins a ON a.id = l.verified_by
@@ -234,13 +236,15 @@ export interface LobbyFields {
   hostId: number | null;
   /** Null: `tourneyRoundLimit`. */
   roundLimit: number | null;
+  /** Null: `tourneyLobbyCapacity`. */
+  capacity: number | null;
 }
 
 export async function createLobby(db: D1Database, tourneyId: number, fields: LobbyFields, lobbyKey: string, log: ActionLog): Promise<number> {
   const [inserted] = await db.batch<{ id: number }>([
     db
-      .prepare("INSERT INTO tourney_lobbies (tourney_id, label, host_id, round_limit, lobby_key) VALUES (?1, ?2, ?3, ?4, ?5) RETURNING id")
-      .bind(tourneyId, fields.label, fields.hostId, fields.roundLimit, lobbyKey),
+      .prepare("INSERT INTO tourney_lobbies (tourney_id, label, host_id, round_limit, lobby_key, capacity) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING id")
+      .bind(tourneyId, fields.label, fields.hostId, fields.roundLimit, lobbyKey, fields.capacity),
     newRowActionStatement(db, log, "lobby"),
   ]);
   return inserted!.results[0]!.id;
@@ -262,11 +266,11 @@ export async function updateLobby(
     lobbyActionStatement(db, lobby, log),
     db
       .prepare(
-        `UPDATE tourney_lobbies SET label = ?2, match_id = ?3, host_id = ?4, round_limit = ?5, version = version + 1,
+        `UPDATE tourney_lobbies SET label = ?2, match_id = ?3, host_id = ?4, round_limit = ?5, capacity = ?6, version = version + 1,
            verified_by = CASE WHEN match_id IS ?3 THEN verified_by END, verified_at = CASE WHEN match_id IS ?3 THEN verified_at END
          WHERE id = ?1`,
       )
-      .bind(lobby.id, fields.label, fields.matchId, fields.hostId, fields.roundLimit),
+      .bind(lobby.id, fields.label, fields.matchId, fields.hostId, fields.roundLimit, fields.capacity),
     ...extra,
   ]);
 }

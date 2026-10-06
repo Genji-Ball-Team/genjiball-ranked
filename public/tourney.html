@@ -19,6 +19,19 @@
     <div class="headline"><h1 id="name">&nbsp;</h1><span id="flags"></span></div>
     <ul id="facts" class="facts"></ul>
     <p id="notes" class="lede"></p>
+    <section id="signup-section" class="signup" hidden>
+      <h2>Sign-ups</h2>
+      <p id="signup-count" class="signup-count"></p>
+      <form id="signup-form" class="signup-form" hidden>
+        <label class="sr" for="signup-name">Your in-game name</label>
+        <input id="signup-name" name="name" maxlength="64" autocomplete="nickname" autocapitalize="off" spellcheck="false" placeholder="Your in-game name" required>
+        <button>Sign up</button>
+      </form>
+      <p id="signup-message" class="note" role="status"></p>
+      <p id="signup-closed" class="note" hidden>Sign-ups closed when the tourney started.</p>
+      <p id="signup-hint" class="note" hidden>Signing up isn't binding: it tells the admins how many lobbies to set up.</p>
+      <ol id="signup-names" class="signups"></ol>
+    </section>
     <div id="lobbies" aria-busy="true" data-loading>
       <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
     </div>

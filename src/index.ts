@@ -2,14 +2,16 @@ import { handleAdmin } from "./admin/handler";
 import { queryBudget } from "./budget";
 import { loadConfig, type Config } from "./config";
 import type { Env } from "./env";
+import { fail } from "./http";
 import { clearStaleLobbies, handleHostLobby } from "./lobby/handler";
 import { createLogger, type Logger } from "./log";
-import { isPrivate, isPublicRead, preflight, withPrivateHeaders, withPublicHeaders } from "./public";
+import { isPrivate, isPublicRead, isPublicWrite, isSameOrigin, preflight, signupRoute, withPrivateHeaders, withPublicHeaders } from "./public";
 import { updateRatings } from "./rating/update";
 import { updateRecords } from "./records/update";
 import { handleSite } from "./site/handler";
 import { expireOld } from "./tourney/expiry";
 import { handleHostTourneyLobby, handleHostTourneys } from "./tourney/host";
+import { handleSignup } from "./tourney/signups";
 import { handleHostMatches, handleHostMe, handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
@@ -19,6 +21,11 @@ export default {
     const log = createLogger(config.logLevel);
     const url = new URL(request.url);
 
+    // A public write (a tourney sign-up): same origin only, never cached (src/public.ts).
+    if (isPublicWrite(request.method, url.pathname)) {
+      if (!isSameOrigin(request)) return withPrivateHeaders(fail(403, "cross_origin", "Sign up from the site's own pages"));
+      return withPrivateHeaders(await route(request, env, config, log, url));
+    }
     // Every public read route gets CORS and caching headers here, not in its handler (src/public.ts).
     if (isPublicRead(url.pathname)) {
       if (request.method === "OPTIONS") return preflight(config);
@@ -94,6 +101,10 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
 
   if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
     return handleAdmin(request, env.DB, env.PROOFS, config, log);
+  }
+
+  if (signupRoute.test(url.pathname)) {
+    return handleSignup(request, env.DB, config, log);
   }
 
   if (url.pathname.startsWith("/api/")) {

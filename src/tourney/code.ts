@@ -18,6 +18,11 @@ export function roundLimitOf(roundLimit: number | null, config: Pick<Config, "to
   return roundLimit ?? config.tourneyRoundLimit;
 }
 
+/** Players the lobby holds: its own capacity, or `tourneyLobbyCapacity`. */
+export function capacityOf(capacity: number | null, config: Pick<Config, "tourneyLobbyCapacity">): number {
+  return capacity ?? config.tourneyLobbyCapacity;
+}
+
 export interface CodeLobby {
   label: string;
   lobbyKey: string | null;

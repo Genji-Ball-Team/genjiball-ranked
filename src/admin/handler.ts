@@ -109,7 +109,7 @@ export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bu
       const answer = await handlePlayerAdmin(ctx, request, path, id);
       if (answer) return answer;
     }
-    if (path[0] === "tourneys" || path[0] === "lobbies") {
+    if (path[0] === "tourneys" || path[0] === "lobbies" || path[0] === "signups") {
       const answer = await handleTourneyAdmin(ctx, request, path);
       if (answer) return answer;
     }

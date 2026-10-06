@@ -184,6 +184,25 @@ export const defaults = {
   /** Highest round limit an admin can set: the game's "tournament rounds" setting goes up to 50. */
   tourneyRoundLimitMax: 50,
   /**
+   * Players a tourney lobby holds when an admin doesn't set its own capacity (#22, #24). A tourney's
+   * capacity is the sum of its lobbies': past it, the Tourneys page says "full" and admins add a lobby.
+   */
+  tourneyLobbyCapacity: 10,
+  /** Highest capacity an admin can give a lobby: an Overwatch custom game holds 12 players. */
+  tourneyLobbyCapacityMax: 12,
+  /**
+   * Sign-ups (#31): stored sign-ups per IP an hour, across tourneys. Past it, `429` until the hour has
+   * passed. A sign-up of a name already signed up writes nothing and doesn't count.
+   */
+  tourneySignupsPerHour: 10,
+  /**
+   * Most sign-ups one tourney stores, removed ones included. Sign-ups past capacity are still taken
+   * (admins add lobbies, #24): this only bounds the list a page reads, and what a flood can write.
+   */
+  tourneySignupsMax: 200,
+  /** Largest sign-up body, in bytes. The JSON is a name. */
+  tourneySignupBodyMaxBytes: 1024,
+  /**
    * How long before a tourney's start its assigned hosts get the tourney code values (`lobbyKey`,
    * round limit) from `GET /api/host/tourneys`, in minutes (#25). They stay available until the
    * lobby has a match or the tourney is done or cancelled.

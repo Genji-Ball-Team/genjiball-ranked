@@ -1055,12 +1055,19 @@ function dateBlock(iso) {
 // A function: `icons` is defined further down.
 const trophy = () => `<svg class="cup" viewBox="0 0 24 24" aria-hidden="true">${icons.trophy}</svg>`;
 
+// Sign-ups (#31): "8 / 10 signed up", the capacity being the sum of the lobbies'. Past it the
+// tourney is full, but still takes names: the admins add a lobby.
+const signedUp = (t) => `${t.signups.count}${t.capacity ? ` / ${t.capacity}` : ""} signed up`;
+const fullChip = '<span class="chip plain" title="More players signed up than the lobbies hold: the admins add a lobby">Full</span>';
+
 function upcomingItem(t) {
   const lobbies = t.lobbies.length ? `${lobbyCount(t.lobbies.length)}: ${t.lobbies.map((l) => esc(l.label)).join(", ")}` : "";
+  const signups = t.signups.open || t.signups.count ? `<small class="muted">${esc(signedUp(t))}</small>` : "";
+  const when = t.status === "live" ? statusChip.live : `<span class="soon">${esc(until(t.startsAt))}</span>`;
   return `<li><a href="/tourney?id=${t.id}">
     ${dateBlock(t.startsAt)}
-    <span class="what"><b>${esc(t.name)}</b>${t.notes ? `<small>${esc(t.notes)}</small>` : ""}${lobbies ? `<small class="muted">${lobbies}</small>` : ""}</span>
-    <span class="side">${t.status === "live" ? statusChip.live : `<span class="soon">${esc(until(t.startsAt))}</span>`}</span></a></li>`;
+    <span class="what"><b>${esc(t.name)}</b>${t.notes ? `<small>${esc(t.notes)}</small>` : ""}${lobbies ? `<small class="muted">${lobbies}</small>` : ""}${signups}</span>
+    <span class="side">${t.signups.full ? fullChip : ""}${when}</span></a></li>`;
 }
 
 function pastItem(t) {
@@ -1162,6 +1169,71 @@ function enlarge(src, alt) {
   lightbox.showModal();
 }
 
+// The sign-ups of an upcoming tourney (#31): how many and who, and, until it starts, a box to add
+// your in-game name. Nothing is enforced: it tells the admins how many lobbies to set up. Names past
+// the capacity are listed after a line, waiting for another lobby.
+const signupNameKey = "signup-name";
+function signupSection(t) {
+  const names = [...t.signups.names];
+  let count = t.signups.count;
+  const draw = () => {
+    const full = t.capacity > 0 && count >= t.capacity;
+    const share = t.capacity ? Math.min(100, Math.round((100 * count) / t.capacity)) : 0;
+    $("signup-count").innerHTML =
+      `<b class="num">${count}</b>${t.capacity ? ` <span class="muted">of ${t.capacity} places</span>` : ""}${full ? ` ${fullChip}` : ""}` +
+      (t.capacity ? `<span class="track"><span style="width:${share}%"></span></span>` : "");
+    $("signup-names").innerHTML = names
+      .map((name, i) => (i === t.capacity && t.capacity ? '<li class="cut">Past capacity: these wait for another lobby</li>' : "") +
+        `<li${t.capacity && i >= t.capacity ? ' class="over"' : ""}>${esc(name)}</li>`)
+      .join("");
+  };
+  $("signup-section").hidden = false;
+  $("signup-closed").hidden = t.signups.open;
+  draw();
+  if (!t.signups.open) return;
+
+  const form = $("signup-form");
+  const input = $("signup-name");
+  const message = $("signup-message");
+  form.hidden = $("signup-hint").hidden = false;
+  try {
+    input.value = localStorage.getItem(signupNameKey) ?? "";
+  } catch {
+    // not kept
+  }
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = input.value.trim();
+    if (!name) return;
+    const button = form.querySelector("button");
+    button.disabled = true;
+    message.className = "note";
+    try {
+      const res = await fetch(`/api/tourneys/${t.id}/signups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+      if (data.created) names.push(data.signup.name);
+      count = data.signups.count;
+      try {
+        localStorage.setItem(signupNameKey, data.signup.name);
+      } catch {
+        // not kept
+      }
+      message.textContent = data.created ? `You're signed up as ${data.signup.name}.` : `${data.signup.name} is already signed up.`;
+      draw();
+    } catch (error) {
+      message.className = "note error";
+      message.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+
 async function tourneyPage() {
   ownRegion("/tourneys");
   try {
@@ -1180,6 +1252,7 @@ async function tourneyPage() {
       .join("");
     $("notes").textContent = t.notes ?? "";
     const upcoming = t.status === "scheduled" || t.status === "live";
+    if (upcoming) signupSection(t);
     loaded(
       $("lobbies"),
       t.lobbies.length ? t.lobbies.map((l) => lobbySection(t, l)).join("") : `<p class="empty">${upcoming ? "Lobbies are set up closer to the start." : "No lobbies."}</p>`,
