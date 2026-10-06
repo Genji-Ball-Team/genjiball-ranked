@@ -37,6 +37,27 @@ The host tool's AFK button. Every round that **starts** while it's on, the host 
 
 The rounds aren't in the log, so they're stored with the match, and a longer copy, a re-parse or a recompute applies them again.
 
+### Tourney matches
+
+A match with a `TOURNEY` line (log format 2, GenjiBall-CE `docs/ranked-log.md`, "Tourney matches") was played in a tourney lobby: its `lobbyKey` is the lobby's, from the host tool's tourney code ([Assigned tourneys](#assigned-tourneys-get-apihosttourneys)). The upload links it to that lobby, as an admin's link does (`POST /api/admin/lobbies/:id` with `matchId`): the match becomes a tournament ([rating.md](rating.md)), is rated and listed in the match feed as one, and shows in the lobby's standings. Code: `tourneyCheck` in `src/upload/plan.ts`.
+
+It's linked only when all of these hold. Otherwise it waits in the review queue with a `tourney_*` reason for each that fails, and is never on the boards as a tourney match on its own:
+
+| Check | Review reason when it fails |
+|---|---|
+| A lobby has the `lobbyKey` | `tourney_unknown_lobby` (the only reason then) |
+| The tourney isn't `cancelled` | `tourney_cancelled` |
+| The uploading host is the lobby's assigned host | `tourney_wrong_host` |
+| The match's region (`X-Region`, else the host's home region) is the tourney's | `tourney_wrong_region` |
+| The lobby has no match yet | `tourney_lobby_taken`; also for a second match of the same file for the lobby |
+| The logged `roundLimit` is the one the lobby plays (its own, else `tourneyRoundLimit`) | `tourney_round_limit`: the host's code wasn't the lobby's (an admin changed the limit after it was copied, or it was edited), so its standings may not be the ones the tourney meant |
+
+A match that doesn't count anyway (`rejected`: `UNRANKED`, too few players) isn't linked and gets no `tourney_*` reason. The checks are made again in the upload's transaction: a lobby linked to another match, reassigned or cancelled meanwhile sends the match to review (`tourney_lobby_taken`) instead.
+
+- **Copies of the match.** `TOURNEY` is in every copy. A longer copy of a linked match keeps the link (and its lobby's verification is cleared, as for any longer copy). A longer copy of a match that wasn't linked is checked again, so a first copy rejected for having no rated round yet is linked by the full one. A copy of a match an admin accepted or voided without a lobby, or unlinked, stays as the admin left it.
+- **In review.** An admin reads the reason, then links the match to its lobby (`POST /api/admin/lobbies/:id` with `matchId`) and accepts it, accepts it as a ranked match, or rejects it.
+- A match without `TOURNEY` (format 1, or a ranked format 2 match) is a ranked match, as before.
+
 ### Response
 
 `200`:
@@ -88,7 +109,7 @@ and `status`, the match's status after the upload:
 | Value | Meaning |
 |---|---|
 | `accepted` | Counts for the ratings. A complete match is rated straight away (by the next cron run when the upload took too many of D1's queries per request to rate it too); one with no `MATCH_END` after `ratingIncompleteGraceHours` (6 h), by the cron (every 10 minutes) ([rating.md](rating.md)) |
-| `review` | Waits for an admin. `reviewReasons`: `duplicate_name` (two players with the same name at once), `merged_names` (different aliases resolve to one player in the same round), `untrusted_host` |
+| `review` | Waits for an admin. `reviewReasons`: `duplicate_name` (two players with the same name at once), `merged_names` (different aliases resolve to one player in the same round), `untrusted_host`, and for a tourney match not linked to its lobby `tourney_unknown_lobby`, `tourney_cancelled`, `tourney_wrong_host`, `tourney_wrong_region`, `tourney_lobby_taken`, `tourney_round_limit` ([Tourney matches](#tourney-matches)) |
 | `rejected` | Never counts. `rejection.code`: `unranked` (an `UNRANKED` line), `unknown_format` (kept to re-parse when the server learns the format), `too_few_players` (fewer than `minMatchPlayers`, 2, in rated rounds. A 1v1 with a rated round counts; a match with no rated round is rejected), `untrusted_host` (when `untrustedHostUploads` is `reject`), `no_match_key`, `admin` (an admin rejected it from the review queue; a longer copy doesn't change that) |
 | `void` | An admin voided it. A longer copy doesn't change that |
 
@@ -231,7 +252,7 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/tourneys` | Body `{ "name", "region", "startsAt", "notes"?, "status"? }`. `region`: where it's played; its lobbies' matches must be from there. `startsAt` is ISO 8601 with a time zone. `status`: `scheduled` (default), `live`, `done`, `cancelled`. `201 { tourney }` |
 | `POST /api/admin/tourneys/:id` | Same fields, all optional: changes the ones sent. `409` for a new `region` while a lobby has a match |
 | `POST /api/admin/tourneys/:id/lobbies` | Body `{ "label": "Lobby 1/2", "hostId"?, "roundLimit"? }` (as below). The lobby gets a random `lobbyKey`. `201 { lobby }` |
-| `POST /api/admin/lobbies/:id` | Body `{ "label"?, "hostId"?, "roundLimit"?, "matchId"? }`. `hostId` assigns the lobby's host (`null`: none), who gets its code values and uploads its screenshot ([Assigned tourneys](#assigned-tourneys-get-apihosttourneys)): any host, whatever its home region, as the lobby is played in the tourney's; `404` for an unknown host, `409` for a revoked one. `roundLimit`: 1 to `tourneyRoundLimitMax` (50), `null` for `tourneyRoundLimit` (30). `matchId` links the lobby's match (`null` unlinks it): the match becomes a tournament ([rating.md](rating.md)), and a new match clears the verification. `409` if the match is another lobby's or from another region than the tourney. `{ lobby, ratingsStale }` |
+| `POST /api/admin/lobbies/:id` | Body `{ "label"?, "hostId"?, "roundLimit"?, "matchId"? }`. `hostId` assigns the lobby's host (`null`: none), who gets its code values and uploads its screenshot ([Assigned tourneys](#assigned-tourneys-get-apihosttourneys)): any host, whatever its home region, as the lobby is played in the tourney's; `404` for an unknown host, `409` for a revoked one. `roundLimit`: 1 to `tourneyRoundLimitMax` (50), `null` for `tourneyRoundLimit` (30). `matchId` links the lobby's match (`null` unlinks it): the match becomes a tournament ([rating.md](rating.md)), and a new match clears the verification. The upload of a tourney match links it on its own when it passes the checks ([Tourney matches](#tourney-matches)); this is for the others, and for fixing a link. `409` if the match is another lobby's or from another region than the tourney. `{ lobby, ratingsStale }` |
 | `DELETE /api/admin/lobbies/:id` | Deletes the lobby and its screenshot; its match is no longer a tournament. `{ ratingsStale }` |
 | `PUT /api/admin/lobbies/:id/screenshot` | Body: the image, PNG, JPEG or WebP (told apart by its first bytes, so any tool's image works), at most `screenshotMaxBytes` (8 MB). Replaces the old one, which needs verifying again, then expires the oldest screenshots past the storage caps ([database.md](database.md), "Screenshots in R2"). `{ lobby, expired }`, `expired` how many were detached and queued for R2 cleanup. `409` for a concurrent lobby change or storage full while cleanup is pending; `413 too_large`, `415 unsupported_type` |
 | `DELETE /api/admin/lobbies/:id/screenshot` | Deletes the screenshot |
@@ -310,7 +331,7 @@ For finding out why a log was parsed, judged or rated the way it was (#33). Code
 ```
 
 - **`upload`** is what `POST /api/upload` (or `legacy-import`) would answer: its status and body, with `uploadId: null` for a file it would store. It checks in the real order: the host, region and rate limit before the body. An upload: `403 revoked`, then `400` for a `region` that isn't one, `422 no_region`, `429 rate_limited`, then the body (`413 too_large`, `400 empty`), `duplicate` (this exact file is stored: `duplicateOf`), the parser's `422` (`not_ranked`, `legacy_log`), and `stored` or `unchanged`. An import: `400` without `host`, for a bad `region` or with no region, then the body, `duplicate`, `422 not_legacy`, and the result. The dry run itself only refuses its own parameters: `400` for a malformed `host` or `legacy`, `404` for an unknown host.
-- **`parser`** is what the parser read, even when the upload would stop before parsing (a stored file, a revoked host). `error` is the parse's own refusal (`{ status, error, message }`) or `null`. Each match has its plan (`action, status, rejection, reviewReasons`, `region`, `storedMatchId` with `host`) and what was read: player and round ids are the log's, `placements` the rated finishing order (winner first, leavers left out; empty for a round that isn't rated), `problems` the lines skipped and why. `warnings`: copies of one match in the file (only the longest is used), skipped lines, broken rounds, no `MATCH_END`.
+- **`parser`** is what the parser read, even when the upload would stop before parsing (a stored file, a revoked host). `error` is the parse's own refusal (`{ status, error, message }`) or `null`. Each match has its plan (`action, status, rejection, reviewReasons`, `region`, `storedMatchId` with `host`, `lobbyId`: the tourney lobby the upload would link it to) and what was read (`tourney`: `{ lobbyKey, roundLimit }` from `TOURNEY`, or `null`; the tourney checks are made as `host` in `region`, each skipped without it): player and round ids are the log's, `placements` the rated finishing order (winner first, leavers left out; empty for a round that isn't rated), `problems` the lines skipped and why. `warnings`: copies of one match in the file (only the longest is used), skipped lines, broken rounds, no `MATCH_END`.
 
 **Recompute: `POST /api/admin/ratings/recompute?region=eu`.** Marks the region's ratings stale from its first match and logs `ratings_recompute`, in one batch; `{ region, ratingsStale: true }`. It rates nothing itself: the cron (every 10 minutes) recomputes `ratingMatchesPerRun` matches a run until it's done ([rating.md](rating.md), "Ratings in the database"), so the request stays inside the free plan's 10 ms of CPU. New matches are still rated meanwhile. `region` is required (`400` without it, or for one that isn't a region); the other region is never touched. `dryRun` gets a `400`: the dry run is a script. Use it after a rating config or engine change, or when the dry run finds drift.
 

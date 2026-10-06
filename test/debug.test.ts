@@ -117,7 +117,8 @@ describe("POST /api/admin/parse", () => {
     const [m] = body.parser.matches;
     expect(m).toMatchObject({
       matchKey: "482913507226",
-      format: 1,
+      format: 2,
+      tourney: null,
       action: "insert",
       status: "review",
       rejection: null,

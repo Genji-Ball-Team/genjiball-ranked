@@ -188,6 +188,7 @@ export function parseLegacyLog(text: string, options: LegacyOptions): ParsedMatc
     rejection: null,
     unranked: [],
     review: [],
+    tourney: null,
     settings: null,
     startTime: kills[0]?.time ?? null,
     // The file is all there is: nothing longer will come, so the match is as complete as it gets.

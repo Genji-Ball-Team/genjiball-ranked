@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { parseLog } from "../src/parser/parse";
+import { standings } from "../src/tourney/standings";
+import { matchStats } from "../src/upload/plan";
+import exampleV1 from "./fixtures/ranked-log-example-v1.txt?raw";
 import example from "./fixtures/ranked-log-example.txt?raw";
+import tourneyExample from "./fixtures/ranked-log-tourney-example.txt?raw";
 
 const options = { acceptedFormats: defaults.acceptedLogFormats };
 const parse = (text: string) => parseLog(text, options);
@@ -25,13 +29,14 @@ describe("parseLog: the spec example", () => {
 
   it("reads the header and settings", () => {
     expect(match).toMatchObject({
-      format: 1,
+      format: 2,
       gameVersion: "1.3.3R",
       matchKey: "482913507226",
       startLine: 2,
       lineCount: 56,
       rejection: null,
       unranked: [],
+      tourney: null,
       startTime: 2.38,
       endResult: "TIME",
       endTime: 114,
@@ -148,9 +153,9 @@ describe("parseLog: matches", () => {
 
   it("rejects a match with an unknown format version and skips its lines", () => {
     const result = parse(
-      log("GBR|1|2|1.4.0R|000000000009", "MATCH_START|1|x|y|0|", "GBR|1|1|1.3.3R|000000000001", "MATCH_END|3|TIME"),
+      log("GBR|1|3|1.4.0R|000000000009", "MATCH_START|1|x|y|0|", "GBR|1|1|1.3.3R|000000000001", "MATCH_END|3|TIME"),
     );
-    expect(result.matches[0]).toMatchObject({ format: 2, lineCount: 1, settings: null });
+    expect(result.matches[0]).toMatchObject({ format: 3, lineCount: 1, settings: null });
     expect(result.matches[0]!.rejection?.code).toBe("unknown_format");
     expect(result.matches[1]!.rejection).toBeNull();
   });
@@ -335,5 +340,114 @@ describe("parseLog: players", () => {
     expect(match.problems).toEqual([]);
     const old = parse(log(...header, "JOIN|1|1|A", "JOIN|1|2|B")).matches[0]!;
     expect(old.players.map((p) => p.host)).toEqual([false, false]);
+  });
+});
+
+describe("parseLog: format 1", () => {
+  it("reads the format 1 example as the format 2 one: a ranked match", () => {
+    const v1 = parse(exampleV1).matches[0]!;
+    const v2 = parse(example).matches[0]!;
+    expect(v1.format).toBe(1);
+    expect(v2.format).toBe(2);
+    expect(v1.tourney).toBeNull();
+    expect({ ...v1, format: 2 }).toEqual(v2);
+  });
+
+  it("skips a TOURNEY line in a format 1 match, as the format 1 parser did", () => {
+    const v1 = ["GBR|1.00|1|1.3.3R|000000000001", "TOURNEY|1.00|073518264903|3", header[1]!];
+    const match = parse(log(...v1)).matches[0]!;
+    expect(match.tourney).toBeNull();
+    expect(match.lineCount).toBe(2);
+    expect(match.problems).toEqual([]);
+  });
+});
+
+describe("parseLog: the tourney example", () => {
+  const result = parse(tourneyExample);
+  const match = result.matches[0]!;
+
+  it("reads TOURNEY, the Tournament preset and MATCH_END ROUNDS", () => {
+    expect(result.matches).toHaveLength(1);
+    expect(match).toMatchObject({
+      format: 2,
+      matchKey: "219604738815",
+      lineCount: 43,
+      rejection: null,
+      unranked: [],
+      review: [],
+      tourney: { lobbyKey: "073518264903", roundLimit: 3 },
+      endResult: "ROUNDS",
+      endTime: 80.16,
+    });
+    expect(match.settings).toEqual({ map: "workshop-island-night", preset: "Tournament", feel: false, addOns: [] });
+    expect(match.problems).toEqual([]);
+  });
+
+  it("keeps the lobbyKey's leading 0: it's text", () => {
+    expect(match.tourney!.lobbyKey).toHaveLength(12);
+  });
+
+  it("plays 3 rounds, round 2 ending NONE and not rated", () => {
+    expect(match.rounds.map((r) => [r.number, r.result, r.winnerId, r.finishingOrder])).toEqual([
+      [1, "WIN", 2, [2, 1, 4, 3]],
+      [2, "NONE", null, null],
+      [3, "WIN", 2, [2, 3, 1, 4]],
+    ]);
+    expect(match.rounds.flatMap((r) => r.broken)).toEqual([]);
+  });
+
+  it("gives the spec's standings: Tidal first, Sparrow and Mochi share 2nd, Ghost 4th", () => {
+    const players = match.players.map((p) => ({ logId: p.id, playerId: p.id, name: p.name, ratingBefore: null, ratingAfter: null }));
+    const wins = [...new Set(match.rounds.map((r) => r.winnerId))].flatMap((id) =>
+      id === null ? [] : [{ logId: id, n: match.rounds.filter((r) => r.result === "WIN" && r.winnerId === id).length }],
+    );
+    const kills = [...matchStats(match).kills].map(([logId, n]) => ({ logId, n }));
+    expect(standings(players, wins, kills).map((s) => [s.place, s.name, s.wins, s.kills])).toEqual([
+      [1, "Tidal", 2, 3],
+      [2, "Mochi", 0, 1],
+      [2, "Sparrow", 0, 1],
+      [4, "Ghost", 0, 0],
+    ]);
+  });
+
+  it("keeps TOURNEY in every copy of the match", () => {
+    const copy = parse(tourneyExample.split(/\r?\n/).slice(0, 21).join("\n")).matches[0]!;
+    expect(copy).toMatchObject({ matchKey: "219604738815", tourney: { lobbyKey: "073518264903", roundLimit: 3 }, endResult: null });
+    expect(copy.lineCount).toBeLessThan(match.lineCount);
+  });
+});
+
+describe("parseLog: tourney lines", () => {
+  const gbr = "GBR|1.00|2|1.3.3R|000000000001";
+  const round = ["JOIN|1|1|A", "JOIN|1|2|B", "ROUND_START|2|1|1,2", "ELIM|3|1|2|1|2", "ROUND_END|3|1|1|WIN"];
+  const messages = (...lines: string[]) => parse(log(...lines)).matches[0]!.problems.map((p) => p.message);
+
+  it("reads a format 2 match without TOURNEY as a ranked match ending TIME", () => {
+    const match = parse(log(gbr, header[1]!, ...round, "MATCH_END|4|TIME")).matches[0]!;
+    expect(match).toMatchObject({ format: 2, tourney: null, endResult: "TIME", problems: [] });
+  });
+
+  it("reports a MATCH_END that doesn't fit the kind of match, and keeps it", () => {
+    expect(messages(gbr, header[1]!, ...round, "MATCH_END|4|ROUNDS")).toEqual(['MATCH_END: "ROUNDS" ends a ranked match, expected TIME']);
+    const tourney = parse(log(gbr, "TOURNEY|1|000000000042|1", header[1]!, ...round, "MATCH_END|4|TIME")).matches[0]!;
+    expect(tourney.endResult).toBe("TIME");
+    expect(tourney.problems.map((p) => p.message)).toEqual(['MATCH_END: "TIME" ends a tourney match, expected ROUNDS']);
+  });
+
+  it("reports ROUNDS before round roundLimit", () => {
+    expect(messages(gbr, "TOURNEY|1|000000000042|3", header[1]!, ...round, "MATCH_END|4|ROUNDS")).toEqual([
+      "MATCH_END: ROUNDS after round 1, the roundLimit is 3",
+    ]);
+  });
+
+  it("still reads a TOURNEY line that's late or has bad fields, so the match is never taken for a ranked one", () => {
+    const match = parse(log(gbr, header[1]!, "TOURNEY|1|12ab|x", "TOURNEY|1|000000000042|3")).matches[0]!;
+    expect(match.tourney).toEqual({ lobbyKey: "12ab", roundLimit: null });
+    expect(match.problems.map((p) => p.message)).toEqual([
+      "TOURNEY: after MATCH_START (read anyway)",
+      'TOURNEY: lobbyKey "12ab" isn\'t digits',
+      'TOURNEY: roundLimit "x" isn\'t a whole number from 1',
+      "TOURNEY: second TOURNEY in the match",
+    ]);
   });
 });
