@@ -17,7 +17,7 @@ Run every command from the `genjiball-ranked` folder. `npx wrangler` is Cloudfla
 
 - One Cloudflare account, the Genji Ball one (the genjiball.us zone). `account_id` in `wrangler.toml` pins it, so a deploy can't go to another account.
 - The test server is `[env.test]` in `wrangler.toml`. The two share no data.
-- Settings are `[vars]` in `wrangler.toml`; they override the defaults in `src/config.ts`. No wrangler secrets are used today. If one is ever needed: `npx wrangler secret put NAME` (add `--env test` for the test server). Never put a secret in `wrangler.toml`.
+- Settings are `[vars]` in `wrangler.toml`; they override the defaults in `src/config.ts`. Secrets are `npx wrangler secret put NAME` (add `--env test` for the test server). The only one is `BOT_TOKEN`: the Discord bot's token for `/api/bot/*` ([api.md](api.md), "Discord bot sign-ups"), the same value as the bot's `SITE_TOKEN` secret. Without it, those routes refuse everyone. Never put a secret in `wrangler.toml`.
 
 ## First-time setup
 

@@ -101,9 +101,11 @@ export interface SignupRow {
   removedAt: string | null;
   /** The admin who removed it. */
   removedBy: string | null;
+  /** The Discord user who signed up from the bot, or claimed the name (`./botSignups.ts`). */
+  discordUserId: string | null;
 }
 
-const signupColumns = `s.id, s.tourney_id AS tourneyId, s.name, s.signed_up_at AS signedUpAt, s.removed_at AS removedAt, a.name AS removedBy`;
+const signupColumns = `s.id, s.tourney_id AS tourneyId, s.name, s.signed_up_at AS signedUpAt, s.removed_at AS removedAt, a.name AS removedBy, s.discord_user_id AS discordUserId`;
 const signupFrom = "tourney_signups s LEFT JOIN admins a ON a.id = s.removed_by";
 
 /** Every sign-up of the tourney, removed ones too, first come first. */
