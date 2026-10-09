@@ -33,7 +33,7 @@ Read [docs/database.md](docs/database.md) before writing to D1: the tables, how 
 
 ## Public read API
 
-CORS and caching for every public `GET` route are added in one place, `src/public.ts`, not by handlers ([docs/api.md](docs/api.md), "Public API"). A new public route under a new first path segment (`/api/<segment>`) adds that segment to `publicReadRoutes`; routes behind a token (`admin`, `host`, `upload`) never get CORS and are always `Cache-Control: no-store`. A `POST` anyone may send (a tourney sign-up) is a public write, listed in `publicWrites`: same origin only, never cached. Public answers show only `accepted` and `void` matches.
+CORS and caching for every public `GET` route are added in one place, `src/public.ts`, not by handlers ([docs/api.md](docs/api.md), "Public API"). A new public route under a new first path segment (`/api/<segment>`) adds that segment to `publicReadRoutes`; routes behind a token (`admin`, `host`, `upload`, `bot`) never get CORS and are always `Cache-Control: no-store`. A `POST` anyone may send (a tourney sign-up) is a public write, listed in `publicWrites`: same origin only, never cached. Public answers show only `accepted` and `void` matches.
 
 ## The log format is a contract
 

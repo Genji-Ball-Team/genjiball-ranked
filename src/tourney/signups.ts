@@ -99,7 +99,11 @@ async function readName(request: Request, config: SignupConfig): Promise<string 
     return { error: "The body must be JSON: { name }" };
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) return { error: "The body must be a JSON object: { name }" };
-  const { name } = body as Record<string, unknown>;
+  return checkName((body as Record<string, unknown>).name, config);
+}
+
+/** The trimmed in-game name, or what's wrong with it. Also checks the Discord bot's (`./botSignups.ts`). */
+export function checkName(name: unknown, config: Pick<Config, "playerNameMaxLength">): string | { error: string } {
   if (typeof name !== "string") return { error: "name must be a string: your in-game name" };
   const trimmed = name.trim();
   if (!trimmed) return { error: "name is required" };

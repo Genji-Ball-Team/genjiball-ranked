@@ -203,6 +203,13 @@ export const defaults = {
   /** Largest sign-up body, in bytes. The JSON is a name. */
   tourneySignupBodyMaxBytes: 1024,
   /**
+   * Most sign-ups the Discord bot sends in one `POST /api/bot/tourneys/:id/signups`: one for a
+   * Register press, more when it catches up on the ones it couldn't send. Each is one row's write.
+   */
+  botSignupsPerRequest: 50,
+  /** Largest bot sign-up body, in bytes: `botSignupsPerRequest` names and Discord user ids. */
+  botSignupBodyMaxBytes: 16384,
+  /**
    * How long before a tourney's start its assigned hosts get the tourney code values (`lobbyKey`,
    * round limit) from `GET /api/host/tourneys`, in minutes (#25). They stay available until the
    * lobby has a match or the tourney is done or cancelled.

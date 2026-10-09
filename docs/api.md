@@ -368,7 +368,7 @@ Each of `players` changes on the leaderboard: `{ playerId, name, before, after, 
 
 Everything a community tool can read without a token: the [Site](#site-apileaderboard-apiplayersid-apiplayersidhistory-apiplayersidstats-apiplayerssearch-apimatchesid-apimatchesafter-apihead-to-head-apirecords-apitourneys-apilobbies) routes (the live lobbies included), the [rank tags](#rank-tags-get-apirank-tagsregioneu), `/api/server` and `/api/health`. A page on any website can read them from the browser. Code: `src/public.ts`, applied to every route in `src/index.ts`, so a handler doesn't set any of this itself.
 
-**The rule.** A path is public when its first segment after `/api/` is in `publicReadRoutes` (`src/public.ts`): `health`, `server`, `leaderboard`, `players`, `matches`, `tourneys`, `lobbies`, `head-to-head`, `records`, `rank-tags`, `screenshots`, and everything under them (`/api/players/12/history` is under `players`). **A new public route lists its first segment there**; one under an existing segment gets it already. `admin`, `host` and `upload` (`privateRoutes`) need a token: they never get CORS headers, whatever the list says, and every answer on them is `Cache-Control: no-store`.
+**The rule.** A path is public when its first segment after `/api/` is in `publicReadRoutes` (`src/public.ts`): `health`, `server`, `leaderboard`, `players`, `matches`, `tourneys`, `lobbies`, `head-to-head`, `records`, `rank-tags`, `screenshots`, and everything under them (`/api/players/12/history` is under `players`). **A new public route lists its first segment there**; one under an existing segment gets it already. `admin`, `host`, `upload` and `bot` (`privateRoutes`) need a token: they never get CORS headers, whatever the list says, and every answer on them is `Cache-Control: no-store`.
 
 On a public path:
 
@@ -442,6 +442,30 @@ Body `{ "name": "Kenzo" }`: spaces around it dropped, at most `playerNameMaxLeng
 | 409 | `removed` | An admin removed this name from the tourney's sign-ups |
 | 409 | `too_many` | The tourney has `tourneySignupsMax` sign-ups |
 | 429 | `rate_limited` | Over `tourneySignupsPerHour` for this IP. `Retry-After` says when to try again |
+
+## Discord bot sign-ups: `/api/bot/tourneys/:id/signups`
+
+The Discord bot's Register and Unregister buttons sign players up here, so the Tourneys page and Discord show one list (Genji-Ball-Team/Discord-Bot). Behind the bot's token: `Authorization: Bearer <BOT_TOKEN>` (a wrangler secret, [deployment.md](deployment.md)); `401 unauthorized` without it, and for everyone while it isn't set. Private: no CORS, `Cache-Control: no-store`. Code: `src/tourney/botSignups.ts`.
+
+| Route | Does |
+|---|---|
+| `GET /api/bot/tourneys/:id/signups` | `{ status, capacity, signups, entries }`: `signups` as on the [Tourneys page](#site-apileaderboard-apiplayersid-apiplayersidhistory-apiplayersidstats-apiplayerssearch-apimatchesid-apimatchesafter-apihead-to-head-apirecords-apitourneys-apilobbies) (`open, count, full`). `entries`: the sign-ups not removed, first come first: `name, discordUserId` (`null` for one from the page only), `signedUpAt` |
+| `POST /api/bot/tourneys/:id/signups` | Body `{ "signups": [{ "discordUserId": "123…", "name": "Kenzo" }] }`, 1 to `botSignupsPerRequest` (50), each user once, names as on the page. Answers `{ results, capacity, signups }`, `201` when something was written, else `200`. Each result: `discordUserId, status, signup` (`{ name, signedUpAt }` of their sign-up, `null` without one) |
+| `DELETE /api/bot/tourneys/:id/signups/:discordUserId` | The player unregistered: `{ removed, name, capacity, signups }`, `removed` `false` when they had no sign-up (or an admin removed it: that stays). The name can sign up again |
+
+A result's `status`:
+
+| `status` | |
+|---|---|
+| `created` | Signed up |
+| `linked` | The name was signed up from the page by no Discord user: the same name is the same player, so this user claimed it. Their sign-up keeps its place |
+| `exists` | This user is already signed up (`signup.name` is the name they have, whatever this one says) |
+| `removed` | An admin removed this user's sign-up, or the name: it can't come back |
+| `name_taken` | Another Discord user has the name (or comes first with it in this request) |
+| `too_many` | The tourney has `tourneySignupsMax` (200) sign-ups |
+| `conflict` | The list changed between the read and the write: send it again |
+
+As on the page: only while the tourney is `scheduled` (`409 closed` for the `POST` and for a `DELETE` that would remove one), past capacity is fine. Not rate-limited by IP. `400 bad_request` for a bad body, `404 not_found` for an unknown tourney, `405 method_not_allowed` for another method.
 
 ## Rank tags: `GET /api/rank-tags?region=eu`
 

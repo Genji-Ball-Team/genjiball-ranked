@@ -7,4 +7,6 @@ export interface Env {
   LOG_LEVEL?: string;
   TEST_SERVER?: string;
   RATING_MATCHES_PER_RUN?: string;
+  /** Secret: the Discord bot's token for `/api/bot/*` (`wrangler secret put BOT_TOKEN`). Unset: those routes refuse everyone. */
+  BOT_TOKEN?: string;
 }
