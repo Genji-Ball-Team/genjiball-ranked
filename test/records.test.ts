@@ -16,6 +16,8 @@ const log = createLogger("error");
 const adminToken = "records-admin";
 const tokens = { eu: "records-eu", na: "records-na" };
 const names = ["Alpha", "Bravo", "Charlie", "Delta"];
+/** `richLog` plays 2 rated rounds with 4 players, 3 once a bot is left out: low enough minimums for both. */
+const config = { ...defaults, recordsMinPlayers: 3, recordsMinRatedRounds: 2 };
 
 beforeEach(async () => {
   // Storage is isolated per test file, not per test.
@@ -73,7 +75,7 @@ async function refresh(now = new Date()) {
   while (await syncMatchStats(db(), defaults, log));
   for (const region of ["eu", "na"]) {
     const { revision, version } = await revisions(region);
-    await rebuildRecords(db(), defaults, region, revision, version, now);
+    await rebuildRecords(db(), config, region, revision, version, now);
   }
 }
 
@@ -107,7 +109,7 @@ describe("match stats", () => {
     let visited = 0;
     for (const m of matches) {
       for (let logId = 1; logId <= 12; logId++) {
-        counts.players.push({ matchId: m.id, logId, playerId: logId });
+        counts.players.push({ matchId: m.id, logId, playerId: logId, bot: 0 });
         counts.kills.push({ matchId: m.id, logId, count: logId });
         counts.wins.push({ matchId: m.id, logId, count: logId });
         for (let round = 1; round <= 100; round++) {
@@ -142,12 +144,29 @@ describe("match stats", () => {
       wins: [{ matchId: 7, logId: 2, count: 1 }],
       ratedRounds: [{ matchId: 7, count: 1 }],
       players: [
-        { matchId: 7, logId: 1, playerId: 100 },
-        { matchId: 7, logId: 2, playerId: 200 },
-        { matchId: 7, logId: 3, playerId: 100 },
+        { matchId: 7, logId: 1, playerId: 100, bot: 0 },
+        { matchId: 7, logId: 2, playerId: 200, bot: 0 },
+        { matchId: 7, logId: 3, playerId: 100, bot: 0 },
       ],
     });
     expect(row).toMatchObject({ matchKills: 4, matchKillsBy: 3, matchWins: 1, matchWinsBy: 2, ratedRounds: 1, fastestDeflect: 40, fastestDeflectBy: 2 });
+    expect(row!.players).toBe(2);
+  });
+
+  it("counts different players, bots left out", () => {
+    const [row] = matchStats([match], {
+      deflects: [],
+      kills: [],
+      wins: [],
+      ratedRounds: [],
+      players: [
+        { matchId: 7, logId: 1, playerId: 100, bot: 0 },
+        { matchId: 7, logId: 2, playerId: 200, bot: 1 },
+        { matchId: 7, logId: 3, playerId: 300, bot: 0 },
+        { matchId: 7, logId: 4, playerId: 100, bot: 0 },
+      ],
+    });
+    expect(row!.players).toBe(2);
   });
 
   it("breaks a tie to the earliest round, then the lowest log id", () => {
@@ -160,7 +179,7 @@ describe("match stats", () => {
       kills: [],
       wins: [],
       ratedRounds: [],
-      players: [1, 2, 3].map((logId) => ({ matchId: 7, logId, playerId: logId })),
+      players: [1, 2, 3].map((logId) => ({ matchId: 7, logId, playerId: logId, bot: 0 })),
     });
     expect(row).toMatchObject({ roundDeflects: 3, roundDeflectsBy: 2, roundDeflectsRound: 1, fastestDeflect: 50, fastestDeflectBy: 3, fastestDeflectRound: 1 });
     expect(row).toMatchObject({ matchKills: null, matchKillsBy: null, matchWins: null, ratedRounds: 0 });
@@ -209,6 +228,28 @@ describe("GET /api/records", () => {
     expect(body.records.matchKills).toMatchObject({ value: 1, player: { name: "Alpha" } });
     expect(body.records.fastestDeflect).toMatchObject({ value: 20, player: { name: "Alpha" } });
     expect(body.activity.players).toBe(3);
+  });
+
+  it("takes records only from matches with recordsMinPlayers players and recordsMinRatedRounds rated rounds", async () => {
+    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 20]], kills: [[1, 2]] }), 3);
+    await upload(richLog({ key: "000000000002", deflects: [[1, 3, 90], [1, 3, 80]], kills: [[3, 1], [3, 2]], rounds: 1 }), 2);
+    await refresh();
+    const first = await matchId("000000000001");
+    const body = await records();
+    // The second match played 1 rated round, under the 2 needed: only the first sets records.
+    expect(body.records.fastestDeflect).toMatchObject({ value: 20, matchId: first });
+    expect(body.records.roundDeflects).toMatchObject({ value: 1, matchId: first });
+    expect(body.records.matchKills).toMatchObject({ value: 1, matchId: first });
+    // Both still count in the activity and top hosts.
+    expect(body.activity).toMatchObject({ matches: 2, rounds: 3 });
+    expect(body.topHosts).toEqual([{ name: "eu host", matches: 2 }]);
+
+    // With 5 players needed, neither 4-player match sets a record.
+    const { revision, version } = await revisions("eu");
+    await rebuildRecords(db(), { ...config, recordsMinPlayers: 5 }, "eu", revision + 1, version, new Date());
+    const gated = await records();
+    expect(gated.records).toMatchObject({ roundDeflects: null, fastestDeflect: null, matchKills: null, matchWins: null });
+    expect(gated.activity).toMatchObject({ matches: 2, rounds: 3 });
   });
 
   it("keeps the regions apart", async () => {
@@ -304,7 +345,7 @@ describe("records: matches that stop counting", () => {
     expect(JSON.stringify(served.records)).not.toContain(`"matchId":${second}`);
 
     // Due at once, inside recordsRefreshMinutes.
-    await updateRecords(db(), defaults, new Date(), log);
+    await updateRecords(db(), config, new Date(), log);
     expect((await records()).records.fastestDeflect).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
   });
 
@@ -319,7 +360,7 @@ describe("records: matches that stop counting", () => {
     ]);
     try {
       expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(1);
-      await rebuildRecords(db(), defaults, "eu", 99, 0, new Date());
+      await rebuildRecords(db(), config, "eu", 99, 0, new Date());
       const body = await records();
       expect(body.records).toMatchObject({ roundDeflects: null, fastestDeflect: null, matchWins: null });
       expect(body.topHosts).toEqual([]);
@@ -363,7 +404,7 @@ describe("records: matches that stop counting", () => {
     await db().prepare("UPDATE records_revisions SET revision = revision + 1 WHERE region = 'eu'").run();
     // A fixed clock: "now" read twice could straddle the refresh interval by a millisecond.
     const at = new Date("2026-10-05T12:00:00Z");
-    await rebuildRecords(db(), defaults, "eu", before.revision, before.version, at);
+    await rebuildRecords(db(), config, "eu", before.revision, before.version, at);
     const state = await db().prepare("SELECT revision, refreshed_at AS refreshedAt FROM records WHERE region = 'eu'").first<{ revision: number; refreshedAt: string }>();
     expect(state).toEqual({ revision: before.revision, refreshedAt: "2026-10-05T12:00:00Z" });
     const later = new Date(at.getTime() + defaults.recordsRefreshMinutes * 60 * 1000);
@@ -371,7 +412,7 @@ describe("records: matches that stop counting", () => {
     expect(isDue({ ...stored, revision: before.revision + 1 }, defaults, later)).toBe(true);
     expect(isDue({ ...stored, revision: before.revision }, defaults, later)).toBe(false);
     // A slower run that read an even older revision doesn't overwrite it.
-    await rebuildRecords(db(), defaults, "eu", before.revision - 1, before.version, at);
+    await rebuildRecords(db(), config, "eu", before.revision - 1, before.version, at);
     expect(await db().prepare("SELECT revision FROM records WHERE region = 'eu'").first("revision")).toBe(before.revision);
   });
 });
@@ -409,7 +450,7 @@ describe("records: player merges (#8)", () => {
     // Queued and urgent in the merge's transaction: the stored page already names Alpha.
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(1);
     expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha } });
-    await updateRecords(db(), defaults, new Date(), log);
+    await updateRecords(db(), config, new Date(), log);
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(0);
     expect((await records()).records.matchKills).toMatchObject({ value: 5, player: { id: alpha } });
     expect((await records()).records.matchWins).toMatchObject({ value: 2, player: { id: alpha } });
@@ -419,7 +460,7 @@ describe("records: player merges (#8)", () => {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     expect(undo.status, await undo.clone().text()).toBe(200);
-    await updateRecords(db(), defaults, new Date(), log);
+    await updateRecords(db(), config, new Date(), log);
     expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
   });
 
@@ -467,7 +508,7 @@ describe("records refresh", () => {
 
   it("leaves the records to the next run when the invocation's queries are short", async () => {
     await upload(richLog({ deflects: [[1, 1, 20]] }), 3);
-    await updateRecords(db(), defaults, new Date(), log, queryBudget(db(), syncQueries - 1));
+    await updateRecords(db(), config, new Date(), log, queryBudget(db(), syncQueries - 1));
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(0);
     const short = queryBudget(db(), syncQueries + refreshQueries - 1);
     await updateRecords(short.db, defaults, new Date(), log, short);
@@ -509,8 +550,10 @@ describe("records refresh", () => {
     await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "*/10 * * * *" }), env);
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(1);
     expect((await db().prepare("SELECT region FROM records").all()).results).toEqual([{ region: "eu" }]);
-    expect((await records()).records.fastestDeflect).toMatchObject({ value: 20 });
-    await updateRecords(db(), defaults, new Date(), log);
+    expect(await db().prepare("SELECT players, rated_rounds AS rounds FROM match_stats").first()).toEqual({ players: 4, rounds: 2 });
+    // The cron's defaults: 2 rated rounds are too few to set a record.
+    expect((await records()).records.fastestDeflect).toBeNull();
+    await updateRecords(db(), config, new Date(), log);
     expect((await db().prepare("SELECT region FROM records ORDER BY region").all()).results).toEqual([{ region: "eu" }, { region: "na" }]);
   });
 });
