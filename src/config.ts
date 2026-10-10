@@ -353,6 +353,14 @@ export const defaults = {
   recordsActivityDays: 28,
   /** Hosts in the records' top hosts, most matches first. */
   recordsTopHosts: 10,
+  /**
+   * A match sets a record (deflects in a round, fastest deflect, kills, wins) only with at least this
+   * many different players, bots left out, and this many rated rounds: a long 1v1 or a lobby that
+   * barely played doesn't. It still counts in the activity and top hosts. Applied when a region's
+   * page is rebuilt, so a change shows at its next rebuild (a new UTC day at the latest).
+   */
+  recordsMinPlayers: 4,
+  recordsMinRatedRounds: 5,
 };
 
 export type Config = typeof defaults;
