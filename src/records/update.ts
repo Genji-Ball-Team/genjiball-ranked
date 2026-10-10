@@ -95,7 +95,7 @@ export async function rebuildRecords(
   ratingVersion: number,
   now: Date,
 ): Promise<void> {
-  const input = await readRecordsInput(db, region, activityStart(now, config.recordsActivityDays), config.recordsTopHosts);
+  const input = await readRecordsInput(db, region, activityStart(now, config.recordsActivityDays), config);
   await writeRecordsStatement(db, region, recordsView(input, config, now), isoSeconds(now), revision, ratingVersion).run();
 }
 

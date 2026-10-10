@@ -8,7 +8,13 @@ import type { Config } from "../config";
 
 export type RecordsConfig = Pick<
   Config,
-  "recordsMatchesPerRun" | "recordsRefreshMinutes" | "recordsActivityDays" | "recordsTopHosts" | "regions"
+  | "recordsMatchesPerRun"
+  | "recordsRefreshMinutes"
+  | "recordsActivityDays"
+  | "recordsTopHosts"
+  | "recordsMinPlayers"
+  | "recordsMinRatedRounds"
+  | "regions"
 >;
 
 /** A match of the feed the cron reads: where it is, and whether it counts. */
@@ -32,8 +38,8 @@ export interface MatchCounts {
   /** Rated rounds a log id won. */
   wins: { matchId: number; logId: number; count: number }[];
   ratedRounds: { matchId: number; count: number }[];
-  /** The match's log ids and whose they are: a player who rejoined has two. */
-  players: { matchId: number; logId: number; playerId: number }[];
+  /** The match's log ids and whose they are: a player who rejoined has two. `bot`: 1 for a bot. */
+  players: { matchId: number; logId: number; playerId: number; bot: number }[];
 }
 
 /** A row of `match_stats`. `…By` are log ids of the match: its player's newest one. */
@@ -44,6 +50,8 @@ export interface MatchStatsRow {
   hostId: number;
   playedAt: string;
   ratedRounds: number;
+  /** Different players, bots left out: with `ratedRounds`, whether the match can set a record. */
+  players: number;
   roundDeflects: number | null;
   roundDeflectsBy: number | null;
   roundDeflectsRound: number | null;
@@ -139,6 +147,7 @@ export function matchStats(matches: readonly FeedMatch[], counts: MatchCounts): 
       hostId: match.hostId,
       playedAt: match.playedAt,
       ratedRounds: ratedByMatch.get(match.id) ?? 0,
+      players: new Set(players.filter((p) => !p.bot).map((p) => p.playerId)).size,
       roundDeflects: perRound?.value ?? null,
       roundDeflectsBy: perRound?.by ?? null,
       roundDeflectsRound: perRound?.round ?? null,
