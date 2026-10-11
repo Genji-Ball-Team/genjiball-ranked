@@ -113,6 +113,15 @@ With those settings, 329 players have 3+ rated rounds: 18 are Apprentice, 7 Mast
 
 ## Tournaments
 
-`POST /api/admin/matches/:id/tournament` marks a match. Its rounds are damped `tournamentWeight` (3) times less, so it counts that many times as much. Afterwards nobody's display rating is more than `tournamentMaxChange` (200) points from where they started it, either way. The cap is the same both ways, so tournaments don't add points to the ladder.
+`POST /api/admin/matches/:id/tournament` marks a match. A tournament is rated in four steps (`rateTournament` in `src/rating/engine.ts`, settings in `src/config.ts`):
 
-There is one leaderboard per region. Tourney matches are on it with ranked ones; they only count more. A tourney is played in one region, and only that region's matches can be linked to its lobbies. A match is a tournament once an admin links it to a tourney lobby (`POST /api/admin/lobbies/:id`, [api.md](api.md)), or marks it by hand with the route above. Unlinking it, or deleting the lobby, makes it a normal match again. Either way the ratings are recomputed from it.
+1. **Rounds.** Its rounds are rated exactly like a ranked lobby's.
+2. **Position bonus.** The final standings are rated as one more game, and mu moves `tournamentBonusWeight` (2) times as far as that game would move it. A player's score is rated rounds won × the win value + kills (`KILL`s, not of themselves). The win value grows with the lobby's size at the start (its first rated round, N players): round((N − 1) × (1 + N ÷ 10)) + 1, so 4 players 5, 5 → 7, 6 → 9, 7 → 11, 8 → 14, 10 → 19, 12 → 25. Tied scores tie. A player who left keeps the wins and kills they had. The bonus doesn't count as a round: rounds, wins and streaks are the rounds' own.
+3. **Caps.** Nobody gains more than `tournamentMaxGain` (250) display points in it. The most anyone loses depends on their display rating before it (`tournamentMaxLossBands`): 50 under 1300 (Apprentice), 75 under 1600 (Master), 100 from 1600 up (`tournamentMaxLoss`).
+4. **Winner.** Everyone first on score gets `tournamentWinnerBonus` (50) display points on top, after the caps.
+
+The rounds reward each round's finish and the bonus the whole tourney, so a strong winner isn't punished for being expected to win most rounds. On tourney #1 (EU match 459), Ipseity (10 wins, 34 kills, 2266) gets −87 from the rounds, +44 from the bonus and +50 for winning: +7.
+
+After changing these settings, recompute from the first tournament they should apply to: `POST /api/admin/ratings/recompute?region=eu&from=<match id>` ([api.md](api.md)). Matches before it keep their ratings.
+
+There is one leaderboard per region. Tourney matches are on it with ranked ones; only their rating differs. A tourney is played in one region, and only that region's matches can be linked to its lobbies. A match is a tournament once an admin links it to a tourney lobby (`POST /api/admin/lobbies/:id`, [api.md](api.md)), or marks it by hand with the route above. Unlinking it, or deleting the lobby, makes it a normal match again. Either way the ratings are recomputed from it.

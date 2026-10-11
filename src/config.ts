@@ -157,17 +157,33 @@ export const defaults = {
   displayFloor: 900,
 
   /**
-   * Tournaments: a match an admin marks as a tournament counts `tournamentWeight` times a normal
-   * one, because each of its rounds is damped to 1/(`ratingRoundsPerMatch` ÷ weight). Tournaments are
-   * rare and meant to matter, so a good one climbs fast.
+   * Tournaments: a match an admin marks as a tournament is rated in two parts (docs/rating.md,
+   * "Tournaments"). Its rounds are rated like a ranked lobby's. Then the final standings, by score,
+   * are rated as one more game, a position bonus: this many times a game's movement of mu. The rounds
+   * reward each round's finish; the bonus rewards the whole tourney, so its winner isn't punished for
+   * being expected to win most rounds.
    */
-  tournamentWeight: 3,
+  tournamentBonusWeight: 2,
   /**
-   * The most display points anyone can gain or lose in one tournament. The cap is the same both
-   * ways, so tournaments don't add points to the ladder: one bad or lucky tournament can't swing a
-   * rating too far, and the rating already expects a weak player to finish behind strong ones.
+   * A player's score in the standings: rated rounds won × the win value, plus kills. The win value
+   * grows with the lobby's size at the start (its first rated round, N players):
+   * round((N − 1) × (1 + N ÷ `tournamentWinValueGrowth`)) + 1, so 5 for 4 players, 11 for 7, 25 for 12.
    */
-  tournamentMaxChange: 200,
+  tournamentWinValueGrowth: 10,
+  /** Display points the winner of the standings (first on score; everyone tied for first) gets on top, after the caps. */
+  tournamentWinnerBonus: 50,
+  /**
+   * The most display points anyone can lose in one tournament (rounds and bonus together):
+   * `tournamentMaxLoss`, or less for a lower rating. A player's display rating before the tourney
+   * picks the first band it's `below`: under Apprentice 50, under Master 75, from Master up 100.
+   */
+  tournamentMaxLoss: 100,
+  tournamentMaxLossBands: [
+    { below: 1300, maxLoss: 50 },
+    { below: 1600, maxLoss: 75 },
+  ] as readonly TournamentLossBand[],
+  /** The most display points anyone can gain in one tournament, before the winner's bonus. */
+  tournamentMaxGain: 250,
 
   /**
    * Tourneys page (#31): past tourneys per page, newest first. Each lobby's standings read its
@@ -368,6 +384,12 @@ export interface Region {
 export function findRegion(regions: readonly Region[], id: string | null | undefined): Region | null {
   const key = id?.trim().toLowerCase();
   return regions.find((region) => region.id === key) ?? null;
+}
+
+export interface TournamentLossBand {
+  /** For a display rating under this before the tourney. */
+  below: number;
+  maxLoss: number;
 }
 
 export interface Tier {

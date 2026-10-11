@@ -16,7 +16,7 @@ import { defaults } from "../src/config";
 import type { PlayerDiff } from "../src/rating/diff";
 import { countedMatches, dryRunDiff, dryRunSql, sqlRegion } from "../src/rating/dryRun";
 import type { StoredRating } from "../src/rating/plan";
-import type { CandidateRow, RoundRow } from "../src/rating/store";
+import type { CandidateRow, KillRow, RoundRow } from "../src/rating/store";
 
 /**
  * Matches whose rounds one query reads: about 225 rows each (rounds and placed players), so 200 is
@@ -121,10 +121,13 @@ function readAll(now: Date) {
   for (let i = 0; i < counted.length; i += chunk) {
     rounds.push(...query<RoundRow>(dryRunSql.rounds(counted.slice(i, i + chunk).map((m) => m.id))));
   }
+  const tournaments = counted.filter((m) => m.tournament).map((m) => m.id);
+  const kills: KillRow[] = [];
+  for (let i = 0; i < tournaments.length; i += chunk) kills.push(...query<KillRow>(dryRunSql.kills(tournaments.slice(i, i + chunk))));
   const stored = query<StoredRating & { playerId: number }>(dryRunSql.ratings(region));
   const after = query<NonNullable<State>>(dryRunSql.state(region))[0] ?? null;
   const steady = (state?.version ?? null) === (after?.version ?? null);
-  return { state, accepted, counted, rounds, stored, steady };
+  return { state, accepted, counted, rounds, kills, stored, steady };
 }
 
 const now = new Date();
@@ -134,8 +137,8 @@ if (!read.steady) {
   read = readAll(now);
   if (!read.steady) die("The ratings changed while reading, twice (a cron run or an admin action). Run it again in a minute.");
 }
-const { state: stale, accepted, counted, rounds, stored } = read;
-const diff = dryRunDiff(counted, rounds, stored, defaults);
+const { state: stale, accepted, counted, rounds, kills, stored } = read;
+const diff = dryRunDiff(counted, rounds, kills, stored, defaults);
 
 const names = new Map<number, string>();
 for (let i = 0; i < diff.players.length; i += chunk) {

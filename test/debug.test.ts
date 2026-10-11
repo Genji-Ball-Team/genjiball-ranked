@@ -6,7 +6,7 @@ import { createLogger } from "../src/log";
 import { diffRatings } from "../src/rating/diff";
 import { countedMatches, dryRunDiff, dryRunSql, sqlRegion } from "../src/rating/dryRun";
 import type { StoredRating } from "../src/rating/plan";
-import type { CandidateRow, RoundRow } from "../src/rating/store";
+import type { CandidateRow, KillRow, RoundRow } from "../src/rating/store";
 import { updateRatings } from "../src/rating/update";
 import { sha256 } from "../src/upload/handler";
 import example from "./fixtures/ranked-log-example.txt?raw";
@@ -291,6 +291,40 @@ describe("POST /api/admin/ratings/recompute", () => {
     await expectUpToDate();
   });
 
+  it("with from=<match>, recomputes from that match only, keeping every match before it", async () => {
+    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await upload(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, hoursAgo(1));
+    const [first, second] = (await db().prepare("SELECT id, played_at AS playedAt FROM matches ORDER BY played_at").all<{ id: number; playedAt: string }>()).results;
+    // Drift in the first match's history (which a recompute from the second must not touch) and in the current ratings.
+    await db().prepare("UPDATE rating_history SET mu = mu + 1 WHERE match_id = ?").bind(first!.id).run();
+    await db().prepare("UPDATE ratings SET mu = mu + 1 WHERE board = 'eu'").run();
+    const firstHistory = await db().prepare("SELECT * FROM rating_history WHERE match_id = ? ORDER BY player_id").bind(first!.id).all();
+
+    expect(await postOk(`ratings/recompute?region=eu&from=${second!.id}`)).toEqual({ region: "eu", from: second!.id, ratingsStale: true });
+    expect(await state("eu")).toMatchObject({ playedAt: second!.playedAt, id: second!.id });
+    const actions = await db().prepare("SELECT action, detail FROM admin_actions").all();
+    expect(actions.results).toEqual([{ action: "ratings_recompute", detail: JSON.stringify({ region: "eu", from: second!.id }) }]);
+
+    await updateRatings(db(), loadConfig(env), new Date(), log); // the cron
+    expect(await state("eu")).toMatchObject({ playedAt: null });
+    expect((await db().prepare("SELECT * FROM rating_history WHERE match_id = ? ORDER BY player_id").bind(first!.id).all()).results).toEqual(firstHistory.results);
+    // The second match is re-rated (from the drifted history before it), so the current ratings are its history again.
+    const ratings = await db().prepare("SELECT mu FROM ratings WHERE board = 'eu' ORDER BY player_id").all<{ mu: number }>();
+    const history = await db().prepare("SELECT mu FROM rating_history WHERE match_id = ? ORDER BY player_id").bind(second!.id).all<{ mu: number }>();
+    expect(ratings.results).toEqual(history.results);
+  });
+
+  it("refuses a from that isn't a match of the region", async () => {
+    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    const { id } = (await db().prepare("SELECT id FROM matches").first<{ id: number }>())!;
+    const before = await snapshot();
+    for (const from of ["abc", "0", "-1", String(id + 100)]) expect((await post(`ratings/recompute?region=eu&from=${from}`)).status).toBe(400);
+    const res = await post(`ratings/recompute?region=na&from=${id}`);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { message: string }).message).toMatch(/is in eu/);
+    expect(await snapshot()).toEqual(before);
+  });
+
   it("makes the rating_state row of a region that has none", async () => {
     await db().prepare("DELETE FROM rating_state WHERE board = 'na'").run();
     expect(await postOk("ratings/recompute?region=na")).toEqual({ region: "na", ratingsStale: true });
@@ -333,8 +367,10 @@ async function dryRun(region: string, { chunk = 200, now = new Date() } = {}) {
   const counted = countedMatches(accepted, defaults, now);
   const rounds: RoundRow[] = [];
   for (let i = 0; i < counted.length; i += chunk) rounds.push(...(await all<RoundRow>(dryRunSql.rounds(counted.slice(i, i + chunk).map((m) => m.id)))));
+  const tournaments = counted.filter((m) => m.tournament).map((m) => m.id);
+  const kills = tournaments.length ? await all<KillRow>(dryRunSql.kills(tournaments)) : [];
   const stored = await all<StoredRating & { playerId: number }>(dryRunSql.ratings(r));
-  const diff = dryRunDiff(counted, rounds, stored, defaults);
+  const diff = dryRunDiff(counted, rounds, kills, stored, defaults);
   const names = diff.players.length ? await all<{ id: number; name: string }>(dryRunSql.names(diff.players.map((p) => p.playerId))) : [];
   return { stale, accepted: accepted.length, counted: counted.length, ...diff, names: new Map(names.map((p) => [p.id, p.name])) };
 }

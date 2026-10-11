@@ -285,8 +285,8 @@ async function changeMatchRegion(ctx: Context, matchId: number, data: Record<str
 
 /**
  * `POST /api/admin/matches/:id/tournament` with `{"tournament": true}` (or `false`): marks a match as a
- * tournament. It counts `tournamentWeight` times as much and nobody gains or loses more than
- * `tournamentMaxChange` in it. A rated match makes the ratings stale from it, like a void.
+ * tournament. Its standings are rated too, with its own caps (docs/rating.md, "Tournaments"). A
+ * rated match makes the ratings stale from it, like a void.
  */
 async function changeTournament(ctx: Context, matchId: number, data: Record<string, unknown>): Promise<Response> {
   if (typeof data.tournament !== "boolean") throw new BadRequest("tournament must be true or false");

@@ -2,7 +2,19 @@ import { findRegion, type Config } from "../config";
 import { diffRatings, type RatingDiff } from "./diff";
 import { displayRating, recompute, type RatingConfig } from "./engine";
 import type { StoredRating } from "./plan";
-import { candidateColumns, groupRounds, ratingMatches, roundsSql, toCandidate, type CandidateMatch, type CandidateRow, type RoundRow } from "./store";
+import {
+  candidateColumns,
+  groupKills,
+  groupRounds,
+  killsSql,
+  ratingMatches,
+  roundsSql,
+  toCandidate,
+  type CandidateMatch,
+  type CandidateRow,
+  type KillRow,
+  type RoundRow,
+} from "./store";
 import { counts } from "./update";
 
 /**
@@ -12,7 +24,7 @@ import { counts } from "./update";
  * free plan. The script runs these read-only queries through `wrangler d1 execute` (which takes no
  * bound parameters, so values are written into the SQL: the region is checked against the config,
  * ids are numbers) and these functions on what they return. Which matches count, their order and
- * the tournament weighting are the recompute's own (`counts`, `ratingMatches`, `recompute`).
+ * the tournament rating are the recompute's own (`counts`, `ratingMatches`, `recompute`).
  */
 
 /** The region id, safe to write into SQL: one of the config's `regions`. */
@@ -41,6 +53,8 @@ export const dryRunSql = {
     `SELECT ${candidateColumns} FROM matches WHERE region = '${region}' AND status = 'accepted' ORDER BY played_at, id`,
   /** The rated finishing orders of these matches (`roundsSql`, as the recompute reads them). */
   rounds: (matchIds: readonly number[]) => roundsSql(idList(matchIds)),
+  /** The kills by player of these matches (`killsSql`, as the recompute reads them): pass the tournaments. */
+  kills: (matchIds: readonly number[]) => killsSql(idList(matchIds)),
   /** The region's stored ratings. */
   ratings: (region: string) =>
     `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt FROM ratings WHERE board = '${region}'`,
@@ -56,12 +70,13 @@ export function countedMatches(rows: readonly CandidateRow[], config: Pick<Confi
 export function dryRunDiff(
   counted: readonly CandidateMatch[],
   roundRows: readonly RoundRow[],
+  killRows: readonly KillRow[],
   stored: readonly (StoredRating & { playerId: number })[],
   config: RatingConfig & Pick<Config, "minRankedRounds">,
 ): RatingDiff {
   const rounds = groupRounds(counted.map((m) => m.id), roundRows);
   const after = new Map<number, StoredRating>(
-    [...recompute(ratingMatches(counted, rounds), config).ratings].map(([id, rating]) => [id, { ...rating, display: displayRating(rating, config) }]),
+    [...recompute(ratingMatches(counted, rounds, groupKills(killRows)), config).ratings].map(([id, rating]) => [id, { ...rating, display: displayRating(rating, config) }]),
   );
   const before = new Map(stored.map(({ playerId, ...rating }) => [playerId, rating]));
   return diffRatings(before, after, config.minRankedRounds);

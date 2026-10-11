@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { expect } from "vitest";
 import { defaults } from "../src/config";
 import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
-import { readRounds, readState } from "../src/rating/store";
+import { readKills, readRounds, readState } from "../src/rating/store";
 
 /** Helpers for the tests that check ratings in D1. */
 
@@ -53,7 +53,13 @@ export async function fromScratch() {
     .prepare("SELECT id, played_at AS playedAt, tournament FROM matches WHERE status = 'accepted' ORDER BY played_at, id")
     .all<{ id: number; playedAt: string; tournament: number }>();
   const rounds = await readRounds(db(), results.map((m) => m.id));
-  const matches: RatingMatch[] = results.map((m) => ({ ...m, rounds: rounds.get(m.id)!, tournament: m.tournament === 1 }));
+  const kills = await readKills(db(), results.map((m) => ({ ...m, complete: true, rated: true, tournament: m.tournament === 1 })));
+  const matches: RatingMatch[] = results.map((m) => ({
+    ...m,
+    rounds: rounds.get(m.id)!,
+    tournament: m.tournament === 1,
+    ...(m.tournament === 1 ? { kills: kills.get(m.id) ?? new Map() } : {}),
+  }));
   const { ratings, history } = recompute(matches, defaults);
   return {
     ratings: [...ratings]

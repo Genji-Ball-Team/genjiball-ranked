@@ -181,7 +181,7 @@ export interface PlayerMatchRow {
   map: string | null;
   legacy: boolean;
   void: boolean;
-  /** A tournament: counts more on the leaderboard (`tournamentWeight`). */
+  /** A tournament: its standings are rated too (docs/rating.md, "Tournaments"). */
   tournament: boolean;
   /** The tourney it was a lobby of, if an admin linked it. */
   tourney: TourneyRef | null;
