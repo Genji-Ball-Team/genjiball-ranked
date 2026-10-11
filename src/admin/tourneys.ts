@@ -37,9 +37,8 @@ import { findHostById, findMatch, type ActionLog } from "./store";
  *
  * A tourney belongs to one region (#47), and so do its lobbies' matches.
  *
- * A lobby's match is a tournament (`matches.tournament`): it stays on its region's leaderboard, counts
- * `tournamentWeight` times as much, and nobody moves more than `tournamentMaxChange` in it. Linking
- * or unlinking a rated match makes the ratings stale from it, like the tournament flag does.
+ * A lobby's match is a tournament (`matches.tournament`): it stays on its region's leaderboard, with
+ * its standings rated too and its own caps (docs/rating.md, "Tournaments"). Linking or unlinking a rated match makes the ratings stale from it, like the tournament flag does.
  */
 
 /** Answers a tourney route, or returns null when the path isn't one. */

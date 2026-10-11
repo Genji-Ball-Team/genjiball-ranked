@@ -1,7 +1,7 @@
 import { findRegion } from "../config";
 import { fail } from "../http";
 import type { ParsedMatch } from "../parser/types";
-import { fromStart, staleFromStatement } from "../rating/store";
+import { fromStart, staleFromStatement, type MatchRef } from "../rating/store";
 import { isoSeconds } from "../time";
 import { hostRegion, parseFile, rateLimit, readBody, result, sha256, tourneyContext } from "../upload/handler";
 import { isRated, planUpload, type MatchPlan } from "../upload/plan";
@@ -193,23 +193,39 @@ function fileWarnings(matches: readonly ParsedMatch[], graceHours: number): stri
 
 /**
  * `POST /api/admin/ratings/recompute?region=eu` (`region` required): marks the region's ratings
- * stale from its first match, logged in `admin_actions`, in one batch. It doesn't rate anything
- * itself: the cron recomputes `ratingMatchesPerRun` matches a run, so a request never risks the
- * free plan's CPU time. The dry run is `npm run ratings:dry-run`, outside the Worker.
+ * stale from its first match, logged in `admin_actions`, in one batch. With `from=<match id>`, a
+ * match of that region, they're stale from that match instead: every match before it keeps its
+ * ratings, and the recompute starts from each player's rating just before it. It doesn't rate
+ * anything itself: the cron recomputes `ratingMatchesPerRun` matches a run, so a request never
+ * risks the free plan's CPU time. The dry run is `npm run ratings:dry-run`, outside the Worker.
  */
 export async function recomputeRegion(ctx: Context, request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
   if (params.has("dryRun")) throw new BadRequest("The dry run is a script now: npm run ratings:dry-run -- --region <region> (docs/api.md)");
   if (!params.has("region")) throw new BadRequest("region is required");
   const region = regionField(params.get("region"), ctx.config, "region");
+  const from = params.has("from") ? await recomputeFrom(ctx, params.get("from")!, region) : fromStart;
+  const fromMatch = from === fromStart ? undefined : from.id;
 
   const at = isoSeconds(ctx.now);
   await ctx.db.batch([
     // A region never rated has no rating_state row yet.
     ctx.db.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES (?)").bind(region),
-    staleFromStatement(ctx.db, region, fromStart, at),
-    actionStatement(ctx.db, { adminId: ctx.admin.id, action: "ratings_recompute", detail: { region }, at }),
+    staleFromStatement(ctx.db, region, from, at),
+    actionStatement(ctx.db, { adminId: ctx.admin.id, action: "ratings_recompute", detail: { region, from: fromMatch }, at }),
   ]);
-  ctx.log.info("admin: ratings recompute", { admin: ctx.admin.id, region });
-  return Response.json({ region, ratingsStale: true });
+  ctx.log.info("admin: ratings recompute", { admin: ctx.admin.id, region, from: fromMatch });
+  return Response.json({ region, ...(fromMatch === undefined ? {} : { from: fromMatch }), ratingsStale: true });
+}
+
+/** The match `?from=` names, as a place in play order: it must exist and be in `region`. */
+async function recomputeFrom(ctx: Context, value: string, region: string): Promise<MatchRef> {
+  if (!/^[1-9]\d{0,15}$/.test(value)) throw new BadRequest("from must be a match id");
+  const match = await ctx.db
+    .prepare("SELECT id, played_at AS playedAt, region FROM matches WHERE id = ?")
+    .bind(Number(value))
+    .first<MatchRef & { region: string }>();
+  if (!match) throw new BadRequest(`No match ${value}`);
+  if (match.region !== region) throw new BadRequest(`Match ${value} is in ${match.region}, not ${region}`);
+  return { id: match.id, playedAt: match.playedAt };
 }

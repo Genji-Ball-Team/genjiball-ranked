@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaults, findRegion } from "../src/config";
 import { createLogger } from "../src/log";
 import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
-import { readRounds, readState } from "../src/rating/store";
+import { ratingMatches, readKills, readRounds, readState } from "../src/rating/store";
 import { markMatchesChanged, updateRatings } from "../src/rating/update";
 import { sha256, type UploadResponse } from "../src/upload/handler";
 import { matchId, matchLog } from "./helpers";
@@ -73,8 +73,9 @@ async function regionRatings(region: string) {
     .prepare("SELECT id, played_at AS playedAt, tournament FROM matches WHERE status = 'accepted' AND region = ? ORDER BY played_at, id")
     .bind(region)
     .all<{ id: number; playedAt: string; tournament: number }>();
+  const candidates = matches.map((m) => ({ ...m, complete: true, rated: true, tournament: m.tournament === 1 }));
   const rounds = await readRounds(db(), matches.map((m) => m.id));
-  const input: RatingMatch[] = matches.map((m) => ({ ...m, rounds: rounds.get(m.id)!, tournament: m.tournament === 1 }));
+  const input: RatingMatch[] = ratingMatches(candidates, rounds, await readKills(db(), candidates));
   const expected = [...recompute(input, defaults).ratings]
     .sort(([a], [b]) => a - b)
     .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, defaults), rounds: r.rounds, wins: r.wins }));

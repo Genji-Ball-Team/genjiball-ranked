@@ -124,7 +124,7 @@ function score(config: RatingConfig) {
       rateRound(ratings, order, config);
     }
     // The per-match cap, as rateMatch applies it (no tournaments in these logs).
-    for (const [id, was] of before) capChange(ratings.get(id)!, was, config.ratingMatchMaxChange, config);
+    for (const [id, was] of before) capChange(ratings.get(id)!, was, config.ratingMatchMaxChange, config.ratingMatchMaxChange, config);
     for (const [id, was] of before) {
       if (was.rounds >= regularRounds) moves.push(Math.abs(shown(ratings.get(id)!, config) - shown(was, config)));
     }

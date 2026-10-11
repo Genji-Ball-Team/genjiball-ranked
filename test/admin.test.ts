@@ -4,7 +4,8 @@ import { matchTransition, trustChange } from "../src/admin/plan";
 import { isStale, setMatchState, setTournament } from "../src/admin/store";
 import { defaults, loadConfig } from "../src/config";
 import { createLogger } from "../src/log";
-import { readState } from "../src/rating/store";
+import { tournamentMaxLoss } from "../src/rating/engine";
+import { readKills, readState } from "../src/rating/store";
 import { recomputeRatings } from "../src/rating/update";
 import { sha256, type UploadResponse } from "../src/upload/handler";
 import { expectUpToDate, historyTable, matchId, matchLog, ratingsTable } from "./helpers";
@@ -104,6 +105,22 @@ describe("admin: hosts", () => {
   it("makes a new host untrusted by default, with no home region", async () => {
     const { host } = await adminOk<{ host: { trust: string; region: string | null } }>("hosts", { body: { name: "Someone" } });
     expect(host).toMatchObject({ trust: "untrusted", region: null });
+  });
+
+  it("ranks a tournament's standings with its kills", async () => {
+    await upload(matchLog(), "2026-09-01T20:00:00Z");
+    const id = await matchId("000000000001");
+    // Alpha and Bravo win a round each; Delta (log id 4) has no win but 20 kills, so tops the score.
+    const kill = (seq: number) => db().prepare("INSERT INTO events (match_id, seq, type, round, time, actor_id, target_id) VALUES (?, ?, 'KILL', 1, 3, 4, 1)").bind(id, seq);
+    await db().batch(Array.from({ length: 20 }, (_, i) => kill(1000 + i)));
+    const delta = (await db().prepare("SELECT player_id AS id FROM match_players WHERE match_id = ? AND log_id = 4").bind(id).first<{ id: number }>())!.id;
+    expect(await readKills(db(), [{ id, playedAt: "", complete: true, rated: true, tournament: true }])).toEqual(new Map([[id, new Map([[delta, 20]])]]));
+
+    await adminOk(`matches/${id}/tournament`, { body: { tournament: true } });
+    await expectUpToDate();
+    const ratings = await ratingsTable();
+    const best = ratings.reduce((a, b) => ((a.display as number) >= (b.display as number) ? a : b));
+    expect(best.playerId).toBe(delta);
   });
 
   it("checks what it's sent", async () => {
@@ -287,7 +304,7 @@ describe("admin: void", () => {
 });
 
 describe("admin: tournaments", () => {
-  it("marks a rated match as a tournament and re-rates it, so it counts more", async () => {
+  it("marks a rated match as a tournament and re-rates it with its standings and caps", async () => {
     await upload(matchLog(), "2026-09-01T20:00:00Z");
     await expectUpToDate();
     const id = await matchId("000000000001");
@@ -298,8 +315,10 @@ describe("admin: tournaments", () => {
     expect(res).toMatchObject({ match: { tournament: true }, ratingsStale: false });
     await expectUpToDate();
     const tourney = await moved();
-    tourney.forEach((m, i) => expect(m).toBeGreaterThanOrEqual(normal[i]!));
+    expect(tourney).not.toEqual(normal);
+    // The winner gets the standings bonus and the winner's bonus on top; nobody loses past their cap.
     expect(Math.max(...tourney)).toBeGreaterThan(Math.max(...normal));
+    for (const r of await ratingsTable()) expect(r.display as number).toBeGreaterThanOrEqual(defaults.displayCenter - tournamentMaxLoss(defaults.displayCenter, defaults));
     expect((await actions()).at(-1)).toMatchObject({ action: "match_tournament", matchId: id, detail: { tournament: true } });
 
     await adminOk(`matches/${id}/tournament`, { body: { tournament: false } });

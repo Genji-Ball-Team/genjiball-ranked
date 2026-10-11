@@ -31,7 +31,7 @@ export interface RatingState {
 export interface CandidateMatch extends MatchRef {
   complete: boolean;
   rated: boolean;
-  /** An admin marked it as a tournament: it counts more, and nobody loses much in it. */
+  /** An admin marked it as a tournament: its standings are rated too, with its own caps (docs/rating.md). */
   tournament: boolean;
 }
 
@@ -174,9 +174,56 @@ export async function readRounds(db: D1Database, matchIds: readonly number[]): P
   return groupRounds(matchIds, results);
 }
 
-/** The matches as the engine rates them: tournament flag and rounds included. */
-export function ratingMatches(matches: readonly CandidateMatch[], rounds: ReadonlyMap<number, number[][]>): RatingMatch[] {
-  return matches.map((m) => ({ id: m.id, playedAt: m.playedAt, rounds: rounds.get(m.id) ?? [], tournament: m.tournament }));
+/**
+ * The query for the kills of the matches `ids` selects (a subquery yielding match ids), by player:
+ * `KILL`s with an attacker, not of themselves, as the tourney standings count them. For a
+ * tournament's standings (`groupKills`). Shared with the dry-run recompute script.
+ */
+export function killsSql(ids: string): string {
+  return `SELECT e.match_id AS matchId, mp.player_id AS playerId, COUNT(*) AS kills
+       FROM events e JOIN match_players mp ON mp.match_id = e.match_id AND mp.log_id = e.actor_id
+       WHERE e.match_id IN (${ids}) AND e.type = 'KILL' AND e.actor_id IS NOT NULL AND e.actor_id IS NOT e.target_id
+       GROUP BY e.match_id, mp.player_id`;
+}
+
+export interface KillRow {
+  matchId: number;
+  playerId: number;
+  kills: number;
+}
+
+/** `killsSql`'s rows as each match's kills by player. */
+export function groupKills(rows: readonly KillRow[]): Map<number, Map<number, number>> {
+  const byMatch = new Map<number, Map<number, number>>();
+  for (const row of rows) {
+    const kills = byMatch.get(row.matchId) ?? new Map<number, number>();
+    kills.set(row.playerId, (kills.get(row.playerId) ?? 0) + row.kills);
+    byMatch.set(row.matchId, kills);
+  }
+  return byMatch;
+}
+
+/** The kills by player of these matches' tournaments (other matches don't need them: no query when there are none). */
+export async function readKills(db: D1Database, matches: readonly CandidateMatch[]): Promise<Map<number, Map<number, number>>> {
+  const ids = matches.filter((m) => m.tournament).map((m) => m.id);
+  if (!ids.length) return new Map();
+  const { results } = await db.prepare(killsSql("SELECT value FROM json_each(?1)")).bind(json(ids)).all<KillRow>();
+  return groupKills(results);
+}
+
+/** The matches as the engine rates them: tournament flag, rounds and (for a tournament) kills included. */
+export function ratingMatches(
+  matches: readonly CandidateMatch[],
+  rounds: ReadonlyMap<number, number[][]>,
+  kills: ReadonlyMap<number, ReadonlyMap<number, number>> = new Map(),
+): RatingMatch[] {
+  return matches.map((m) => ({
+    id: m.id,
+    playedAt: m.playedAt,
+    rounds: rounds.get(m.id) ?? [],
+    tournament: m.tournament,
+    ...(m.tournament ? { kills: kills.get(m.id) ?? new Map() } : {}),
+  }));
 }
 
 export async function readRatings(db: D1Database, board: string, playerIds: readonly number[]): Promise<Map<number, StoredRating>> {

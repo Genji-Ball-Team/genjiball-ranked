@@ -13,6 +13,7 @@ import {
   ratedAtStatement,
   readAcceptedFrom,
   readHistory,
+  readKills,
   readNewestRated,
   readNoLongerAccepted,
   readRatings,
@@ -67,15 +68,15 @@ const hourMs = 60 * 60 * 1000;
 
 /**
  * The most D1 queries one `rateNewMatches` makes: the rating state (3 when its row is new), the
- * unrated and the newest rated match, the rounds and ratings, and a batch of the lock, the stale
- * mark, 4 writes and `rated_at`.
+ * unrated and the newest rated match, the rounds, tournament kills and ratings, and a batch of the
+ * lock, the stale mark, 4 writes and `rated_at`.
  */
-export const rateNewQueries = 14;
+export const rateNewQueries = 15;
 /**
- * The most one `recomputeRatings` run makes: the state (3 when new), 6 reads, and a batch of the
+ * The most one `recomputeRatings` run makes: the state (3 when new), 7 reads, and a batch of the
  * lock, 4 writes, 2 `rated_at` and the stale point.
  */
-export const recomputeQueries = 17;
+export const recomputeQueries = 18;
 
 /** A match counts once it's complete, or once its grace period has passed. */
 export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, config: Pick<UpdateConfig, "ratingIncompleteGraceHours">, now: Date): boolean {
@@ -85,11 +86,12 @@ export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, con
 
 /**
  * The most queries `rateNewMatches` makes: the state (up to 3, when the region's row is new), the
- * unrated and newest rated matches, their rounds and ratings (5 reads so far: 7), then one batch of
- * the lock, the stale mark, up to 4 rating writes and the rated stamp (7). Not a setting: it follows
- * the code, and a test checks it. An upload rates only when this much of `queriesPerRequest` is left.
+ * unrated and newest rated matches, their rounds, tournament kills and ratings (6 reads so far: 8),
+ * then one batch of the lock, the stale mark, up to 4 rating writes and the rated stamp (7). Not a
+ * setting: it follows the code, and a test checks it. An upload rates only when this much of
+ * `queriesPerRequest` is left.
  */
-export const rateNewMatchesMaxQueries = 14;
+export const rateNewMatchesMaxQueries = 15;
 
 export async function rateNewMatches(
   db: D1Database,
@@ -114,13 +116,13 @@ export async function rateNewMatches(
     log.info("late matches: ratings stale", { region, from: late[0], matches: late.map((m) => m.id) });
   }
   if (fresh.length) {
-    const rounds = await readRounds(db, fresh.map((m) => m.id));
+    const [rounds, kills] = await Promise.all([readRounds(db, fresh.map((m) => m.id)), readKills(db, fresh)]);
     const players = [...new Set([...rounds.values()].flat(2))];
     const ratings = await readRatings(db, region, players);
     const writes = planRerate(
       {
         start: ratings,
-        matches: ratingMatches(fresh, rounds),
+        matches: ratingMatches(fresh, rounds, kills),
         history: [],
         ratings,
       },
@@ -164,8 +166,9 @@ export async function recomputeRatings(
   const notCounted = batch.filter((match) => match.rated && !counts(match, config, now)).map((m) => m.id);
   const dropped = [...notCounted, ...(await readNoLongerAccepted(db, region, from, next))];
 
-  const [rounds, history] = await Promise.all([
+  const [rounds, kills, history] = await Promise.all([
     readRounds(db, counted.map((m) => m.id)),
+    readKills(db, counted),
     readHistory(db, region, [...batch.map((m) => m.id), ...dropped]),
   ]);
   const players = [...new Set([...[...rounds.values()].flat(2), ...history.map((entry) => entry.playerId)])];
@@ -173,7 +176,7 @@ export async function recomputeRatings(
   const writes = planRerate(
     {
       start,
-      matches: ratingMatches(counted, rounds),
+      matches: ratingMatches(counted, rounds, kills),
       history,
       ratings,
     },
