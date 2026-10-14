@@ -264,7 +264,7 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/parse?host=<id>&region=<region>&legacy=1` | Dry-run parse: body a log file, as with an upload. What an upload would answer and what the parser read, **writing nothing** ([Debug tools](#debug-tools)) |
 | `POST /api/admin/ratings/recompute?region=<region>&from=<match id>` | Marks the region's ratings stale from the start, or from the match `from` (optional, a match of that region): the cron recomputes them. `region` is required. The dry run is `npm run ratings:dry-run` ([Debug tools](#debug-tools)) |
 
-A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
+A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would, within what's left of the request's `queriesPerRequest` ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
 
 ### Merging players
 

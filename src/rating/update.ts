@@ -67,9 +67,11 @@ export interface RecomputeResult {
 const hourMs = 60 * 60 * 1000;
 
 /**
- * The most D1 queries one `rateNewMatches` makes: the rating state (3 when its row is new), the
- * unrated and the newest rated match, the rounds, tournament kills and ratings, and a batch of the
- * lock, the stale mark, 4 writes and `rated_at`.
+ * The most D1 queries one `rateNewMatches` makes: the state (up to 3, when the region's row is new),
+ * the unrated and newest rated matches, their rounds, tournament kills and ratings (6 reads so far:
+ * 8), then one batch of the lock, the stale mark, up to 4 rating writes and the rated stamp (7). Not
+ * a setting: it follows the code, and a test checks it. An upload rates only when this much of
+ * `queriesPerRequest` is left.
  */
 export const rateNewQueries = 15;
 /**
@@ -83,15 +85,6 @@ export function counts(match: Pick<CandidateMatch, "complete" | "playedAt">, con
   if (match.complete) return true;
   return Date.parse(match.playedAt) <= now.getTime() - config.ratingIncompleteGraceHours * hourMs;
 }
-
-/**
- * The most queries `rateNewMatches` makes: the state (up to 3, when the region's row is new), the
- * unrated and newest rated matches, their rounds, tournament kills and ratings (6 reads so far: 8),
- * then one batch of the lock, the stale mark, up to 4 rating writes and the rated stamp (7). Not a
- * setting: it follows the code, and a test checks it. An upload rates only when this much of
- * `queriesPerRequest` is left.
- */
-export const rateNewMatchesMaxQueries = 15;
 
 export async function rateNewMatches(
   db: D1Database,
@@ -228,8 +221,8 @@ export async function markAllStale(db: D1Database, now: Date): Promise<void> {
 /**
  * The cron: rate what's due in each region, then carry on the recomputes of regions whose ratings
  * are stale. The regions share one run's `ratingMatchesPerRun`, so a run costs what it did with
- * one leaderboard; a region whose recompute didn't fit carries on in the next run. On the cron,
- * `queries` keeps the run inside D1's queries an invocation: pass its `db` as `db`.
+ * one leaderboard; a region whose recompute didn't fit carries on in the next run. `queries` keeps
+ * the run inside D1's queries an invocation (the cron's, an admin request's): pass its `db` as `db`.
  */
 export async function updateRatings(
   db: D1Database,

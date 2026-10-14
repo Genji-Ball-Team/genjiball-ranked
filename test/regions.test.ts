@@ -1,12 +1,13 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults, findRegion } from "../src/config";
+import { handleAdmin } from "../src/admin/handler";
 import { createLogger } from "../src/log";
 import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
 import { ratingMatches, readKills, readRounds, readState } from "../src/rating/store";
 import { markMatchesChanged, updateRatings } from "../src/rating/update";
-import { sha256, type UploadResponse } from "../src/upload/handler";
-import { matchId, matchLog } from "./helpers";
+import { handleUpload, sha256, type UploadResponse } from "../src/upload/handler";
+import { countingDb, matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -285,6 +286,49 @@ describe("regions: admin", () => {
     expect(await db().prepare("SELECT COUNT(*) AS n FROM rating_history WHERE board = 'eu' AND match_id = ?").bind(middle).first("n")).toBe(0);
     const logged = await db().prepare("SELECT detail FROM admin_actions WHERE action = 'match_region' ORDER BY id").first<{ detail: string }>();
     expect(JSON.parse(logged!.detail)).toEqual({ from: "eu", to: "na" });
+  });
+
+  it("moves a match within the request's D1 queries while both regions are busy, leaving the rest to the cron", async () => {
+    const config = { ...defaults, ratingMatchesPerRun: 5 };
+    // Uploads whose rating is left to the cron: no queries left for it.
+    const unrated = { ...config, queriesPerRequest: 30 };
+    const send = async (key: string, players: string[], region: string, hours: number, upload = config) => {
+      const request = new Request("https://example.com/api/upload", {
+        method: "POST",
+        body: matchLog({ key, players }),
+        headers: { Authorization: `Bearer ${tokens.none}`, "X-Region": region, "X-Log-Started-At": hoursAgo(hours) },
+      });
+      expect((await handleUpload(request, db(), upload, log)).status).toBe(200);
+    };
+    for (const [n, region] of [[1, "eu"], [2, "na"]] as const) {
+      const names = (i: number) => [`A${n}${i}`, `B${n}${i}`, `C${n}${i}`, `D${n}${i}`];
+      for (let i = 0; i < 3; i++) await send(`00000000${n}00${i}`, names(i % 2), region, 20 - i);
+      await send(`00000000${n}003`, names(1), region, 17, unrated);
+    }
+    expect(await db().prepare("SELECT count(*) AS n FROM matches WHERE rated_at IS NULL").first("n")).toBe(2);
+    // NA is stale from its second match.
+    await markMatchesChanged(db(), [await matchId("000000002001")], new Date());
+
+    const counting = countingDb(db());
+    const request = new Request(`https://example.com/api/admin/matches/${await matchId("000000001002")}/region`, {
+      method: "POST",
+      body: JSON.stringify({ region: "na" }),
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    // All four rating steps would take 50 queries here: fewer are allowed.
+    const tight = { ...config, queriesPerRequest: 40 };
+    const res = await handleAdmin(request, counting.db, env.PROOFS, tight, log);
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(await res.json()).toMatchObject({ ratingsStale: true });
+    expect(counting.queries()).toBeLessThanOrEqual(tight.queriesPerRequest);
+    // The cron finishes.
+    while ((await readState(db(), "eu")).staleFrom || (await readState(db(), "na")).staleFrom) {
+      await updateRatings(db(), config, new Date(), log);
+    }
+    for (const region of ["eu", "na"]) {
+      const { stored, expected } = await regionRatings(region);
+      expect(stored, region).toEqual(expected);
+    }
   });
 
   it("lists a moved match again in the feed: removed from the old region's, in the new one's", async () => {

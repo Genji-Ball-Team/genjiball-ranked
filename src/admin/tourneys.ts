@@ -1,6 +1,5 @@
 import { fail } from "../http";
-import { anyStale, staleFromMatchesStatement } from "../rating/store";
-import { updateRatings } from "../rating/update";
+import { ratingVersionStatement, staleFromMatchesStatement } from "../rating/store";
 import { isoSeconds } from "../time";
 import { capacityOf, newLobbyKey, roundLimitOf } from "../tourney/code";
 import { countSignups, findSignup, isSignupChanged, listSignups, setSignupRemoved } from "../tourney/signupStore";
@@ -28,7 +27,7 @@ import {
   type TourneyStatus,
 } from "../tourney/store";
 import { deleteScreenshot, storeScreenshot } from "../tourney/upload";
-import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, notAllowed, regionField, rerate, text, type Context } from "./request";
 import { findHostById, findMatch, type ActionLog } from "./store";
 
 /**
@@ -217,7 +216,7 @@ async function editLobby(ctx: Context, id: number, data: Record<string, unknown>
     throw error;
   }
   ctx.log.info("admin: lobby edited", { admin: ctx.admin.id, lobby: id, match: matchId, host: fields.hostId });
-  return Response.json({ lobby: await lobbyJson(ctx, id), ratingsStale: await rerate(ctx, relink.rated, id) });
+  return Response.json({ lobby: await lobbyJson(ctx, id), ratingsStale: await rerate(ctx, relink.regions, { lobby: id }) });
 }
 
 /** `DELETE /api/admin/lobbies/:id`: its match is no longer a tournament, and its screenshot is deleted. */
@@ -239,7 +238,7 @@ async function removeLobby(ctx: Context, id: number): Promise<Response> {
   }
   await flushScreenshotDeletions(ctx.db, ctx.proofs, ctx.config, ctx.log);
   ctx.log.info("admin: lobby deleted", { admin: ctx.admin.id, lobby: id });
-  return Response.json({ ratingsStale: await rerate(ctx, relink.rated, id) });
+  return Response.json({ ratingsStale: await rerate(ctx, relink.regions, { lobby: id }) });
 }
 
 /**
@@ -380,7 +379,7 @@ function changes(from: TourneyFields, to: TourneyFields): Record<string, unknown
 /**
  * Moving a lobby from match `from` to match `to`: `from` is no longer a tournament and `to` is one,
  * and the ratings are stale from whichever of them was rated. `to` has to be from the tourney's
- * `region` (null when only unlinking). `rated`: whether an accepted match changed, so the ratings need bringing up to date.
+ * `region` (null when only unlinking). `regions`: those of the accepted matches that changed, whose ratings need bringing up to date.
  */
 async function relinkStatements(
   ctx: Context,
@@ -388,39 +387,28 @@ async function relinkStatements(
   from: number | null,
   to: number | null,
   at: string,
-): Promise<Response | { statements: D1PreparedStatement[]; rated: boolean }> {
-  if (from === to) return { statements: [], rated: false };
+): Promise<Response | { statements: D1PreparedStatement[]; regions: string[] }> {
+  if (from === to) return { statements: [], regions: [] };
   const statements: D1PreparedStatement[] = [];
-  let rated = false;
+  const regions = new Set<string>();
   const changed: number[] = [];
   if (to !== null) {
     const match = await findMatch(ctx.db, to);
     if (!match) return fail(404, "not_found", "No such match");
     if (region !== null && match.region !== region) return fail(409, "conflict", `The match was played in ${match.region}, the tourney is in ${region}`);
     changed.push(to);
-    rated ||= match.status === "accepted";
+    if (match.status === "accepted") regions.add(match.region);
     statements.push(tournamentStatement(ctx.db, [to], true));
   }
   if (from !== null) {
     const match = await findMatch(ctx.db, from);
     changed.push(from);
-    rated ||= match?.status === "accepted";
+    if (match?.status === "accepted") regions.add(match.region);
     statements.push(tournamentStatement(ctx.db, [from], false));
   }
   if (changed.length) statements.push(staleFromMatchesStatement(ctx.db, changed, at, true));
   // Also invalidate a rating run that read an as-yet-unrated match before this flag changed.
-  if (changed.length) statements.push(ctx.db.prepare("UPDATE rating_state SET version = version + 1"));
-  return { statements, rated };
+  if (changed.length) statements.push(ratingVersionStatement(ctx.db));
+  return { statements, regions: [...regions] };
 }
 
-/** Brings the ratings up to date as far as one run goes, like a void. Returns whether they're still stale. */
-async function rerate(ctx: Context, rated: boolean, lobby: LobbyRow["id"]): Promise<boolean> {
-  try {
-    if (rated) await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log);
-    return await anyStale(ctx.db);
-  } catch (error) {
-    // The change is stored; the cron rates or recomputes.
-    ctx.log.error("rating after admin action failed", { lobby, error: String(error) });
-    return true;
-  }
-}

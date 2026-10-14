@@ -1,7 +1,9 @@
+import type { QueryBudget } from "../budget";
 import { findRegion, type Config } from "../config";
 import { fail } from "../http";
 import type { Logger } from "../log";
-import type { UpdateConfig } from "../rating/update";
+import { anyStale } from "../rating/store";
+import { updateRatings, type UpdateConfig } from "../rating/update";
 import type { ExpiryConfig } from "../tourney/expiry";
 import type { UploadConfig } from "../upload/handler";
 import type { Admin } from "./store";
@@ -30,7 +32,10 @@ export type AdminConfig = UpdateConfig &
   >;
 
 export interface Context {
+  /** Counts its queries (`queries`). */
   db: D1Database;
+  /** The request's D1 queries, from its first (`queriesPerRequest`). */
+  queries: QueryBudget;
   /** R2: tourney verify screenshots. */
   proofs: R2Bucket;
   config: AdminConfig;
@@ -73,6 +78,22 @@ export function regionField(value: unknown, config: AdminConfig, field: string):
 
 export function notAllowed(allow: string): Response {
   return fail(405, "method_not_allowed", `Use ${allow}`, { Allow: allow });
+}
+
+/**
+ * After an admin change to matches that may be rated: brings the regions' ratings up to date as far
+ * as the request's D1 queries go, like a cron run, keeping one for the stale check (no `regions`:
+ * nothing to rate). The cron finishes the rest. Returns whether the ratings are still stale.
+ */
+export async function rerate(ctx: Context, regions: readonly string[], about: Record<string, unknown>): Promise<boolean> {
+  try {
+    if (regions.length) await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, regions, { ...ctx.queries, left: () => ctx.queries.left() - 1 });
+    return await anyStale(ctx.db);
+  } catch (error) {
+    // The change is stored; the cron rates or recomputes.
+    ctx.log.error("rating after admin action failed", { ...about, error: String(error) });
+    return true;
+  }
 }
 
 export function changedMeanwhile(): Response {

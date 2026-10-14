@@ -1,4 +1,4 @@
-import { staleFromPlayersStatement } from "../rating/store";
+import { ratingVersionStatement, staleFromPlayersStatement } from "../rating/store";
 import { queueRecountStatement, recordsUrgentStatement } from "../records/store";
 import { matchPairsInsert } from "../upload/pairs";
 
@@ -277,7 +277,7 @@ export async function writeMerge(db: D1Database, w: MergeWrite): Promise<number>
     // Before the rows move: the first rated match `from` played in each region.
     staleFromPlayersStatement(db, [w.from], w.at),
     // A rating run that read `from`'s rows before this batch fails instead of writing them back.
-    db.prepare("UPDATE rating_state SET version = version + 1"),
+    ratingVersionStatement(db),
     // Before the rows move: the records recount `from`'s matches, which now count them with `into`.
     queueRecountStatement(db, w.from),
     recordsUrgentStatement(db),
@@ -370,7 +370,7 @@ export async function writeUndo(db: D1Database, w: UndoWrite): Promise<void> {
     // And the records recount those matches, which count them apart again.
     queueRecountStatement(db, from.id),
     recordsUrgentStatement(db),
-    db.prepare("UPDATE rating_state SET version = version + 1"),
+    ratingVersionStatement(db),
     db.prepare("UPDATE players SET name_fixed = 0 WHERE id = ?1 AND ?2 = 1").bind(into.id, w.unfixInto ? 1 : 0),
     db
       .prepare(`UPDATE players SET name = coalesce(${latestAlias("players.id")}, name) WHERE id IN (?1, ?2) AND name_fixed = 0`)
