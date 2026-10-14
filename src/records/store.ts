@@ -9,6 +9,7 @@ import {
   type MatchStatsRow,
   type Records,
   type RecordsBody,
+  type RecordsConfig,
   type RecordsInput,
 } from "./stats";
 
@@ -116,7 +117,12 @@ export async function readMatchCounts(db: D1Database, matchIds: readonly number[
          WHERE match_id IN (${ids}) AND rated = 1 GROUP BY match_id, winner_id`,
       )
       .bind(json(matchIds)),
-    db.prepare(`SELECT match_id AS matchId, log_id AS logId, player_id AS playerId FROM match_players WHERE match_id IN (${ids})`).bind(json(matchIds)),
+    db
+      .prepare(
+        `SELECT mp.match_id AS matchId, mp.log_id AS logId, mp.player_id AS playerId, p.bot FROM match_players mp
+         JOIN players p ON p.id = mp.player_id WHERE mp.match_id IN (${ids})`,
+      )
+      .bind(json(matchIds)),
   ]);
   const winRows = wins!.results as { matchId: number; logId: number | null; count: number }[];
   const rated = new Map<number, number>();
@@ -159,6 +165,7 @@ export function syncStatements(
   if (stats.length) {
     const columns: [string, keyof MatchStatsRow][] = [
       ["rated_rounds", "ratedRounds"],
+      ["players", "players"],
       ["round_deflects", "roundDeflects"],
       ["round_deflects_by", "roundDeflectsBy"],
       ["round_deflects_round", "roundDeflectsRound"],
@@ -223,13 +230,16 @@ export async function readRecordsState(db: D1Database, regions: readonly string[
   return results;
 }
 
-/** A match record: the top of its `match_stats` index, its player looked up by log id. */
+/**
+ * A match record: the top of its `match_stats` index, its player looked up by log id. Only a match
+ * with `?3` players and `?4` rated rounds (`recordsMinPlayers`, `recordsMinRatedRounds`) sets one.
+ */
 function matchRecord(column: string, round: string | null): string {
   return `(SELECT json_object('value', s.${column}, 'round', ${round ? `s.${round}` : "NULL"}, 'matchId', s.match_id,
       'playedAt', s.played_at, 'playerId', mp.player_id, 'name', p.name)
     FROM match_stats s JOIN matches m ON m.id = s.match_id
       JOIN match_players mp ON mp.match_id = s.match_id AND mp.log_id = s.${column}_by JOIN players p ON p.id = mp.player_id
-    WHERE s.region = ?1 AND ${counted} AND s.${column} IS NOT NULL ORDER BY s.${column} DESC, s.played_at, s.match_id LIMIT 1)`;
+    WHERE s.region = ?1 AND ${counted} AND s.${column} IS NOT NULL AND s.players >= ?3 AND s.rated_rounds >= ?4 ORDER BY s.${column} DESC, s.played_at, s.match_id LIMIT 1)`;
 }
 
 /** A career record: the region's best `ratings` row for the column (one read per rated player). */
@@ -257,7 +267,12 @@ const toCareerRecord = (raw: string | null): CareerRecord | null => {
  * Everything the records page shows, for one region: the records, the activity since `since` (a
  * UTC date; bots aren't players) and the top hosts. Three queries, in one batch. Only matches accepted in the region now count.
  */
-export async function readRecordsInput(db: D1Database, region: string, since: string, topHosts: number): Promise<RecordsInput> {
+export async function readRecordsInput(
+  db: D1Database,
+  region: string,
+  since: string,
+  config: Pick<RecordsConfig, "recordsTopHosts" | "recordsMinPlayers" | "recordsMinRatedRounds">,
+): Promise<RecordsInput> {
   const [records, days, hosts] = await db.batch([
     db
       .prepare(
@@ -276,7 +291,7 @@ export async function readRecordsInput(db: D1Database, region: string, since: st
               JOIN match_players mp ON mp.match_id = s.match_id JOIN players p ON p.id = mp.player_id
             WHERE s.region = ?1 AND ${counted} AND s.played_at >= ?2 AND p.bot = 0) AS players`,
       )
-      .bind(region, since),
+      .bind(region, since, config.recordsMinPlayers, config.recordsMinRatedRounds),
     db
       .prepare(
         `WITH days AS (
@@ -299,7 +314,7 @@ export async function readRecordsInput(db: D1Database, region: string, since: st
            GROUP BY s.host_id ORDER BY matches DESC, s.host_id LIMIT ?2) c
          JOIN hosts h ON h.id = c.host_id ORDER BY c.matches DESC, c.host_id`,
       )
-      .bind(region, topHosts),
+      .bind(region, config.recordsTopHosts),
   ]);
   const row = records!.results[0] as Record<keyof Records, string | null> & { players: number };
   return {
