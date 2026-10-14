@@ -33,7 +33,7 @@ export const publicReadRoutes: readonly string[] = [
 ];
 
 /** First path segments that need a token: never public, whatever `publicReadRoutes` says. */
-export const privateRoutes: readonly string[] = ["admin", "host", "upload"];
+export const privateRoutes: readonly string[] = ["admin", "host", "upload", "bot"];
 
 /** A tourney sign-up: `/api/tourneys/:id/signups` (src/tourney/signups.ts). */
 export const signupRoute = /^\/api\/tourneys\/[^/]+\/signups\/?$/;
@@ -68,7 +68,7 @@ export function isPublicRead(pathname: string): boolean {
   return publicReadRoutes.includes(segment) && !privateRoutes.includes(segment);
 }
 
-/** Whether the path is behind a token: `/api/admin`, `/api/host/...`, `/api/upload` (`privateRoutes`). */
+/** Whether the path is behind a token: `/api/admin`, `/api/host/...`, `/api/upload`, `/api/bot/...` (`privateRoutes`). */
 export function isPrivate(pathname: string): boolean {
   const parts = pathname.split("/");
   return parts[1] === "api" && privateRoutes.includes(parts[2] ?? "");

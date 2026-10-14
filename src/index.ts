@@ -9,6 +9,7 @@ import { isPrivate, isPublicRead, isPublicWrite, isSameOrigin, preflight, signup
 import { updateRatings } from "./rating/update";
 import { updateRecords } from "./records/update";
 import { handleSite } from "./site/handler";
+import { handleBotSignups } from "./tourney/botSignups";
 import { expireOld } from "./tourney/expiry";
 import { handleHostTourneyLobby, handleHostTourneys } from "./tourney/host";
 import { handleSignup } from "./tourney/signups";
@@ -101,6 +102,10 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
 
   if (url.pathname === "/api/admin" || url.pathname.startsWith("/api/admin/")) {
     return handleAdmin(request, env.DB, env.PROOFS, config, log);
+  }
+
+  if (url.pathname.startsWith("/api/bot/")) {
+    return handleBotSignups(request, env.DB, config, env.BOT_TOKEN, log);
   }
 
   if (signupRoute.test(url.pathname)) {

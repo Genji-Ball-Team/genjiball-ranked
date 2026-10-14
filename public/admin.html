@@ -332,7 +332,7 @@
         const tr = body.insertRow();
         if (!s.removedAt) place++;
         cell(tr, s.removedAt ? "" : place > t.capacity ? `${place} (over)` : place);
-        cell(tr, s.name); cell(tr, s.signedUpAt); cell(tr, s.removedAt ? `${s.removedBy}, ${s.removedAt}` : "");
+        cell(tr, s.discordUserId ? `${s.name} (Discord)` : s.name); cell(tr, s.signedUpAt); cell(tr, s.removedAt ? `${s.removedBy}, ${s.removedAt}` : "");
         const actions = cell(tr, "");
         if (s.removedAt) button(actions, "Restore", () => act(`restore ${s.name}`, () => post(`signups/${s.id}`, { removed: false }).then(() => `${s.name} is signed up again.`)));
         else button(actions, "Remove", () => confirm(`Remove ${s.name} from ${t.name}'s sign-ups? The name can't sign up again unless you restore it.`) &&
