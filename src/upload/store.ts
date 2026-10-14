@@ -1,3 +1,4 @@
+import { gunzip } from "../bytes";
 import { staleFromMatchesStatement } from "../rating/store";
 import { matchPairsInsert } from "./pairs";
 import { nameKey, tourneyReasons, type HostTrust, type MatchPlan, type MatchRows, type MatchStatus, type StoredCopy, type UploadLobby } from "./plan";
@@ -96,11 +97,6 @@ export async function findUploadLogs(db: D1Database, uploadIds: readonly number[
     logs.set(row.id, await gunzip(new Uint8Array(row.rawLog)));
   }
   return logs;
-}
-
-async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
 export interface MatchState {

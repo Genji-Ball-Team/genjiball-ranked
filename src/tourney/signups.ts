@@ -1,8 +1,8 @@
+import { sha256 } from "../bytes";
 import type { Config } from "../config";
 import { fail, notAllowed, positiveId, readJsonObject } from "../http";
 import type { Logger } from "../log";
-import { isoSeconds } from "../time";
-import { sha256 } from "../upload/handler";
+import { hourMs, isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
 import { insertSignup, readSignupState, type SignupState } from "./signupStore";
 
@@ -30,8 +30,6 @@ export type SignupConfig = Pick<
   | "tourneySignupsMax"
   | "tourneySignupBodyMaxBytes"
 >;
-
-const hourMs = 60 * 60 * 1000;
 
 /** The sign-up counts a tourney shows: `full` once the sign-ups reach a capacity it has. */
 export function signupSummary(status: string, count: number, capacity: number) {

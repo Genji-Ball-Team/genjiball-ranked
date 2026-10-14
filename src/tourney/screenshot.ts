@@ -1,3 +1,5 @@
+import { hex } from "../bytes";
+
 /**
  * Tourney verify screenshots (#28): the image types we take and their R2 keys. The type comes from
  * the file's first bytes, not from what the client says, so any tool's PNG, JPEG or WebP works and
@@ -20,8 +22,7 @@ const extensions: Record<ImageType, string> = { "image/png": "png", "image/jpeg"
 
 /** A new key for a lobby's screenshot. Random, so a replaced image gets a new URL and caches can keep it forever. */
 export function screenshotKey(lobbyId: number, type: ImageType): string {
-  const random = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `lobby-${lobbyId}-${random}.${extensions[type]}`;
+  return `lobby-${lobbyId}-${hex(crypto.getRandomValues(new Uint8Array(8)))}.${extensions[type]}`;
 }
 
 /** Whether `key` has the shape `screenshotKey` makes: anything else isn't looked up in R2. */

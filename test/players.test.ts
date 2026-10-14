@@ -10,7 +10,8 @@ import { ratingMatches, readKills, readRounds, readState } from "../src/rating/s
 import { updateRatings } from "../src/rating/update";
 import { listTagCandidates } from "../src/site/store";
 import { handleSite } from "../src/site/handler";
-import { handleUpload, sha256, type UploadResponse } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
+import { handleUpload, type UploadResponse } from "../src/upload/handler";
 import { matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;
@@ -281,7 +282,7 @@ describe("players: merge", () => {
     const page = await response!.json<{ player: { id: number }; matches: unknown[] }>();
     expect(page.player.id).toBe(alpha);
     expect(page).toEqual(await get(`players/${alpha}?region=eu`));
-    expect(queries).toBe(7); // Canonical id, player, rating, matches, regions, rivals (#18) and rank.
+    expect(queries).toBe(6); // The player (merges followed), rating, matches, regions, rivals (#18) and rank.
   });
 
   it("refuses a shared round uploaded after the check, and rolls back the merge and action", async () => {

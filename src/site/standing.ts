@@ -1,5 +1,6 @@
 import type { Config, Tier } from "../config";
 import { tierFor } from "../rating/engine";
+import { dayMs } from "../time";
 
 /**
  * Where a player stands, from their stored rating: their tier and whether they're inactive. Pure,
@@ -16,8 +17,6 @@ export interface Standing {
   /** When they last played, once that's more than `inactiveAfterDays` ago. Null while active. */
   inactiveSince: string | null;
 }
-
-const dayMs = 24 * 60 * 60 * 1000;
 
 export function standing(
   rating: { display: number; rounds: number; lastPlayedAt: string | null },

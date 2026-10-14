@@ -2,7 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { handleSite } from "../src/site/handler";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;

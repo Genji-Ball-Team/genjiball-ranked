@@ -6,7 +6,7 @@ import { createLogger } from "../src/log";
 import { codeFrom, newLobbyKey, roundLimitOf, tourneyCode, type CodeLobby } from "../src/tourney/code";
 import { handleHostTourneyLobby } from "../src/tourney/host";
 import { findLobby, isLobbyChanged, setScreenshot } from "../src/tourney/store";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { matchId, matchLog } from "./helpers";
 
 // The host API for tourneys (#25, #28): assigned lobbies, the tourney code window, the host's screenshot.

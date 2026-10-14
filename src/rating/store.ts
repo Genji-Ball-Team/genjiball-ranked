@@ -51,10 +51,15 @@ export async function readState(db: D1Database, board: string): Promise<RatingSt
       .first<{ version: number; playedAt: string | null; id: number | null }>();
   let row = await read();
   if (!row) {
-    await db.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES (?)").bind(board).run();
+    await stateRowStatement(db, board).run();
     row = (await read())!;
   }
   return { version: row.version, staleFrom: row.playedAt === null ? null : { playedAt: row.playedAt, id: row.id ?? 0 } };
+}
+
+/** Adds the region's `rating_state` row, if it has none yet. */
+export function stateRowStatement(db: D1Database, board: string): D1PreparedStatement {
+  return db.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES (?)").bind(board);
 }
 
 /** Whether any region's ratings are stale. */
@@ -72,18 +77,12 @@ export async function staleRegions(db: D1Database): Promise<string[]> {
 export async function readUnrated(db: D1Database, board: string): Promise<CandidateMatch[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, played_at AS playedAt, complete, tournament FROM matches
+      `SELECT ${candidateColumns} FROM matches
        WHERE region = ? AND status = 'accepted' AND rated_at IS NULL ORDER BY played_at, id`,
     )
     .bind(board)
-    .all<{ id: number; playedAt: string; complete: number; tournament: number }>();
-  return results.map((m) => ({
-    id: m.id,
-    playedAt: m.playedAt,
-    complete: m.complete === 1,
-    rated: false,
-    tournament: m.tournament === 1,
-  }));
+    .all<CandidateRow>();
+  return results.map(toCandidate);
 }
 
 /** The region's newest rated match (index `matches_rated`). */

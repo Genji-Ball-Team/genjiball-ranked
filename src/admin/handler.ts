@@ -1,9 +1,10 @@
 import { queryBudget } from "../budget";
+import { sha256 } from "../bytes";
 import { bearerToken, fail, notAllowed, positiveId } from "../http";
 import type { Logger } from "../log";
 import { ratingVersionStatement, staleFromMatchesStatement } from "../rating/store";
 import { isoSeconds } from "../time";
-import { readBody, sha256, storeLog } from "../upload/handler";
+import { readBody, storeLog } from "../upload/handler";
 import type { HostTrust, MatchStatus } from "../upload/plan";
 import { matchActions, matchTransition, newToken, trustChange, type MatchAction } from "./plan";
 import {

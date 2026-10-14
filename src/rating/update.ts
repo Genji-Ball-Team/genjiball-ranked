@@ -1,7 +1,7 @@
 import type { QueryBudget } from "../budget";
 import type { Config } from "../config";
 import type { Logger } from "../log";
-import { isoSeconds } from "../time";
+import { hourMs, isoSeconds } from "../time";
 import type { RatingConfig } from "./engine";
 import { planRerate } from "./plan";
 import {
@@ -63,8 +63,6 @@ export interface RecomputeResult {
   done: boolean;
   conflict: boolean;
 }
-
-const hourMs = 60 * 60 * 1000;
 
 /**
  * The most D1 queries one `rateNewMatches` makes: the state (up to 3, when the region's row is new),

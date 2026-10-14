@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { sha256, type UploadResponse } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
+import { type UploadResponse } from "../src/upload/handler";
 import { matchLog } from "./helpers";
 import example from "./fixtures/ranked-log-example.txt?raw";
 import tourneyExample from "./fixtures/ranked-log-tourney-example.txt?raw";

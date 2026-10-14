@@ -1,6 +1,6 @@
 import type { Config } from "../config";
 import type { Logger } from "../log";
-import { isoSeconds } from "../time";
+import { dayMs, isoSeconds } from "../time";
 import { expireScreenshots, forgetScreenshots, listOlderThan, listOverCaps, pendingScreenshots } from "./store";
 
 /**
@@ -29,7 +29,7 @@ export async function expireOld(db: D1Database, proofs: R2Bucket, config: Expiry
 /** Screenshots taken before this are past `screenshotKeepDays`. `""` (before everything) when there's no age limit. */
 function cutoff(config: ExpiryConfig, now: Date): string {
   if (config.screenshotKeepDays <= 0) return "";
-  return isoSeconds(new Date(now.getTime() - config.screenshotKeepDays * 24 * 60 * 60 * 1000));
+  return isoSeconds(new Date(now.getTime() - config.screenshotKeepDays * dayMs));
 }
 
 /** Retries a bounded batch of pending deletes, retaining every failed key for the next run. */

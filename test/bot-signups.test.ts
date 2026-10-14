@@ -1,9 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
+import { sha256 } from "../src/bytes";
 import { createLogger } from "../src/log";
 import { handleBotSignups } from "../src/tourney/botSignups";
-import { sha256 } from "../src/upload/handler";
 
 /** The Discord bot's tourney sign-ups (`/api/bot/tourneys/:id/signups`): one list with the page's. */
 

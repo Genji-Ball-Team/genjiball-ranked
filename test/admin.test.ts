@@ -7,7 +7,8 @@ import { createLogger } from "../src/log";
 import { tournamentMaxLoss } from "../src/rating/engine";
 import { readKills, readState } from "../src/rating/store";
 import { recomputeRatings } from "../src/rating/update";
-import { sha256, type UploadResponse } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
+import { type UploadResponse } from "../src/upload/handler";
 import { expectUpToDate, historyTable, matchId, matchLog, ratingsTable } from "./helpers";
 
 const db = () => env.DB;

@@ -5,7 +5,7 @@ import { downsample, peakOf, recentForm, type HistoryPoint } from "../src/site/h
 import { listFormRounds, listHistory } from "../src/site/store";
 import { handleSite } from "../src/site/handler";
 import worker from "../src/index";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;

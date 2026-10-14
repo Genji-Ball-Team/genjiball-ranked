@@ -8,7 +8,7 @@ import { expireOld, expireOverCaps, flushScreenshotDeletions } from "../src/tour
 import { imageType, isScreenshotKey, screenshotKey } from "../src/tourney/screenshot";
 import { standings } from "../src/tourney/standings";
 import { deleteLobby, findLobby, isLobbyChanged, pendingScreenshots, queueScreenshot, setScreenshot, setVerified, stageScreenshot, tournamentStatement, updateLobby } from "../src/tourney/store";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { expectUpToDate, matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;

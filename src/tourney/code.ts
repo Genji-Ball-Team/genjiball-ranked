@@ -1,5 +1,5 @@
 import type { Config } from "../config";
-import { isoSeconds } from "../time";
+import { isoSeconds, minuteMs } from "../time";
 
 /**
  * The tourney code values (#25): what the host tool writes into the game's `TOURNEY - generated`
@@ -43,7 +43,7 @@ export interface TourneyCode {
 
 /** When the code values become available: `tourneyCodeLeadMinutes` before the start. */
 export function codeFrom(startsAt: string, config: CodeConfig): string {
-  return isoSeconds(new Date(Date.parse(startsAt) - config.tourneyCodeLeadMinutes * 60 * 1000));
+  return isoSeconds(new Date(Date.parse(startsAt) - config.tourneyCodeLeadMinutes * minuteMs));
 }
 
 /**
