@@ -36,8 +36,9 @@ import {
  *   rated on top of the current ratings. An older one (a late upload) makes the ratings stale.
  * - `recomputeRatings`: on the cron while the ratings are stale. Re-rates from the first stale
  *   match on, a few matches a run, and writes only the rows that changed.
- * - `markMatchesChanged`, `markAllStale`: for whatever changes a rated match (a void, #7) or the
- *   rating itself (a config or engine change).
+ * - `markMatchesChanged`, `markAllStale`: for a change to rated matches made outside a batch, or to
+ *   the rating itself (a config or engine change). Admin actions (a void, #7) put
+ *   `staleFromMatchesStatement` in their own batch instead.
  *
  * Each region is its own leaderboard (#47): `rateNewMatches` and `recomputeRatings` work on one
  * region's matches and ratings, and `updateRatings` runs them for each region.
@@ -203,9 +204,10 @@ export async function recomputeRatings(
 }
 
 /**
- * For whatever changes matches that may be rated: a void, an un-void, accepting a match from the
- * review queue (#7). Each region's ratings are stale from the earliest of them in it; the cron
- * recomputes them, or call `recomputeRatings` straight away.
+ * For a change to matches that may be rated, made outside a batch that could carry
+ * `staleFromMatchesStatement` (the admin's void, un-void and accept do). Each region's ratings are
+ * stale from the earliest of them in it; the cron recomputes them, or call `recomputeRatings`
+ * straight away.
  */
 export async function markMatchesChanged(db: D1Database, matchIds: readonly number[], now: Date): Promise<void> {
   if (matchIds.length) await staleFromMatchesStatement(db, matchIds, isoSeconds(now)).run();

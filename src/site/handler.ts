@@ -168,7 +168,7 @@ async function leaderboard(db: D1Database, config: SiteConfig, region: Region, p
 
 /**
  * The region's open ranked lobbies, longest open first: those with a heartbeat in the last
- * `lobbyTtlSeconds`. `tourney` is the tourney lobby it's for, once #25 lets a heartbeat say so.
+ * `lobbyTtlSeconds`. `tourney` is reserved and always null (src/lobby/handler.ts).
  */
 async function lobbies(db: D1Database, config: SiteConfig, region: Region, now: Date) {
   const rows = await listLiveLobbies(db, region.id, secondsBefore(now, config.lobbyTtlSeconds));

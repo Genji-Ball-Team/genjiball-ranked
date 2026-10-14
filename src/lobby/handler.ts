@@ -18,9 +18,8 @@ import { closeLobby, deleteStaleLobbies, upsertLobby } from "./store";
  * A lobby whose heartbeats stop is gone after `lobbyTtlSeconds`. The site lists them with
  * `GET /api/lobbies?region=` (src/site/handler.ts).
  *
- * Tourney lobbies (#25) will add an optional `tourneyLobbyId` to the body, checked against the
- * host's assigned lobbies, and the list's `tourney` will show its label. Not built yet: `tourney` is
- * always null.
+ * The list's `tourney` is reserved for the tourney lobby a heartbeat is for, and always null: a host
+ * finds their tourney lobbies through `GET /api/host/tourneys` (#25, src/tourney/host.ts) instead.
  */
 
 export type LobbyConfig = Pick<
