@@ -28,7 +28,7 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `host_actions` | host API change | A host's own screenshot upload or delete, like `admin_actions`: who, what, when, which lobby (no foreign key: the log outlives the lobby). Only ever inserted |
 | `screenshot_deletions` | screenshot awaiting R2 deletion | Keeps its key and byte count until R2 deletion succeeds; failed deletes remain accounted for and are retried |
 | `live_lobbies` | host with a lobby open or just closed | From the host tool's heartbeats (#11): `region`, `name`, `players`, `opened_at`, `seen_at` (last heartbeat), `closed_at` (closed by the host; the row stays for the rate limit). Not listed once closed or `seen_at` is `lobbyTtlSeconds` old; the cron deletes it once that's past the TTL. Indexed by `region` only, and a heartbeat in the same region doesn't SET it: one row written ([below](#live-lobbies)) |
-| `match_stats` | accepted match | Its bests for the records (deflects in a round, fastest deflect, kills, wins), its rated rounds and its players (bots left out). Derived by the cron ([below](#records)); players are log ids |
+| `match_stats` | accepted match | Its bests for the records (deflects in a round, fastest deflect, kills, wins), its rated rounds and its players (bots left out). Derived by the cron ([below](#records)). `players` counts distinct player ids; the record holders are log ids |
 | `records` | region | The records page as served (`/api/records`), JSON, when it was made and from which revision |
 | `records_revisions` | region | `revision`: goes up when what its records count changes; `urgent`: when a match last left them |
 | `records_state` | (one row) | `feed_cursor`: how far the cron has read the match feed for `match_stats` |
