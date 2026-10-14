@@ -6,7 +6,7 @@ import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
 import type { ParsedMatch } from "../src/parser/types";
 import { createLogger } from "../src/log";
-import { rateNewMatches, rateNewMatchesMaxQueries } from "../src/rating/update";
+import { rateNewMatches, rateNewQueries } from "../src/rating/update";
 import { matchView } from "../src/site/handler";
 import type { MatchDetail } from "../src/site/store";
 import { handleUpload, sha256 } from "../src/upload/handler";
@@ -576,8 +576,8 @@ describe("upload query budget", () => {
   it("leaves rating to the cron when the queries left can't hold it", async () => {
     const first = await send(longLog("000000000012", 10), defaults);
     expect(first.res.status).toBe(200);
-    const writesAndReads = first.queries - rateNewMatchesMaxQueries;
-    const tight = { ...defaults, queriesPerRequest: writesAndReads + rateNewMatchesMaxQueries - 1 };
+    const writesAndReads = first.queries - rateNewQueries;
+    const tight = { ...defaults, queriesPerRequest: writesAndReads + rateNewQueries - 1 };
     const { res, queries } = await send(longLog("000000000013", 10), tight);
     expect(res.status, await res.clone().text()).toBe(200);
     expect(queries).toBeLessThanOrEqual(tight.queriesPerRequest);
@@ -593,7 +593,7 @@ describe("upload query budget", () => {
     expect(await db().prepare("SELECT count(*) AS n FROM matches").first("n")).toBe(0);
   });
 
-  it("rates within rateNewMatchesMaxQueries, even for a region with no rating state yet", async () => {
+  it("rates within rateNewQueries, even for a region with no rating state yet", async () => {
     await db().prepare("UPDATE hosts SET trust = 'untrusted'").run();
     await upload(statsLog("000000000015"), 3, "na");
     await upload(statsLog("000000000016"), 2, "na");
@@ -604,7 +604,7 @@ describe("upload query budget", () => {
     const counting = countingDb(db());
     const result = await rateNewMatches(counting.db, defaults, new Date(), createLogger("error"), "na");
     expect(result.rated).toBe(2);
-    expect(counting.queries()).toBeLessThanOrEqual(rateNewMatchesMaxQueries);
+    expect(counting.queries()).toBeLessThanOrEqual(rateNewQueries);
     await db().prepare("INSERT OR IGNORE INTO rating_state (board) VALUES ('na')").run();
   });
 });

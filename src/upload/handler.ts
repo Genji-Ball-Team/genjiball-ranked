@@ -4,7 +4,7 @@ import type { Logger } from "../log";
 import { parseLegacyLog } from "../parser/legacy";
 import { parseLog } from "../parser/parse";
 import type { ParsedMatch } from "../parser/types";
-import { rateNewMatches, rateNewMatchesMaxQueries, type UpdateConfig } from "../rating/update";
+import { rateNewMatches, rateNewQueries, type UpdateConfig } from "../rating/update";
 import { isoSeconds } from "../time";
 import { roundLimitOf } from "../tourney/code";
 import { parseHostAfkHeader, type HostAfk } from "./hostAfk";
@@ -342,11 +342,11 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
   );
   for (const matchRegion of toRate) {
     // The free plan's queries per request: what's left can't rate, so the cron does (within 10 minutes).
-    if (queries + rateNewMatchesMaxQueries > config.queriesPerRequest) {
+    if (queries + rateNewQueries > config.queriesPerRequest) {
       log.info("rating left to the cron: no queries left", { upload: uploadId, region: matchRegion, queries });
       continue;
     }
-    queries += rateNewMatchesMaxQueries;
+    queries += rateNewQueries;
     try {
       await rateNewMatches(db, config, now, log, matchRegion);
     } catch (error) {

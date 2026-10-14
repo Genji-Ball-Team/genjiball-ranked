@@ -284,6 +284,15 @@ export function lockStatement(db: D1Database, board: string, version: number): D
     .bind(board, version);
 }
 
+/**
+ * Moves every region's version on, so a rating run that read before this batch fails
+ * (`lockStatement`) instead of writing what it read: for a change it can't see in the stale point,
+ * like a tournament flag on a match not yet rated or a player merge.
+ */
+export function ratingVersionStatement(db: D1Database): D1PreparedStatement {
+  return db.prepare("UPDATE rating_state SET version = version + 1");
+}
+
 /** The error a batch fails with when `lockStatement` found a newer version. */
 export function isConflict(error: unknown): boolean {
   return String(error).includes("NOT NULL constraint failed: rating_state.version");

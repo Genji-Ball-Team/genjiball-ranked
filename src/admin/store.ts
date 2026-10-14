@@ -164,6 +164,11 @@ export async function listMatches(db: D1Database, status: MatchStatus, region: s
   return results.map(toMatch);
 }
 
+/** The tourney lobby the match is linked to, if any. */
+export async function linkedLobby(db: D1Database, matchId: number): Promise<{ id: number } | null> {
+  return db.prepare("SELECT id FROM tourney_lobbies WHERE match_id = ?").bind(matchId).first<{ id: number }>();
+}
+
 export async function findMatch(db: D1Database, id: number): Promise<MatchRow | null> {
   const row = await db
     .prepare(`SELECT ${matchColumns} FROM matches m JOIN hosts h ON h.id = m.host_id WHERE m.id = ?`)

@@ -1,7 +1,7 @@
+import { queryBudget } from "../budget";
 import { fail } from "../http";
 import type { Logger } from "../log";
-import { anyStale, staleFromMatchesStatement } from "../rating/store";
-import { updateRatings } from "../rating/update";
+import { ratingVersionStatement, staleFromMatchesStatement } from "../rating/store";
 import { isoSeconds } from "../time";
 import { readBody, sha256, storeLog } from "../upload/handler";
 import type { HostTrust, MatchStatus } from "../upload/plan";
@@ -13,6 +13,7 @@ import {
   findHostById,
   findMatch,
   isStale,
+  linkedLobby,
   listActions,
   listHosts,
   listMatches,
@@ -22,7 +23,7 @@ import {
   setMatchState,
   setTournament,
 } from "./store";
-import { BadRequest, body, changedMeanwhile, notAllowed, regionField, text, type AdminConfig, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, notAllowed, regionField, rerate, text, type AdminConfig, type Context } from "./request";
 import { handlePlayerAdmin } from "./players";
 import { handleTourneyAdmin } from "./tourneys";
 import { dryRunParse, recomputeRegion } from "./debug";
@@ -38,13 +39,16 @@ import { dryRunParse, recomputeRegion } from "./debug";
 const statuses: readonly MatchStatus[] = ["accepted", "review", "rejected", "void"];
 const settableTrust: readonly HostTrust[] = ["trusted", "untrusted"];
 
-export async function handleAdmin(request: Request, db: D1Database, proofs: R2Bucket, config: AdminConfig, log: Logger): Promise<Response> {
+export async function handleAdmin(request: Request, database: D1Database, proofs: R2Bucket, config: AdminConfig, log: Logger): Promise<Response> {
+  // Every query counts from here: the rating after a change gets what's left (`rerate`).
+  const queries = queryBudget(database, config.queriesPerRequest);
+  const db = queries.db;
   const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
   if (!token) return fail(401, "unauthorized", "Send your admin token as Authorization: Bearer <token>");
   const admin = await findAdmin(db, await sha256(token));
   if (!admin) return fail(401, "unauthorized", "Unknown or revoked admin token");
 
-  const ctx: Context = { db, proofs, config, log, admin, now: new Date() };
+  const ctx: Context = { db, queries, proofs, config, log, admin, now: new Date() };
   const path = new URL(request.url).pathname.replace(/^\/api\/admin\/?/, "").replace(/\/$/, "").split("/");
   const method = request.method;
   const id = path[1] !== undefined && /^[1-9]\d{0,15}$/.test(path[1]) ? Number(path[1]) : null;
@@ -194,9 +198,9 @@ async function changeTrust(ctx: Context, hostId: number, to: unknown): Promise<R
 
 /**
  * `POST /api/admin/matches/:id/<accept|reject|void|unvoid>`. A void marks the ratings stale from the
- * match in the same transaction. Then the ratings are brought up to date as far as one run goes
- * (`updateRatings`, like the cron): a match that now counts is rated if it's the newest, and a short
- * stale tail is recomputed straight away. The cron finishes a longer one.
+ * match in the same transaction. Then the ratings are brought up to date as far as the request's
+ * queries go (`rerate`, like the cron): a match that now counts is rated if it's the newest, and a
+ * short stale tail is recomputed straight away. The cron finishes a longer one.
  */
 async function changeMatch(ctx: Context, matchId: number, action: MatchAction, data: Record<string, unknown>): Promise<Response> {
   const reason = text(data.reason, ctx.config, "reason");
@@ -230,16 +234,8 @@ async function changeMatch(ctx: Context, matchId: number, action: MatchAction, d
   }
   ctx.log.info("admin: match", { admin: ctx.admin.id, match: matchId, action, from: match.status, to: transition.to.status });
 
-  let ratingsStale = true;
-  try {
-    if (match.status === "accepted" || transition.to.status === "accepted") {
-      await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, [match.region]);
-    }
-    ratingsStale = await anyStale(ctx.db);
-  } catch (error) {
-    // The change is stored; the cron rates or recomputes.
-    ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
-  }
+  const rated = match.status === "accepted" || transition.to.status === "accepted";
+  const ratingsStale = await rerate(ctx, rated ? [match.region] : [], { match: matchId });
   return Response.json({ match: { ...match, ...transition.to }, ratingsStale });
 }
 
@@ -254,7 +250,7 @@ async function changeMatchRegion(ctx: Context, matchId: number, data: Record<str
   const match = await findMatch(ctx.db, matchId);
   if (!match) return fail(404, "not_found", "No such match");
   if (match.region === region) return fail(409, "conflict", `The match is already in ${region}`);
-  if (await ctx.db.prepare("SELECT id FROM tourney_lobbies WHERE match_id = ?").bind(matchId).first()) {
+  if (await linkedLobby(ctx.db, matchId)) {
     return fail(409, "conflict", "Unlink the match from its tourney lobby before moving it to another region");
   }
 
@@ -273,13 +269,7 @@ async function changeMatchRegion(ctx: Context, matchId: number, data: Record<str
   }
   ctx.log.info("admin: match region", { admin: ctx.admin.id, match: matchId, from: match.region, to: region });
 
-  let ratingsStale = true;
-  try {
-    if (match.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, [match.region, region]);
-    ratingsStale = await anyStale(ctx.db);
-  } catch (error) {
-    ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
-  }
+  const ratingsStale = await rerate(ctx, match.status === "accepted" ? [match.region, region] : [], { match: matchId });
   return Response.json({ match: { ...match, region, rated: false }, ratingsStale });
 }
 
@@ -295,7 +285,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
   if (match.tournament === data.tournament) {
     return fail(409, "conflict", `The match is ${match.tournament ? "already" : "not"} a tournament`);
   }
-  if (!data.tournament && await ctx.db.prepare("SELECT id FROM tourney_lobbies WHERE match_id = ?").bind(matchId).first()) {
+  if (!data.tournament && (await linkedLobby(ctx.db, matchId))) {
     return fail(409, "conflict", "Unlink the match from its tourney lobby before removing its tournament flag");
   }
 
@@ -306,7 +296,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
       matchId,
       data.tournament,
       { adminId: ctx.admin.id, action: "match_tournament", matchId, hostId: match.hostId, detail: { tournament: data.tournament }, at },
-      [staleFromMatchesStatement(ctx.db, [matchId], at, true), ctx.db.prepare("UPDATE rating_state SET version = version + 1")],
+      [staleFromMatchesStatement(ctx.db, [matchId], at, true), ratingVersionStatement(ctx.db)],
     );
   } catch (error) {
     if (isStale(error)) return changedMeanwhile();
@@ -314,13 +304,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
   }
   ctx.log.info("admin: tournament", { admin: ctx.admin.id, match: matchId, tournament: data.tournament });
 
-  let ratingsStale = true;
-  try {
-    if (match.status === "accepted") await updateRatings(ctx.db, ctx.config, ctx.now, ctx.log, [match.region]);
-    ratingsStale = await anyStale(ctx.db);
-  } catch (error) {
-    ctx.log.error("rating after admin action failed", { match: matchId, error: String(error) });
-  }
+  const ratingsStale = await rerate(ctx, match.status === "accepted" ? [match.region] : [], { match: matchId });
   return Response.json({ match: { ...match, tournament: data.tournament }, ratingsStale });
 }
 
@@ -351,8 +335,7 @@ async function importLegacy(ctx: Context, request: Request): Promise<Response> {
     request,
     now: ctx.now,
     legacy: true,
-    // Two queries so far: the admin and the host.
-    queriesBefore: 2,
+    queriesBefore: ctx.queries.used(),
     extra: (db) => [
       actionStatement(db, { adminId: ctx.admin.id, action: "legacy_import", hostId, detail: { file: fileName }, at: isoSeconds(ctx.now) }),
     ],
