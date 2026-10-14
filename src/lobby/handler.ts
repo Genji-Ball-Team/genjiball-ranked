@@ -1,7 +1,7 @@
 import type { Config } from "../config";
 import { fail, notAllowed, readJsonObject } from "../http";
 import type { Logger } from "../log";
-import { isoSeconds } from "../time";
+import { isoSeconds, secondsBefore } from "../time";
 import { authHost, hostRegion } from "../upload/handler";
 import { closeLobby, deleteStaleLobbies, upsertLobby } from "./store";
 
@@ -74,11 +74,6 @@ export async function handleHostLobby(request: Request, db: D1Database, config: 
 export async function clearStaleLobbies(db: D1Database, config: Pick<Config, "lobbyTtlSeconds">, now: Date, log: Logger): Promise<void> {
   const deleted = await deleteStaleLobbies(db, secondsBefore(now, config.lobbyTtlSeconds));
   if (deleted) log.debug("stale lobbies deleted", { deleted });
-}
-
-/** A lobby last seen at or before this is past `seconds` old. */
-export function secondsBefore(now: Date, seconds: number): string {
-  return isoSeconds(new Date(now.getTime() - seconds * 1000));
 }
 
 /** The heartbeat's `{ players, name }`, or what's wrong with it. */

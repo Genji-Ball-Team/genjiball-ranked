@@ -8,7 +8,7 @@ import { countedMatches, dryRunDiff, dryRunSql, sqlRegion } from "../src/rating/
 import type { StoredRating } from "../src/rating/plan";
 import type { CandidateRow, KillRow, RoundRow } from "../src/rating/store";
 import { updateRatings } from "../src/rating/update";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import example from "./fixtures/ranked-log-example.txt?raw";
 import { expectUpToDate, matchId, matchLog } from "./helpers";
 

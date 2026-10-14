@@ -8,7 +8,7 @@ import { matchStats, recordsView, noRecords, type MatchCounts } from "../src/rec
 import { readFeedChanges, readMatchCounts, readRecountQueue, syncStatements } from "../src/records/store";
 import { isDue, rebuildRecords, refreshQueries, syncMatchStats, syncQueries, updateRecords } from "../src/records/update";
 import { markAllStale, rateNewQueries, recomputeQueries } from "../src/rating/update";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { matchId } from "./helpers";
 
 const db = () => env.DB;

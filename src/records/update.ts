@@ -1,6 +1,6 @@
 import type { QueryBudget } from "../budget";
 import type { Logger } from "../log";
-import { isoSeconds } from "../time";
+import { isoSeconds, minuteMs } from "../time";
 import { activityStart, matchStats, recordsView, type RecordsConfig } from "./stats";
 import {
   isCursorConflict,
@@ -27,7 +27,6 @@ import {
  *   `recordsRefreshMinutes`.
  */
 
-const minuteMs = 60 * 1000;
 
 /** The most D1 queries a `syncMatchStats` makes: the feed, the recount queue, 4 counts, a batch of 6. */
 export const syncQueries = 12;

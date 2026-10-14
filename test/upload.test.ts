@@ -2,7 +2,8 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { createLogger } from "../src/log";
-import { handleUpload, sha256, type UploadResponse } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
+import { handleUpload, type UploadResponse } from "../src/upload/handler";
 import example from "./fixtures/ranked-log-example.txt?raw";
 
 const db = () => env.DB;

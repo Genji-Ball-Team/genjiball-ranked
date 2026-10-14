@@ -1,4 +1,5 @@
 import type { Config } from "../config";
+import { dayMs } from "../time";
 
 /**
  * Records and activity (#19). Pure: a match's bests from its counted events and rounds
@@ -222,7 +223,6 @@ export interface RecordsInput {
   topHosts: readonly { name: string; matches: number }[];
 }
 
-const dayMs = 24 * 60 * 60 * 1000;
 
 /** The first day of the activity window: `recordsActivityDays` days, today (UTC) included. */
 export function activityStart(now: Date, days: number): string {

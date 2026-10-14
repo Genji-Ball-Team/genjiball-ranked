@@ -2,12 +2,12 @@ import { createScheduledController, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import worker from "../src/index";
-import { handleHostLobby, secondsBefore } from "../src/lobby/handler";
+import { handleHostLobby } from "../src/lobby/handler";
 import { createLogger } from "../src/log";
 import { handleSite } from "../src/site/handler";
 import { upsertLobby } from "../src/lobby/store";
-import { isoSeconds } from "../src/time";
-import { sha256 } from "../src/upload/handler";
+import { isoSeconds, secondsBefore } from "../src/time";
+import { sha256 } from "../src/bytes";
 
 const db = () => env.DB;
 const log = createLogger("error");

@@ -1,3 +1,4 @@
+import { hex } from "./bytes";
 import type { Config } from "./config";
 
 /**
@@ -126,8 +127,7 @@ export async function withPublicHeaders(request: Request, response: Response, co
 /** A weak ETag from the body's SHA-256: the same answer gets the same tag. */
 async function weakEtag(body: ArrayBuffer): Promise<string> {
   const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", body));
-  const hex = [...hash.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `W/"${hex}"`;
+  return `W/"${hex(hash.slice(0, 12))}"`;
 }
 
 /** `If-None-Match` against an ETag, compared weakly (RFC 9110): `W/"x"` matches `"x"`. */

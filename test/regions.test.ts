@@ -6,7 +6,8 @@ import { createLogger } from "../src/log";
 import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
 import { ratingMatches, readKills, readRounds, readState } from "../src/rating/store";
 import { markMatchesChanged, updateRatings } from "../src/rating/update";
-import { handleUpload, sha256, type UploadResponse } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
+import { handleUpload, type UploadResponse } from "../src/upload/handler";
 import { countingDb, matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;

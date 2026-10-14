@@ -1,3 +1,4 @@
+import { hex } from "../bytes";
 import { adminRejection, type HostTrust, type MatchStatus } from "../upload/plan";
 
 /**
@@ -51,5 +52,5 @@ export function trustChange(from: HostTrust, to: HostTrust): string | null {
 
 /** A new host token: `bytes` random bytes as hex. */
 export function newToken(bytes: number): string {
-  return [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hex(crypto.getRandomValues(new Uint8Array(bytes)));
 }

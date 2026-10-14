@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { createLogger } from "../src/log";
 import { handleSignup } from "../src/tourney/signups";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { expectUpToDate, matchId, matchLog } from "./helpers";
 
 /** Tourney sign-ups (#31), lobby capacity and the admin's clean-up (#24). */

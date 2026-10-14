@@ -1,8 +1,8 @@
+import { sha256 } from "../bytes";
 import type { Config } from "../config";
 import { bearerToken, fail, notAllowed, positiveId, readLimited } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
-import { sha256 } from "../upload/handler";
 import { nameKey } from "../upload/plan";
 import { checkName, signupSummary } from "./signups";
 

@@ -1,3 +1,4 @@
+import { gzip, sha256 } from "../bytes";
 import { findRegion, notARegion, type Config, type Region } from "../config";
 import { bearerToken, fail, notAllowed, readLimited, type ApiError } from "../http";
 import type { Logger } from "../log";
@@ -5,7 +6,7 @@ import { parseLegacyLog } from "../parser/legacy";
 import { parseLog } from "../parser/parse";
 import type { ParsedMatch } from "../parser/types";
 import { rateNewMatches, rateNewQueries, type UpdateConfig } from "../rating/update";
-import { isoSeconds } from "../time";
+import { hourMs, isoSeconds } from "../time";
 import { roundLimitOf } from "../tourney/code";
 import { parseHostAfkHeader, type HostAfk } from "./hostAfk";
 import {
@@ -104,7 +105,6 @@ export type UploadConfig = UpdateConfig &
     | "tourneyRoundLimit"
   >;
 
-const hourMs = 60 * 60 * 1000;
 const hourBefore = (now: Date) => isoSeconds(new Date(now.getTime() - hourMs));
 
 export async function handleUpload(request: Request, db: D1Database, config: UploadConfig, log: Logger): Promise<Response> {
@@ -264,9 +264,7 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
     });
   }
 
-  // A match keeps the region it was first stored in: another copy doesn't move it.
-  const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
-  const regionOf = (plan: MatchPlan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
+  const regionOf = planRegion(stored, region);
   const matches = plans.map((plan) => result(plan, regionOf(plan)));
   const stores = plans.some((p) => p.action === "insert" || p.action === "replace");
   const refreshes = plans.some((p) => p.action === "refresh");
@@ -426,6 +424,12 @@ export function parseFile(bytes: Uint8Array, contentHash: string, legacy: boolea
   return parsed.matches;
 }
 
+/** Each plan's region: `region` for a new match. A match keeps the region it was first stored in: another copy doesn't move it. */
+export function planRegion<R extends string | null>(stored: readonly StoredCopy[], region: R): (plan: MatchPlan) => string | R {
+  const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
+  return (plan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
+}
+
 /** The match's line in an upload's answer. */
 export function result(plan: MatchPlan, region: string): MatchResult {
   return {
@@ -452,13 +456,3 @@ function startedAt(header: string | null, now: Date): string | null {
   return isoSeconds(time);
 }
 
-export async function sha256(data: string | Uint8Array): Promise<string> {
-  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
-  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}

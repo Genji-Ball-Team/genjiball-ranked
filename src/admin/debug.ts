@@ -1,9 +1,10 @@
+import { sha256 } from "../bytes";
 import { findRegion, notARegion } from "../config";
 import { fail, positiveId } from "../http";
 import type { ParsedMatch } from "../parser/types";
-import { fromStart, staleFromStatement, type MatchRef } from "../rating/store";
+import { fromStart, staleFromStatement, stateRowStatement, type MatchRef } from "../rating/store";
 import { isoSeconds } from "../time";
-import { hostRegion, parseFile, rateLimit, readBody, result, sha256, tourneyContext } from "../upload/handler";
+import { hostRegion, parseFile, planRegion, rateLimit, readBody, result, tourneyContext } from "../upload/handler";
 import { isRated, planUpload, type MatchPlan } from "../upload/plan";
 import { findStoredCopies, findUploadByHash, type Host } from "../upload/store";
 import { BadRequest, regionField, type Context } from "./request";
@@ -102,8 +103,7 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
   const tourney = await tourneyContext(ctx.db, matches, stored, host?.id ?? null, region, ctx.config);
   const plans = planUpload(matches, stored, trust, ctx.config, { tourney });
 
-  const storedRegion = new Map(stored.map((copy) => [copy.id, copy.region]));
-  const regionOf = (plan: MatchPlan) => (plan.storedId === null ? region : (storedRegion.get(plan.storedId) ?? region));
+  const regionOf = planRegion(stored, region);
   let upload: Simulated;
   if (stop) upload = stop;
   else if (duplicateOf !== null) upload = { status: 200, result: "duplicate", uploadId: duplicateOf, region, matches: [] };
@@ -210,7 +210,7 @@ export async function recomputeRegion(ctx: Context, request: Request): Promise<R
   const at = isoSeconds(ctx.now);
   await ctx.db.batch([
     // A region never rated has no rating_state row yet.
-    ctx.db.prepare("INSERT OR IGNORE INTO rating_state (board) VALUES (?)").bind(region),
+    stateRowStatement(ctx.db, region),
     staleFromStatement(ctx.db, region, from, at),
     actionStatement(ctx.db, { adminId: ctx.admin.id, action: "ratings_recompute", detail: { region, from: fromMatch }, at }),
   ]);

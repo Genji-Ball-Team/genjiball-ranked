@@ -1,8 +1,7 @@
 import { findRegion, notARegion, type Config, type Region } from "../config";
 import { fail, notAllowed, pageNumber, positiveId } from "../http";
-import { secondsBefore } from "../lobby/handler";
 import { listLiveLobbies } from "../lobby/store";
-import { isoSeconds } from "../time";
+import { dayMs, isoSeconds, secondsBefore } from "../time";
 import { nameKey } from "../upload/plan";
 import { capacityOf } from "../tourney/code";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
@@ -16,10 +15,9 @@ import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { nextTier, standing } from "./standing";
 import {
-  canonicalPlayerId,
   findHeadToHead,
   findMatchDetail,
-  findPlayer,
+  findCanonicalPlayer,
   findPlayerStats,
   findRating,
   latestFeedSeq,
@@ -65,7 +63,6 @@ export type SiteConfig = RankTagsConfig &
     | "playerRivalsLimit"
     | "playerSearchLimit"
     | "playerSearchMinLength"
-    | "publicCacheSeconds"
     | "rankTagsCacheSeconds"
     | "testServer"
     | "tourneysPageSize"
@@ -93,11 +90,11 @@ export async function handleSite(
   const region = asked!;
   const id = positiveId(path[1]);
   const reads: Record<string, () => Promise<Response>> = {
-    leaderboard: async () => cached(await leaderboard(db, config, region, url.searchParams.get("page"), now), config.publicCacheSeconds),
+    leaderboard: async () => Response.json(await leaderboard(db, config, region, url.searchParams.get("page"), now)),
     server: async () => {
       const stale = await staleRegions(db);
       const ratingsUpdating = config.regions.map((r) => r.id).filter((id) => stale.includes(id));
-      return cached({ testServer: config.testServer, regions: config.regions, ratingsUpdating }, config.publicCacheSeconds);
+      return Response.json({ testServer: config.testServer, regions: config.regions, ratingsUpdating });
     },
     "rank-tags": async () => cached(await tags(db, config, region, now), config.rankTagsCacheSeconds),
     players: async () => {
@@ -105,7 +102,7 @@ export async function handleSite(
       if ([...search].length < config.playerSearchMinLength) {
         return fail(400, "bad_request", `search needs at least ${config.playerSearchMinLength} characters`);
       }
-      return cached(await playerSearch(db, config, region, url.searchParams.has("region"), search, now), config.publicCacheSeconds);
+      return Response.json(await playerSearch(db, config, region, url.searchParams.has("region"), search, now));
     },
     matches: async () => {
       // Every region's matches unless one is asked for.
@@ -113,10 +110,10 @@ export async function handleSite(
       if (feedRegion instanceof Response) return feedRegion;
       const body = await feed(db, config, feedRegion, url.searchParams.get("after"), url.searchParams.get("limit"));
       if (!body) return fail(400, "bad_request", `after must be a cursor from this feed, 0 or latest; limit 1 to ${config.matchFeedLimit}`);
-      return cached(body, config.publicCacheSeconds);
+      return Response.json(body);
     },
     lobbies: async () => cached(await lobbies(db, config, region, now), config.lobbiesCacheSeconds),
-    records: async () => cached(await records(db, config, region, now), config.publicCacheSeconds),
+    records: async () => Response.json(await records(db, config, region, now)),
     "head-to-head": async () => {
       const a = positiveId(url.searchParams.get("a"));
       const b = positiveId(url.searchParams.get("b"));
@@ -124,15 +121,15 @@ export async function handleSite(
       const body = await headToHead(db, region, a, b);
       if (body === "same") return fail(400, "bad_request", "a and b are one player (merged)");
       if (!body) return fail(404, "not_found", "No such player");
-      return cached(body, config.publicCacheSeconds);
+      return Response.json(body);
     },
-    tourneys: async () => cached(await tourneys(db, config, region, url.searchParams.get("page")), config.publicCacheSeconds),
+    tourneys: async () => Response.json(await tourneys(db, config, region, url.searchParams.get("page"))),
     "screenshots/:id": () => screenshot(db, proofs, path[1]!, config),
-    "players/:id": async () => found(id === null ? null : await player(db, config, region, id, now), "No such player", config),
-    "players/:id/history": async () => found(id === null ? null : await history(db, config, region, id), "No such player", config),
-    "players/:id/stats": async () => found(id === null ? null : await stats(db, config, region, id), "No such player", config),
-    "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match", config),
-    "tourneys/:id": async () => found(id === null ? null : await tourney(db, config, id), "No such tourney", config),
+    "players/:id": async () => found(id === null ? null : await player(db, config, region, id, now), "No such player"),
+    "players/:id/history": async () => found(id === null ? null : await history(db, config, region, id), "No such player"),
+    "players/:id/stats": async () => found(id === null ? null : await stats(db, region, id), "No such player"),
+    "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match"),
+    "tourneys/:id": async () => found(id === null ? null : await tourney(db, config, id), "No such tourney"),
   };
   // The route's pattern: `players`, `players/:id`, `players/:id/history`.
   const pattern = path.map((part, i) => (i === 1 ? ":id" : part)).join("/");
@@ -143,8 +140,8 @@ export async function handleSite(
 }
 
 /** The body, or the 404 when there's none. */
-function found(body: object | null, notFound: string, config: SiteConfig): Response {
-  return body ? cached(body, config.publicCacheSeconds) : fail(404, "not_found", notFound);
+function found(body: object | null, notFound: string): Response {
+  return body ? Response.json(body) : fail(404, "not_found", notFound);
 }
 
 /** `?region=`: one of `regions`, the first without it, or the 400 for one that isn't a region. */
@@ -204,16 +201,14 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
  * in. A player an admin merged into another (#8) answers as that one, so old links keep working.
  */
 async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
-  const canonical = await canonicalPlayerId(db, id);
-  if (canonical === null) return null;
-  const [found, rating, matches, rated, rivals] = await Promise.all([
-    findPlayer(db, canonical),
-    findRating(db, region.id, canonical),
-    listPlayerMatches(db, region.id, canonical, config.playerRecentMatches),
-    listRatedRegions(db, canonical),
-    listRivals(db, region.id, canonical, config.playerRivalsLimit),
-  ]);
+  const found = await findCanonicalPlayer(db, id);
   if (!found) return null;
+  const [rating, matches, rated, rivals] = await Promise.all([
+    findRating(db, region.id, found.id),
+    listPlayerMatches(db, region.id, found.id, config.playerRecentMatches),
+    listRatedRegions(db, found.id),
+    listRivals(db, region.id, found.id, config.playerRivalsLimit),
+  ]);
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
   return {
     region: region.id,
@@ -238,11 +233,10 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
  * (#8) counts as that one; `"same"` when both are one player. Null when either isn't a player.
  */
 async function headToHead(db: D1Database, region: Region, aId: number, bId: number) {
-  const [a, b] = await Promise.all([canonicalPlayerId(db, aId), canonicalPlayerId(db, bId)]);
-  if (a === null || b === null) return null;
-  if (a === b) return "same" as const;
-  const [first, second, record] = await Promise.all([findPlayer(db, a), findPlayer(db, b), findHeadToHead(db, region.id, a, b)]);
+  const [first, second] = await Promise.all([findCanonicalPlayer(db, aId), findCanonicalPlayer(db, bId)]);
   if (!first || !second) return null;
+  if (first.id === second.id) return "same" as const;
+  const record = await findHeadToHead(db, region.id, first.id, second.id);
   return {
     region: region.id,
     rounds: record.rounds,
@@ -258,11 +252,10 @@ async function headToHead(db: D1Database, region: Region, aId: number, bId: numb
  */
 async function history(db: D1Database, config: SiteConfig, region: Region, requested: number) {
   // A merged player's id answers for the player they were merged into (#8), like the player page.
-  const id = await canonicalPlayerId(db, requested);
-  if (id === null) return null;
-  const [found, rows] = await Promise.all([findPlayer(db, id), listHistory(db, region.id, id)]);
+  const found = await findCanonicalPlayer(db, requested);
   if (!found) return null;
-  const form = recentForm(await listFormRounds(db, region.id, id, config.recentFormRounds));
+  const [rows, formRounds] = await Promise.all([listHistory(db, region.id, found.id), listFormRounds(db, region.id, found.id, config.recentFormRounds)]);
+  const form = recentForm(formRounds);
   const peak = peakOf(rows);
   const last = rows.at(-1);
   const point = (row: (typeof rows)[number]) => ({ matchId: row.matchId, playedAt: row.playedAt, rating: row.rating });
@@ -282,11 +275,10 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
  * A player's round stats in one region, for compare (#16): kills, deflects and touches in their rated
  * rounds, and their average place. Its own route, so the player page doesn't read every round.
  */
-async function stats(db: D1Database, _config: SiteConfig, region: Region, requested: number) {
-  const id = await canonicalPlayerId(db, requested);
-  if (id === null) return null;
-  const [found, totals] = await Promise.all([findPlayer(db, id), findPlayerStats(db, region.id, id)]);
+async function stats(db: D1Database, region: Region, requested: number) {
+  const found = await findCanonicalPlayer(db, requested);
   if (!found) return null;
+  const totals = await findPlayerStats(db, region.id, found.id);
   return { region: region.id, player: { id: found.id, name: found.name }, stats: totals };
 }
 
@@ -329,7 +321,7 @@ function ratingView(row: RatingRow, config: SiteConfig, now: Date) {
 
 async function tags(db: D1Database, config: SiteConfig, region: Region, now: Date) {
   const lowest = config.tiers[0];
-  const activeSince = isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * 24 * 60 * 60 * 1000));
+  const activeSince = isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * dayMs));
   const candidates = lowest
     ? await listTagCandidates(db, region.id, config.minRankedRounds, lowest.threshold, activeSince, config.rankTagsMaxNames)
     : [];
@@ -498,6 +490,7 @@ async function screenshot(db: D1Database, proofs: R2Bucket | undefined, key: str
   });
 }
 
+/** An answer kept for its own lifetime. Without one, src/public.ts gives `publicCacheSeconds`. */
 function cached(body: unknown, seconds: number): Response {
   return Response.json(body, { headers: { "Cache-Control": `public, max-age=${seconds}` } });
 }

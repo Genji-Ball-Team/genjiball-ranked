@@ -1,7 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { isPrivate, isPublicRead, privateRoutes, publicReadRoutes } from "../src/public";
 
 /** CORS and caching for the public read routes (#10, src/public.ts). */
@@ -38,6 +38,31 @@ describe("public API: CORS and caching", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Cache-Control")).toBe(`public, max-age=${defaults.rankTagsCacheSeconds}`);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+  });
+
+  it("gives each site route the default Cache-Control or its own", async () => {
+    await env.DB.prepare("INSERT OR IGNORE INTO players (id, name) VALUES (902, 'Cache One'), (903, 'Cache Two')").run();
+    const lifetime = (seconds: number) => `public, max-age=${seconds}`;
+    const routes: [string, number][] = [
+      ["/api/leaderboard", defaults.publicCacheSeconds],
+      ["/api/server", defaults.publicCacheSeconds],
+      ["/api/players?search=cache", defaults.publicCacheSeconds],
+      ["/api/players/902", defaults.publicCacheSeconds],
+      ["/api/players/902/history", defaults.publicCacheSeconds],
+      ["/api/players/902/stats", defaults.publicCacheSeconds],
+      ["/api/head-to-head?a=902&b=903", defaults.publicCacheSeconds],
+      ["/api/matches?after=0", defaults.publicCacheSeconds],
+      ["/api/records", defaults.publicCacheSeconds],
+      ["/api/tourneys", defaults.publicCacheSeconds],
+      ["/api/rank-tags", defaults.rankTagsCacheSeconds],
+      ["/api/lobbies", defaults.lobbiesCacheSeconds],
+    ];
+    for (const [path, seconds] of routes) {
+      const res = await SELF.fetch(`https://example.com${path}`);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get("Cache-Control"), path).toBe(lifetime(seconds));
+      await res.arrayBuffer();
+    }
   });
 
   it("never caches an error on a public route, and still allows reading it", async () => {

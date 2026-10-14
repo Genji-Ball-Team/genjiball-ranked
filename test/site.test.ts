@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { handleSite } from "../src/site/handler";
 import { nextTier, standing } from "../src/site/standing";
-import { sha256 } from "../src/upload/handler";
+import { sha256 } from "../src/bytes";
 import { matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;
@@ -236,10 +236,9 @@ describe("player search", () => {
     expect((await search("rook")).players[0]).toMatchObject({ rating: 1700, tier: null });
   });
 
-  it("answers at most playerSearchLimit players, cached", async () => {
+  it("answers at most playerSearchLimit players", async () => {
     await seed([1, 2, 3, 4].map((id) => ({ id, name: `Player ${id}`, display: 1000 + id })));
     const res = await handleSite(new Request("https://example.com/api/players?search=player"), db(), { ...defaults, playerSearchLimit: 3 });
-    expect(res!.headers.get("Cache-Control")).toBe(`public, max-age=${defaults.publicCacheSeconds}`);
     expect(((await res!.json()) as Search).players.map((p) => p.id)).toEqual([4, 3, 2]);
   });
 
