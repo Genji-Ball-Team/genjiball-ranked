@@ -492,18 +492,20 @@ describe("upload: bad files and limits", () => {
   });
 
   it("rate-limits a host past maxUploadsPerHour", async () => {
-    const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-    await db()
-      .prepare(
-        `INSERT INTO uploads (host_id, content_hash, raw_log, raw_size, received_at, status)
-         SELECT 1, 'hash-' || value, x'00', 1, ?, 'parsed' FROM json_each(?)`,
-      )
-      .bind(now, JSON.stringify(Array.from({ length: defaults.maxUploadsPerHour }, (_, i) => i)))
-      .run();
+    const startHour = (start: Date) =>
+      db()
+        .prepare("UPDATE hosts SET uploads_hour_start = ?, uploads_hour_count = ? WHERE id = 1")
+        .bind(start.toISOString().replace(/\.\d{3}Z$/, "Z"), defaults.maxUploadsPerHour)
+        .run();
+    await startHour(new Date(Date.now() - 30 * 60 * 1000));
     const res = await upload(matchLog());
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("3600");
     expect((await upload(matchLog(), tokens.untrusted)).status).toBe(200);
+    // Once the hour is over, a new one starts with this upload.
+    await startHour(new Date(Date.now() - 61 * 60 * 1000));
+    expect((await upload(matchLog({ key: "000000000002" }))).status).toBe(200);
+    expect(await db().prepare("SELECT uploads_hour_count FROM hosts WHERE id = 1").first("uploads_hour_count")).toBe(1);
   });
 
   it("rejects an untrusted host's match when untrustedHostUploads is reject", async () => {
@@ -539,6 +541,54 @@ describe("upload: bad files and limits", () => {
     const res = await handleUpload(request, racing, defaults, createLogger("error"));
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ error: "conflict" });
+  });
+
+  it("answers 409 and writes nothing when the stored copy changed since it was read", async () => {
+    const short = matchLog({ rounds: 1, end: false });
+    const longer = matchLog({ rounds: 2, end: false });
+    const longest = matchLog();
+    await uploadOk(short);
+    // The longest copy is stored between our reads and our write: ours, shorter, mustn't replace it.
+    const racing = new Proxy(db(), {
+      get(target, prop) {
+        if (prop === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            await uploadOk(longest);
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const request = new Request("https://example.com/api/upload", {
+      method: "POST",
+      body: longer,
+      headers: { Authorization: `Bearer ${tokens.trusted}` },
+    });
+    const res = await handleUpload(request, racing, defaults, createLogger("error"));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "conflict" });
+    expect(await storedMatch()).toMatchObject({ complete: 1, upload_id: await db().prepare("SELECT id FROM uploads").first("id") });
+    expect(await count("uploads")).toBe(1);
+    expect(await count("rounds")).toBe(2);
+    // Trying again sees the longer copy.
+    expect((await uploadOk(longer)).matches[0]).toMatchObject({ action: "skip" });
+  });
+
+  it("counts every stored upload against maxUploadsPerHour, also those a longer copy replaced", async () => {
+    const config = { ...defaults, maxUploadsPerHour: 2 };
+    const send = (body: string) =>
+      handleUpload(
+        new Request("https://example.com/api/upload", { method: "POST", body, headers: { Authorization: `Bearer ${tokens.trusted}` } }),
+        db(),
+        config,
+        createLogger("error"),
+      );
+    expect((await send(matchLog({ rounds: 1, end: false }))).status).toBe(200);
+    expect((await send(matchLog({ rounds: 2, end: false }))).status).toBe(200);
+    expect(await count("uploads")).toBe(1);
+    expect((await send(matchLog())).status).toBe(429);
   });
 
   it("splits big inserts into chunks", async () => {

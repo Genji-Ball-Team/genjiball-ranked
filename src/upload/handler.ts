@@ -26,6 +26,7 @@ import {
   findUploadByHash,
   findUploadLobbies,
   findUploadLogs,
+  isStaleCopy,
   RowTooLarge,
   TooManyStatements,
   writeUpload,
@@ -104,6 +105,7 @@ export type UploadConfig = UpdateConfig &
   >;
 
 const hourMs = 60 * 60 * 1000;
+const hourBefore = (now: Date) => isoSeconds(new Date(now.getTime() - hourMs));
 
 export async function handleUpload(request: Request, db: D1Database, config: UploadConfig, log: Logger): Promise<Response> {
   if (request.method !== "POST") {
@@ -127,7 +129,7 @@ export async function handleUpload(request: Request, db: D1Database, config: Upl
   return storeLog(db, config, log, { host, region: region.id, bytes, request, now, legacy: false, queriesBefore: 2, hostAfk });
 }
 
-/** The `429 rate_limited` for a host past `maxUploadsPerHour` stored uploads in the last hour, else null. */
+/** The `429 rate_limited` for a host past `maxUploadsPerHour` stored uploads in its hour of uploads, else null. */
 export async function rateLimit(
   db: D1Database,
   hostId: number,
@@ -135,7 +137,7 @@ export async function rateLimit(
   config: Pick<Config, "maxUploadsPerHour">,
   log?: Logger,
 ): Promise<Response | null> {
-  const recent = await countRecentUploads(db, hostId, isoSeconds(new Date(now.getTime() - hourMs)));
+  const recent = await countRecentUploads(db, hostId, hourBefore(now));
   if (recent < config.maxUploadsPerHour) return null;
   log?.info("upload rate limited", { host: hostId, recent });
   return fail(429, "rate_limited", `At most ${config.maxUploadsPerHour} uploads an hour`, { "Retry-After": "3600" });
@@ -294,7 +296,9 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       fileName: request.headers.get("X-Log-File")?.trim().slice(0, 255) || null,
       playedAt,
       now: receivedAt,
+      hourAgo: hourBefore(now),
       plans,
+      stored,
       rows: matchRows(plans, playedAt),
       botNames: config.legacyBotNames,
       chunkBytes: config.insertChunkBytes,
@@ -318,9 +322,9 @@ export async function storeLog(db: D1Database, config: UploadConfig, log: Logger
       log.info("upload row too large", { host: host.id, bytes: error.bytes });
       return fail(413, "too_large", `The file has a row too large to write (${error.bytes} bytes)`);
     }
-    // Another upload of the same file or match was written between our reads and this write.
-    // Nothing was written (the batch is one transaction); trying again sees the other upload.
-    if (String(error).includes("UNIQUE constraint failed")) {
+    // Another upload of the same file or match was written between our reads and this write, or a
+    // stored copy changed. Nothing was written (the batch is one transaction); trying again sees it.
+    if (String(error).includes("UNIQUE constraint failed") || isStaleCopy(error)) {
       log.info("upload conflict", { host: host.id, error: String(error) });
       return fail(409, "conflict", "Another upload of this match was being stored at the same time. Try again");
     }

@@ -122,12 +122,12 @@ and `status`, the match's status after the upload:
 | 401 | `unauthorized` | No token, or an unknown one |
 | 403 | `revoked` | The token was revoked. Stop uploading with it |
 | 405 | `method_not_allowed` | Not a `POST` |
-| 409 | `conflict` | Another upload of the same match was being stored at that moment. Try again |
+| 409 | `conflict` | Another upload of the same match was being stored at that moment, or an admin changed the match. Nothing was stored. Try again |
 | 413 | `too_large` | Over `maxUploadBytes`, or so many rows that one upload can't write them within D1's queries per request ([database.md](database.md), "Rules for code that writes"). Nothing was stored |
 | 422 | `not_ranked` | No `GBR` line: not a ranked log. Don't upload these |
 | 422 | `legacy_log` | A v1.3.2 log (`KILL` lines, no `GBR`). Old logs are imported by an admin (#13) |
 | 422 | `no_region` | No `X-Region`, and the host has no home region. Nothing was stored: send the region |
-| 429 | `rate_limited` | Over `maxUploadsPerHour` stored uploads for this token. `Retry-After` says when to try again |
+| 429 | `rate_limited` | Over `maxUploadsPerHour` stored uploads for this token in its hour of uploads, which starts with the first file stored after the last hour ended. Every stored file counts, also one a longer copy has replaced since. `Retry-After` says when to try again |
 
 A 5xx or a network error: keep the file and try again later.
 
