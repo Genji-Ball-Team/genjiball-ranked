@@ -29,6 +29,7 @@ const site = (() => {
   const preferred = [param(), store.get("region"), guess()];
 
   let regions = store.get("regions");
+  const watchers = [];
   const site = {
     region: preferred.find((id) => id && known(id)) ?? regions?.[0]?.id ?? guess(),
     // Set by a page that shows one match or tourney: the region is that one's, not the URL's.
@@ -47,6 +48,11 @@ const site = (() => {
       document.documentElement.dataset.region = id;
       store.set("region", id);
       draw();
+      for (const watcher of watchers) watcher(id);
+    },
+    // `watcher(id)` runs each time the page shows a region (banner.js).
+    watch(watcher) {
+      watchers.push(watcher);
     },
     // Put the region in the URL, for a link that opens the same view when it's shared.
     pin() {

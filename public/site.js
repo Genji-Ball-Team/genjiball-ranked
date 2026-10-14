@@ -195,13 +195,15 @@ async function leaderboardPage() {
     else url.searchParams.delete("q");
     history.replaceState(history.state, "", url);
     if (!query) return shown?.();
+    // Typed on meanwhile: a newer search shows its own answer, or its own error.
+    const current = () => find.value.trim().toLowerCase() === query;
     try {
       const found = (await allPlayers()).filter((p) => p.name.toLowerCase().includes(query));
-      if (find.value.trim().toLowerCase() !== query) return; // typed on meanwhile
+      if (!current()) return;
       $("prev").hidden = $("next").hidden = true;
       loaded(box, found.length ? ladder(found, query) : `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(find.value.trim())}”.</li>`);
     } catch (error) {
-      showError(box, error, "leaderboard");
+      if (current()) showError(box, error, "leaderboard");
     }
   };
   find.addEventListener("input", search);
@@ -704,7 +706,10 @@ async function comparePage() {
   // Suggestions from the name search, after a pause in typing ("Free tier" in docs/database.md).
   let timer;
   let asked = "";
+  // Also drops the answer to a search still on its way, so it doesn't open the list again.
   const close = () => {
+    clearTimeout(timer);
+    asked = "";
     suggest.hidden = true;
     input.setAttribute("aria-expanded", "false");
   };
@@ -714,9 +719,11 @@ async function comparePage() {
     if (query.length < 2) return close();
     timer = setTimeout(async () => {
       asked = query;
+      // Typed on meanwhile, or the list was closed: a newer search answers, or none.
+      const current = () => asked === query && input.value.trim() === query;
       try {
         const { players } = await api(`players?search=${encodeURIComponent(query)}&${inRegion()}`);
-        if (asked !== query || input.value.trim() !== query) return; // typed on meanwhile
+        if (!current()) return;
         const found = players.filter((p) => !ids.includes(p.id));
         suggest.innerHTML = found.length
           ? found
@@ -730,8 +737,10 @@ async function comparePage() {
         suggest.hidden = false;
         input.setAttribute("aria-expanded", "true");
       } catch {
+        if (!current()) return;
         suggest.innerHTML = '<li class="hint">The search didn\'t load. Try again.</li>';
         suggest.hidden = false;
+        input.setAttribute("aria-expanded", "true");
       }
     }, 300);
   });
@@ -1330,9 +1339,11 @@ function searchSheet() {
   input.addEventListener("input", async () => {
     const query = input.value.trim().toLowerCase();
     if (!query) return void (results.innerHTML = '<li class="hint">Type a name to search everyone on the leaderboard.</li>');
+    // Typed on meanwhile, or closed (which empties the box): a newer search answers, or none.
+    const current = () => input.value.trim().toLowerCase() === query;
     try {
       const found = (await allPlayers()).filter((p) => p.name.toLowerCase().includes(query));
-      if (input.value.trim().toLowerCase() !== query) return; // typed on meanwhile
+      if (!current()) return;
       results.innerHTML = found.length
         ? found
             .map(
@@ -1342,7 +1353,7 @@ function searchSheet() {
             .join("")
         : `<li class="hint">No one on the leaderboard is called “${esc(input.value.trim())}”.</li>`;
     } catch {
-      results.innerHTML = `<li class="hint">The leaderboard didn't load. Try again.</li>`;
+      if (current()) results.innerHTML = `<li class="hint">The leaderboard didn't load. Try again.</li>`;
     }
   });
   return sheet;
