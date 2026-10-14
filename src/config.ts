@@ -401,6 +401,11 @@ export function findRegion(regions: readonly Region[], id: string | null | undef
   return regions.find((region) => region.id === key) ?? null;
 }
 
+/** The message for a `field` that isn't one of `regions`: `region must be one of eu, na`. */
+export function notARegion(regions: readonly Region[], field: string): string {
+  return `${field} must be one of ${regions.map((r) => r.id).join(", ")}`;
+}
+
 export interface TournamentLossBand {
   /** For a display rating under this before the tourney. */
   below: number;

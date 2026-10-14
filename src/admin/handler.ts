@@ -1,5 +1,5 @@
 import { queryBudget } from "../budget";
-import { fail } from "../http";
+import { bearerToken, fail, notAllowed, positiveId } from "../http";
 import type { Logger } from "../log";
 import { ratingVersionStatement, staleFromMatchesStatement } from "../rating/store";
 import { isoSeconds } from "../time";
@@ -23,7 +23,7 @@ import {
   setMatchState,
   setTournament,
 } from "./store";
-import { BadRequest, body, changedMeanwhile, notAllowed, regionField, rerate, text, type AdminConfig, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, regionField, rerate, text, type AdminConfig, type Context } from "./request";
 import { handlePlayerAdmin } from "./players";
 import { handleTourneyAdmin } from "./tourneys";
 import { dryRunParse, recomputeRegion } from "./debug";
@@ -43,7 +43,7 @@ export async function handleAdmin(request: Request, database: D1Database, proofs
   // Every query counts from here: the rating after a change gets what's left (`rerate`).
   const queries = queryBudget(database, config.queriesPerRequest);
   const db = queries.db;
-  const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
+  const token = bearerToken(request);
   if (!token) return fail(401, "unauthorized", "Send your admin token as Authorization: Bearer <token>");
   const admin = await findAdmin(db, await sha256(token));
   if (!admin) return fail(401, "unauthorized", "Unknown or revoked admin token");
@@ -51,7 +51,7 @@ export async function handleAdmin(request: Request, database: D1Database, proofs
   const ctx: Context = { db, queries, proofs, config, log, admin, now: new Date() };
   const path = new URL(request.url).pathname.replace(/^\/api\/admin\/?/, "").replace(/\/$/, "").split("/");
   const method = request.method;
-  const id = path[1] !== undefined && /^[1-9]\d{0,15}$/.test(path[1]) ? Number(path[1]) : null;
+  const id = positiveId(path[1]);
 
   try {
     if (path.length === 1 && path[0] === "me") {
@@ -316,8 +316,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
  */
 async function importLegacy(ctx: Context, request: Request): Promise<Response> {
   const params = new URL(request.url).searchParams;
-  const hostParam = params.get("host") ?? "";
-  const hostId = /^[1-9]\d{0,15}$/.test(hostParam) ? Number(hostParam) : null;
+  const hostId = positiveId(params.get("host"));
   if (hostId === null) throw new BadRequest("host=<host id> is required");
   const asked = params.has("region") ? regionField(params.get("region"), ctx.config, "region") : null;
   const host = await findHostById(ctx.db, hostId);

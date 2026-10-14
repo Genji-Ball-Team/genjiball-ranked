@@ -1,5 +1,5 @@
-import { findRegion, type Config, type Region } from "../config";
-import { fail } from "../http";
+import { findRegion, notARegion, type Config, type Region } from "../config";
+import { fail, notAllowed } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
 import { authHost } from "../upload/handler";
@@ -22,7 +22,7 @@ export type HostTourneyConfig = ScreenshotConfig & CodeConfig & Pick<Config, "re
 
 /** `GET /api/host/tourneys[?region=eu]`. */
 export async function handleHostTourneys(request: Request, db: D1Database, config: HostTourneyConfig, now: Date): Promise<Response> {
-  if (request.method !== "GET") return fail(405, "method_not_allowed", "Use GET", { Allow: "GET" });
+  if (request.method !== "GET") return notAllowed("GET");
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
   const region = requestedRegion(request, config);
@@ -44,7 +44,7 @@ export async function handleHostTourneys(request: Request, db: D1Database, confi
 export async function handleHostTourneyLobby(request: Request, db: D1Database, proofs: R2Bucket, config: HostTourneyConfig, log: Logger): Promise<Response> {
   const path = /^\/api\/host\/lobbies\/([1-9]\d{0,15})\/screenshot\/?$/.exec(new URL(request.url).pathname);
   if (!path) return fail(404, "not_found", "No such host route");
-  if (request.method !== "PUT" && request.method !== "DELETE") return fail(405, "method_not_allowed", "Use PUT or DELETE", { Allow: "PUT, DELETE" });
+  if (request.method !== "PUT" && request.method !== "DELETE") return notAllowed("PUT, DELETE", "Use PUT or DELETE");
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
   const region = requestedRegion(request, config);
@@ -94,7 +94,7 @@ function refuse(lobby: HostLobbyRow, host: Host, region: Region | null): Respons
 function requestedRegion(request: Request, config: Pick<Config, "regions">): Region | null | Response {
   const asked = new URL(request.url).searchParams.get("region") ?? request.headers.get("X-Region");
   if (asked === null) return null;
-  return findRegion(config.regions, asked) ?? fail(400, "bad_request", `region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+  return findRegion(config.regions, asked) ?? fail(400, "bad_request", notARegion(config.regions, "region"));
 }
 
 /** A lobby as its host sees it. `code` is null outside the code window. */

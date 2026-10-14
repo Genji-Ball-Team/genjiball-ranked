@@ -1,4 +1,4 @@
-import { fail } from "../http";
+import { fail, notAllowed, positiveId } from "../http";
 import { ratingVersionStatement, staleFromMatchesStatement } from "../rating/store";
 import { isoSeconds } from "../time";
 import { capacityOf, newLobbyKey, roundLimitOf } from "../tourney/code";
@@ -27,7 +27,7 @@ import {
   type TourneyStatus,
 } from "../tourney/store";
 import { deleteScreenshot, storeScreenshot } from "../tourney/upload";
-import { BadRequest, body, changedMeanwhile, notAllowed, regionField, rerate, text, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, regionField, rerate, text, type Context } from "./request";
 import { findHostById, findMatch, type ActionLog } from "./store";
 
 /**
@@ -43,7 +43,7 @@ import { findHostById, findMatch, type ActionLog } from "./store";
 /** Answers a tourney route, or returns null when the path isn't one. */
 export async function handleTourneyAdmin(ctx: Context, request: Request, path: string[]): Promise<Response | null> {
   const method = request.method;
-  const id = path[1] !== undefined && /^[1-9]\d{0,15}$/.test(path[1]) ? Number(path[1]) : null;
+  const id = positiveId(path[1]);
   if (path[0] === "tourneys") {
     if (path.length === 1) {
       if (method === "GET") return listTourneys(ctx);

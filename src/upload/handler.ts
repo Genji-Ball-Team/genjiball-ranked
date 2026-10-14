@@ -1,5 +1,5 @@
-import { findRegion, type Config, type Region } from "../config";
-import { fail, type ApiError } from "../http";
+import { findRegion, notARegion, type Config, type Region } from "../config";
+import { bearerToken, fail, notAllowed, readLimited, type ApiError } from "../http";
 import type { Logger } from "../log";
 import { parseLegacyLog } from "../parser/legacy";
 import { parseLog } from "../parser/parse";
@@ -108,9 +108,7 @@ const hourMs = 60 * 60 * 1000;
 const hourBefore = (now: Date) => isoSeconds(new Date(now.getTime() - hourMs));
 
 export async function handleUpload(request: Request, db: D1Database, config: UploadConfig, log: Logger): Promise<Response> {
-  if (request.method !== "POST") {
-    return fail(405, "method_not_allowed", "Use POST", { Allow: "POST" });
-  }
+  if (request.method !== "POST") return notAllowed("POST");
 
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
@@ -148,9 +146,7 @@ export async function rateLimit(
  * `{ host: { id, name, trust, region } }`, or the 401 / 403 an upload with that token would get.
  */
 export async function handleHostMe(request: Request, db: D1Database): Promise<Response> {
-  if (request.method !== "GET") {
-    return fail(405, "method_not_allowed", "Use GET", { Allow: "GET" });
-  }
+  if (request.method !== "GET") return notAllowed("GET");
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
   return Response.json({ host: { id: host.id, name: host.name, trust: host.trust, region: host.region } });
@@ -162,9 +158,7 @@ export async function handleHostMe(request: Request, db: D1Database): Promise<Re
  * rejection, reviewReasons }] }`, leaving out keys the host has no match for. At most `hostMatchKeysMax` keys.
  */
 export async function handleHostMatches(request: Request, db: D1Database, config: Pick<Config, "hostMatchKeysMax">): Promise<Response> {
-  if (request.method !== "GET") {
-    return fail(405, "method_not_allowed", "Use GET", { Allow: "GET" });
-  }
+  if (request.method !== "GET") return notAllowed("GET");
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
   const keys = [...new Set((new URL(request.url).searchParams.get("keys") ?? "").split(",").filter(Boolean))];
@@ -181,9 +175,7 @@ export async function handleHostMatches(request: Request, db: D1Database, config
 export function hostRegion(request: Request, host: Host, config: Pick<Config, "regions">, what: string): Region | Response {
   const header = request.headers.get("X-Region");
   const region = findRegion(config.regions, header ?? host.region);
-  if (header !== null && !region) {
-    return fail(400, "bad_request", `X-Region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
-  }
+  if (header !== null && !region) return fail(400, "bad_request", notARegion(config.regions, "X-Region"));
   return region ?? fail(422, "no_region", `This host has no home region: send the region ${what} as X-Region`);
 }
 
@@ -192,7 +184,7 @@ export function hostRegion(request: Request, host: Host, config: Pick<Config, "r
  * Every host endpoint uses it (the live lobby heartbeat too, src/lobby/handler.ts).
  */
 export async function authHost(request: Request, db: D1Database): Promise<Host | Response> {
-  const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
+  const token = bearerToken(request);
   if (!token) return fail(401, "unauthorized", "Send the host token as Authorization: Bearer <token>");
   const host = await findHost(db, await sha256(token));
   if (!host) return fail(401, "unauthorized", "Unknown host token");
@@ -450,34 +442,6 @@ export function result(plan: MatchPlan, region: string): MatchResult {
 
 function tooLarge(config: Pick<Config, "maxUploadBytes">): Response {
   return fail(413, "too_large", `The file is larger than ${config.maxUploadBytes} bytes`);
-}
-
-/**
- * The body, or `null` once it passes `limit` bytes. Counts what is read, since a chunked request has
- * no `Content-Length`, and stops reading there.
- */
-export async function readLimited(request: Request, limit: number): Promise<Uint8Array | null> {
-  if (!request.body) return new Uint8Array();
-  const reader = request.body.getReader();
-  const parts: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
-    }
-    parts.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const part of parts) {
-    bytes.set(part, offset);
-    offset += part.length;
-  }
-  return bytes;
 }
 
 /** `X-Log-Started-At`, if it's a valid time that isn't in the future. */

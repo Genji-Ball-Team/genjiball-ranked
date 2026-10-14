@@ -1,8 +1,7 @@
 import type { Config } from "../config";
-import { fail } from "../http";
+import { fail, readLimited } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
-import { readLimited } from "../upload/handler";
 import { expireOverCaps, flushScreenshotDeletions, type ExpiryConfig } from "./expiry";
 import { imageType, screenshotKey, type ImageType } from "./screenshot";
 import { isLobbyChanged, queueScreenshot, setScreenshot, stageScreenshot, type LobbyLog, type LobbyRow } from "./store";
