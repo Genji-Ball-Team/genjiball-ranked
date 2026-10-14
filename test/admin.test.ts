@@ -8,8 +8,7 @@ import { tournamentMaxLoss } from "../src/rating/engine";
 import { readKills, readState } from "../src/rating/store";
 import { recomputeRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
-import { type UploadResponse } from "../src/upload/handler";
-import { expectUpToDate, historyTable, matchId, matchLog, ratingsTable } from "./helpers";
+import { adminFetch, adminJson, expectUpToDate, historyTable, matchId, matchLog, ratingsTable, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -29,30 +28,11 @@ beforeEach(async () => {
   ]);
 });
 
-function admin(path: string, init: { method?: string; body?: unknown; token?: string | null } = {}) {
-  const token = init.token === undefined ? adminToken : init.token;
-  return SELF.fetch(`https://example.com/api/admin/${path}`, {
-    method: init.method ?? (init.body === undefined ? "GET" : "POST"),
-    body: init.body === undefined ? undefined : JSON.stringify(init.body),
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-}
-
-async function adminOk<T = Record<string, unknown>>(path: string, init: Parameters<typeof admin>[1] = {}): Promise<T> {
-  const res = await admin(path, init);
-  expect(res.status, await res.clone().text()).toBeLessThan(300);
-  return res.json();
-}
-
-async function upload(body: string, startedAt: string, token = tokens.trusted): Promise<UploadResponse> {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt },
-  });
-  expect(res.status).toBe(200);
-  return res.json();
-}
+type AdminInit = { method?: string; body?: unknown; token?: string | null };
+const admin = (path: string, init: AdminInit = {}) => adminFetch(init.token === undefined ? adminToken : init.token, path, init.body, init.method);
+const adminOk = <T = Record<string, unknown>>(path: string, init: AdminInit = {}) =>
+  adminJson<T>(init.token === undefined ? adminToken : init.token, path, init.body, init.method);
+const upload = (body: string, startedAt: string, token = tokens.trusted) => uploadLog(body, token, startedAt);
 
 async function actions() {
   const { results } = await db()

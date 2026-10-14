@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { handleSite } from "../src/site/handler";
 import { sha256 } from "../src/bytes";
-import { matchId, matchLog } from "./helpers";
+import { hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const token = "trusted-token";
@@ -18,14 +18,7 @@ beforeEach(async () => {
   ]);
 });
 
-async function upload(log: string, startedAt = new Date(Date.now() - 60 * 60 * 1000).toISOString()) {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body: log,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt },
-  });
-  expect(res.status).toBe(200);
-}
+const upload = (log: string, startedAt = hoursAgo(1)) => uploadLog(log, token, startedAt);
 
 interface FeedMatch {
   id: number;

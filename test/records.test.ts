@@ -9,7 +9,7 @@ import { readFeedChanges, readMatchCounts, readRecountQueue, syncStatements } fr
 import { isDue, rebuildRecords, refreshQueries, syncMatchStats, syncQueries, updateRecords } from "../src/records/update";
 import { markAllStale, rateNewQueries, recomputeQueries } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
-import { matchId } from "./helpers";
+import { hoursAgo, matchId, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -54,17 +54,9 @@ function richLog({ key = "000000000001", deflects = [] as [number, number, numbe
   return lines.map((line) => `[00:00:01] ${line}`).join("\r\n");
 }
 
-const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 const later = (minutes: number) => new Date(Date.now() + minutes * 60 * 1000);
 
-async function upload(body: string, hours: number, token = tokens.eu) {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": hoursAgo(hours) },
-  });
-  expect(res.status, await res.clone().text()).toBe(200);
-}
+const upload = (body: string, hours: number, token = tokens.eu) => uploadLog(body, token, hoursAgo(hours));
 
 async function playerId(name: string): Promise<number> {
   return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;

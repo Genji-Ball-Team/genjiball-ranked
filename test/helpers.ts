@@ -1,13 +1,46 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { expect } from "vitest";
 import { queryBudget } from "../src/budget";
 import { defaults } from "../src/config";
 import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
 import { readKills, readRounds, readState } from "../src/rating/store";
+import { hourMs } from "../src/time";
+import type { UploadResponse } from "../src/upload/handler";
 
-/** Helpers for the tests that check ratings in D1. */
+/** Helpers for the tests: uploads, admin requests, and checking ratings in D1. */
 
 const db = () => env.DB;
+
+/** `hours` ago, in ISO 8601: an upload's `X-Log-Started-At`. */
+export const hoursAgo = (hours: number) => new Date(Date.now() - hours * hourMs).toISOString();
+
+/** `POST /api/upload` as the token's host, expecting a 200. `startedAt` is `X-Log-Started-At`. */
+export async function uploadLog(body: string, token: string, startedAt?: string, headers: Record<string, string> = {}): Promise<UploadResponse> {
+  const res = await SELF.fetch("https://example.com/api/upload", {
+    method: "POST",
+    body,
+    headers: { Authorization: `Bearer ${token}`, ...(startedAt === undefined ? {} : { "X-Log-Started-At": startedAt }), ...headers },
+  });
+  expect(res.status, await res.clone().text()).toBe(200);
+  return res.json();
+}
+
+/** An admin request, `/api/admin/<path>`: `GET` without a body, else `POST` with it as JSON. No token with `null`. */
+export function adminFetch(token: string | null, path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
+  return SELF.fetch(`https://example.com/api/admin/${path}`, {
+    method,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
+/** `adminFetch`, expecting `status`, else any 2xx: the answer's JSON. */
+export async function adminJson<T = Record<string, unknown>>(token: string | null, path: string, body?: unknown, method?: string, status?: number): Promise<T> {
+  const res = await adminFetch(token, path, body, method);
+  if (status === undefined) expect(res.status, await res.clone().text()).toBeLessThan(300);
+  else expect(res.status, await res.clone().text()).toBe(status);
+  return res.json();
+}
 
 /**
  * A 4-player match of two rounds: `players[0]` wins round 1, `players[1]` round 2. `host`: the

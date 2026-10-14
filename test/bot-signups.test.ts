@@ -4,6 +4,7 @@ import { defaults } from "../src/config";
 import { sha256 } from "../src/bytes";
 import { createLogger } from "../src/log";
 import { handleBotSignups } from "../src/tourney/botSignups";
+import { adminJson } from "./helpers";
 
 /** The Discord bot's tourney sign-ups (`/api/bot/tourneys/:id/signups`): one list with the page's. */
 
@@ -22,15 +23,7 @@ beforeEach(async () => {
   ]);
 });
 
-async function adminOk<T = Record<string, unknown>>(path: string, body?: unknown): Promise<T> {
-  const res = await SELF.fetch(`${site}/api/admin/${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    body: body === undefined ? undefined : JSON.stringify(body),
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-  expect(res.status, await res.clone().text()).toBeLessThan(300);
-  return res.json();
-}
+const adminOk = <T = Record<string, unknown>>(path: string, body?: unknown) => adminJson<T>(adminToken, path, body);
 
 async function newTourney() {
   const { tourney } = await adminOk<{ tourney: { id: number } }>("tourneys", { name: "October Cup", region: "eu", startsAt: "2026-10-10T19:00:00Z" });

@@ -14,7 +14,7 @@ import { handleUpload } from "../src/upload/handler";
 import { matchStats } from "../src/upload/plan";
 import { rebuildPairsStatements, rebuildTotalsStatements } from "../src/upload/pairs";
 import { jsonChunks, RowTooLarge, utf8Length } from "../src/upload/store";
-import { countingDb, matchId } from "./helpers";
+import { adminFetch, countingDb, hoursAgo, matchId, uploadLog } from "./helpers";
 
 /** Match stats (#15) and head-to-head records (#18). */
 
@@ -99,24 +99,8 @@ function statsLog(key: string, { extra = false, lateKill = false } = {}): string
   return lines.map((line) => `[00:00:01] ${line}`).join("\r\n");
 }
 
-const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
-async function upload(body: string, hours: number, region?: string) {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": hoursAgo(hours), ...(region ? { "X-Region": region } : {}) },
-  });
-  expect(res.status, await res.clone().text()).toBe(200);
-}
-
-function admin(path: string, body: unknown = {}) {
-  return SELF.fetch(`https://example.com/api/admin/${path}`, {
-    method: "POST",
-    body: JSON.stringify(body),
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-}
+const upload = (body: string, hours: number, region?: string) => uploadLog(body, token, hoursAgo(hours), region ? { "X-Region": region } : {});
+const admin = (path: string, body: unknown = {}) => adminFetch(adminToken, path, body);
 
 async function get<T = Record<string, unknown>>(path: string, status = 200): Promise<T> {
   const res = await SELF.fetch(`https://example.com/api/${path}`);

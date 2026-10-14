@@ -1,4 +1,4 @@
-import { createScheduledController, env, SELF } from "cloudflare:test";
+import { createScheduledController, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import worker from "../src/index";
@@ -6,8 +6,7 @@ import { createLogger } from "../src/log";
 import { readState } from "../src/rating/store";
 import { markAllStale, markMatchesChanged, rateNewMatches, recomputeRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
-import { type UploadResponse } from "../src/upload/handler";
-import { expectUpToDate, historyTable, matchId, matchLog, ratingsTable } from "./helpers";
+import { expectUpToDate, historyTable, matchId, matchLog, ratingsTable, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -23,15 +22,7 @@ beforeEach(async () => {
   ]);
 });
 
-async function upload(body: string, startedAt: string, headers: Record<string, string> = {}): Promise<UploadResponse> {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt, ...headers },
-  });
-  expect(res.status).toBe(200);
-  return res.json();
-}
+const upload = (body: string, startedAt: string, headers: Record<string, string> = {}) => uploadLog(body, token, startedAt, headers);
 
 async function recomputeUntilDone(budget = defaults.ratingMatchesPerRun): Promise<number> {
   let runs = 0;
