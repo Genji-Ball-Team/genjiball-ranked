@@ -203,6 +203,45 @@ describe("signing up", () => {
     expect(await db().prepare("SELECT count(*) AS n FROM tourney_signups WHERE ip_hash LIKE '%203.0%'").first("n")).toBe(0);
   });
 
+  it("keeps the IP's limit when two sign-ups race", async () => {
+    const id = await newTourney();
+    const config = { ...defaults, tourneySignupsPerHour: 1 };
+    const log = createLogger("error");
+    const post = (name: string, database: D1Database) =>
+      handleSignup(
+        new Request(`${site}/api/tourneys/${id}/signups`, { method: "POST", body: JSON.stringify({ name }), headers: { "CF-Connecting-IP": "203.0.113.7" } }),
+        database,
+        config,
+        log,
+      );
+    // The other sign-up from the same IP lands between this one's read and its insert.
+    let raced = false;
+    const racing = new Proxy(db(), {
+      get(target, prop) {
+        if (prop === "prepare") {
+          return (sql: string) => {
+            const stmt = target.prepare(sql);
+            if (raced || !sql.includes("INSERT INTO tourney_signups")) return stmt;
+            return {
+              bind: (...values: unknown[]) => ({
+                first: async () => {
+                  raced = true;
+                  expect((await post("Tidal", target)).status).toBe(201);
+                  return stmt.bind(...values).first();
+                },
+              }),
+            };
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const res = await post("Kenzo", racing);
+    expect(res.status).toBe(429);
+    expect((await publicTourney(id)).signups.names).toEqual(["Tidal"]);
+  });
+
   it("takes sign-ups past capacity and says full, up to tourneySignupsMax", async () => {
     const id = await newTourney();
     await newLobby(id, { capacity: 2 });

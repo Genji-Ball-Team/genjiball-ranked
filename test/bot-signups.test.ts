@@ -1,6 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
+import { createLogger } from "../src/log";
+import { handleBotSignups } from "../src/tourney/botSignups";
 import { sha256 } from "../src/upload/handler";
 
 /** The Discord bot's tourney sign-ups (`/api/bot/tourneys/:id/signups`): one list with the page's. */
@@ -120,6 +122,40 @@ describe("the bot's sign-ups", () => {
 
     const many = Array.from({ length: defaults.tourneySignupsPerHour + 5 }, (_, i) => ({ discordUserId: `2000000000000000${10 + i}`, name: `Player ${i}` }));
     expect(statuses(await register(id, many)).every((s) => s === "created")).toBe(true);
+  });
+
+  it("keeps tourneySignupsMax when two requests race", async () => {
+    const id = await newTourney();
+    const config = { ...defaults, tourneySignupsMax: 1 };
+    const post = (discordUserId: string, name: string, database: D1Database) =>
+      handleBotSignups(
+        new Request(`${site}/api/bot/tourneys/${id}/signups`, {
+          method: "POST",
+          body: JSON.stringify({ signups: [{ discordUserId, name }] }),
+          headers: { Authorization: `Bearer ${botToken}` },
+        }),
+        database,
+        config,
+        botToken,
+        createLogger("error"),
+      );
+    // The other request's sign-up lands between this one's read and its write.
+    let batches = 0;
+    const racing = new Proxy(db(), {
+      get(target, prop) {
+        if (prop === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (++batches === 2) expect((await post(tidal, "Tidal", target)).status).toBe(201);
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const res = await post(kenzo, "Kenzo", racing);
+    expect(statuses(await res.json())).toEqual(["too_many"]);
+    expect(await pageNames(id)).toEqual(["Tidal"]);
   });
 
   it("lets a Discord user claim a name signed up from the page, but not another Discord user's", async () => {

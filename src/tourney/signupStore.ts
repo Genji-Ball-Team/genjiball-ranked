@@ -50,11 +50,12 @@ export async function readSignupState(
 
 /**
  * Stores the sign-up if, at that moment, the tourney is still `scheduled`, has fewer than `max`
- * stored sign-ups and the name hasn't signed up. Returns its time, or null when nothing was written.
+ * stored sign-ups, the IP has fewer than `perHour` since `since` and the name hasn't signed up.
+ * Returns its time, or null when nothing was written.
  */
 export async function insertSignup(
   db: D1Database,
-  s: { tourneyId: number; name: string; nameKey: string; ipHash: string; at: string; max: number },
+  s: { tourneyId: number; name: string; nameKey: string; ipHash: string; at: string; max: number; since: string; perHour: number },
 ): Promise<string | null> {
   const row = await db
     .prepare(
@@ -62,10 +63,11 @@ export async function insertSignup(
        SELECT ?1, ?2, ?3, ?4, ?5
        WHERE EXISTS (SELECT 1 FROM tourneys WHERE id = ?1 AND status = 'scheduled')
          AND (SELECT count(*) FROM tourney_signups WHERE tourney_id = ?1) < ?6
+         AND (SELECT count(*) FROM tourney_signups WHERE ip_hash = ?4 AND signed_up_at > ?7) < ?8
        ON CONFLICT (tourney_id, name_key) DO NOTHING
        RETURNING signed_up_at AS signedUpAt`,
     )
-    .bind(s.tourneyId, s.name, s.nameKey, s.ipHash, s.at, s.max)
+    .bind(s.tourneyId, s.name, s.nameKey, s.ipHash, s.at, s.max, s.since, s.perHour)
     .first<{ signedUpAt: string }>();
   return row?.signedUpAt ?? null;
 }
