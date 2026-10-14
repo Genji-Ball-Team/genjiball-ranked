@@ -8,7 +8,7 @@ import { ratingMatches, readKills, readRounds, readState } from "../src/rating/s
 import { markMatchesChanged, updateRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
 import { handleUpload, type UploadResponse } from "../src/upload/handler";
-import { countingDb, matchId, matchLog } from "./helpers";
+import { adminFetch, countingDb, hoursAgo, matchId, matchLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -31,8 +31,6 @@ beforeEach(async () => {
   ]);
 });
 
-const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
 function upload(body: string, token: string, startedAt: string, region?: string) {
   return SELF.fetch("https://example.com/api/upload", {
     method: "POST",
@@ -53,13 +51,7 @@ async function get<T = Record<string, unknown>>(path: string): Promise<T> {
   return res.json();
 }
 
-function admin(path: string, body?: unknown) {
-  return SELF.fetch(`https://example.com/api/admin/${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    body: body === undefined ? undefined : JSON.stringify(body),
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-}
+const admin = (path: string, body?: unknown) => adminFetch(adminToken, path, body);
 
 async function playerId(name: string): Promise<number> {
   return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;

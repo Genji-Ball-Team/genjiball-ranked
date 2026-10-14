@@ -9,7 +9,7 @@ import { imageType, isScreenshotKey, screenshotKey } from "../src/tourney/screen
 import { standings } from "../src/tourney/standings";
 import { deleteLobby, findLobby, isLobbyChanged, pendingScreenshots, queueScreenshot, setScreenshot, setVerified, stageScreenshot, tournamentStatement, updateLobby } from "../src/tourney/store";
 import { sha256 } from "../src/bytes";
-import { expectUpToDate, matchId, matchLog } from "./helpers";
+import { expectUpToDate, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const adminToken = "admin-token";
@@ -64,13 +64,8 @@ async function get<T = Record<string, unknown>>(path: string): Promise<T> {
   return res.json();
 }
 
-async function upload(key: string, hoursAgo: number) {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body: matchLog({ key }),
-    headers: { Authorization: `Bearer ${hostToken}`, "X-Log-Started-At": new Date(Date.now() - hoursAgo * 3600000).toISOString() },
-  });
-  expect(res.status).toBe(200);
+async function upload(key: string, hours: number) {
+  await uploadLog(matchLog({ key }), hostToken, hoursAgo(hours));
   return matchId(key);
 }
 

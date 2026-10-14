@@ -4,7 +4,7 @@ import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
 import type { ParsedMatch } from "../src/parser/types";
 import { sha256 } from "../src/bytes";
-import { type UploadResponse } from "../src/upload/handler";
+import type { UploadResponse } from "../src/upload/handler";
 
 const options = { botNames: ["Genji Bot"], gameVersion: "1.3.2", roundGapSeconds: 7, resurrectSeconds: 2.25 };
 const log = (...lines: string[]) => lines.map((line) => `[00:00:01] KILL|${line}`).join("\r\n");

@@ -7,7 +7,7 @@ import { codeFrom, newLobbyKey, roundLimitOf, tourneyCode, type CodeLobby } from
 import { handleHostTourneyLobby } from "../src/tourney/host";
 import { findLobby, isLobbyChanged, setScreenshot } from "../src/tourney/store";
 import { sha256 } from "../src/bytes";
-import { matchId, matchLog } from "./helpers";
+import { adminFetch, adminJson, matchId, matchLog } from "./helpers";
 
 // The host API for tourneys (#25, #28): assigned lobbies, the tourney code window, the host's screenshot.
 
@@ -50,19 +50,8 @@ beforeEach(async () => {
   ]);
 });
 
-function admin(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-  return SELF.fetch(`https://example.com/api/admin/${path}`, {
-    method,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-}
-
-async function adminOk<T = Record<string, unknown>>(path: string, body?: unknown, method?: string): Promise<T> {
-  const res = await admin(path, body, method);
-  expect(res.status, await res.clone().text()).toBeLessThan(300);
-  return res.json();
-}
+const admin = (path: string, body?: unknown, method?: string) => adminFetch(adminToken, path, body, method);
+const adminOk = <T = Record<string, unknown>>(path: string, body?: unknown, method?: string) => adminJson<T>(adminToken, path, body, method);
 
 function host(path: string, { token = hostToken, method = "GET", body, headers = {} }: { token?: string; method?: string; body?: BodyInit; headers?: Record<string, string> } = {}) {
   return SELF.fetch(`https://example.com/api/host/${path}`, { method, body, headers: { Authorization: `Bearer ${token}`, ...headers } });

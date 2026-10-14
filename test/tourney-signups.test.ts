@@ -4,7 +4,7 @@ import { defaults } from "../src/config";
 import { createLogger } from "../src/log";
 import { handleSignup } from "../src/tourney/signups";
 import { sha256 } from "../src/bytes";
-import { expectUpToDate, matchId, matchLog } from "./helpers";
+import { adminFetch, adminJson, expectUpToDate, matchId, matchLog } from "./helpers";
 
 /** Tourney sign-ups (#31), lobby capacity and the admin's clean-up (#24). */
 
@@ -41,19 +41,8 @@ beforeEach(async () => {
   ]);
 });
 
-function admin(path: string, body?: unknown, method = body === undefined ? "GET" : "POST") {
-  return SELF.fetch(`${site}/api/admin/${path}`, {
-    method,
-    body: body === undefined ? undefined : JSON.stringify(body),
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-}
-
-async function adminOk<T = Record<string, unknown>>(path: string, body?: unknown): Promise<T> {
-  const res = await admin(path, body);
-  expect(res.status, await res.clone().text()).toBeLessThan(300);
-  return res.json();
-}
+const admin = (path: string, body?: unknown, method?: string) => adminFetch(adminToken, path, body, method);
+const adminOk = <T = Record<string, unknown>>(path: string, body?: unknown) => adminJson<T>(adminToken, path, body);
 
 async function newTourney(fields: Record<string, unknown> = {}) {
   const { tourney } = await adminOk<{ tourney: { id: number } }>("tourneys", {

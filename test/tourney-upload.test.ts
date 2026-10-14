@@ -1,8 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { sha256 } from "../src/bytes";
-import { type UploadResponse } from "../src/upload/handler";
-import { matchLog } from "./helpers";
+import { matchLog, uploadLog } from "./helpers";
 import example from "./fixtures/ranked-log-example.txt?raw";
 import tourneyExample from "./fixtures/ranked-log-tourney-example.txt?raw";
 
@@ -46,15 +45,7 @@ beforeEach(async () => {
   ]);
 });
 
-async function upload(body: string, token = tokens.host, headers: Record<string, string> = {}): Promise<UploadResponse> {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, ...headers },
-  });
-  expect(res.status, await res.clone().text()).toBe(200);
-  return res.json();
-}
+const upload = (body: string, token = tokens.host, headers: Record<string, string> = {}) => uploadLog(body, token, undefined, headers);
 
 /** The example cut after its first `lines` lines, like an early copy of the match. */
 const copy = (lines: number) => tourneyExample.split(/\r?\n/).slice(0, lines).join("\n");

@@ -12,7 +12,7 @@ import { listTagCandidates } from "../src/site/store";
 import { handleSite } from "../src/site/handler";
 import { sha256 } from "../src/bytes";
 import { handleUpload, type UploadResponse } from "../src/upload/handler";
-import { matchId, matchLog } from "./helpers";
+import { adminFetch, adminJson, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -34,25 +34,7 @@ beforeEach(async () => {
   ]);
 });
 
-const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
-async function upload(body: string, token: string, startedAt: string): Promise<UploadResponse> {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt },
-  });
-  expect(res.status, await res.clone().text()).toBe(200);
-  return res.json();
-}
-
-function admin(path: string, body?: unknown) {
-  return SELF.fetch(`https://example.com/api/admin/${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    body: body === undefined ? undefined : JSON.stringify(body),
-    headers: { Authorization: `Bearer ${adminToken}` },
-  });
-}
+const admin = (path: string, body?: unknown) => adminFetch(adminToken, path, body);
 
 /** Run a competing write after the handler's reads, just before its transaction. */
 function beforeBatch(compete: () => Promise<unknown>): D1Database {
@@ -74,11 +56,7 @@ function adminWith(database: D1Database, path: string, body: unknown) {
   }), database, env.PROOFS, defaults, log);
 }
 
-async function adminOk<T = Record<string, unknown>>(path: string, body?: unknown): Promise<T> {
-  const res = await admin(path, body);
-  expect(res.status, await res.clone().text()).toBe(200);
-  return res.json();
-}
+const adminOk = <T = Record<string, unknown>>(path: string, body?: unknown) => adminJson<T>(adminToken, path, body, undefined, 200);
 
 async function get<T = Record<string, unknown>>(path: string): Promise<T> {
   const res = await SELF.fetch(`https://example.com/api/${path}`);
@@ -136,11 +114,11 @@ async function expectRegionUpToDate(region: string) {
  * Delta play with both names; Echo..Hotel only with Alfa.
  */
 async function nameChange() {
-  await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(10));
-  await upload(matchLog({ key: "000000000002", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(9));
-  await upload(matchLog({ key: "000000000003", players: ["Alpha", "Bravo", "Echo", "Hotel"] }), tokens.eu, hoursAgo(8));
-  await upload(matchLog({ key: "000000000004", players: ["Alfa", "Bravo", "Charlie", "Delta"] }), tokens.na, hoursAgo(7));
-  await upload(matchLog({ key: "000000000005", players: ["Alfa", "Echo", "Charlie", "Hotel"] }), tokens.eu, hoursAgo(6));
+  await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(10));
+  await uploadLog(matchLog({ key: "000000000002", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(9));
+  await uploadLog(matchLog({ key: "000000000003", players: ["Alpha", "Bravo", "Echo", "Hotel"] }), tokens.eu, hoursAgo(8));
+  await uploadLog(matchLog({ key: "000000000004", players: ["Alfa", "Bravo", "Charlie", "Delta"] }), tokens.na, hoursAgo(7));
+  await uploadLog(matchLog({ key: "000000000005", players: ["Alfa", "Echo", "Charlie", "Hotel"] }), tokens.eu, hoursAgo(6));
   return { alpha: await playerId("Alpha"), alfa: await playerId("Alfa") };
 }
 
@@ -223,8 +201,8 @@ describe("players: merge", () => {
   });
 
   it("leaves a region the merged player never played in alone", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.na, hoursAgo(3));
-    await upload(matchLog({ key: "000000000002", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.na, hoursAgo(3));
+    await uploadLog(matchLog({ key: "000000000002", players: ["Alfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(2));
     const before = await rows("SELECT version FROM rating_state WHERE board = 'na'");
     await writeMerge(db(), { from: await playerId("Alfa"), into: await playerId("Alpha"), adminId: 1, at: "2026-10-05T12:00:00Z", detail: {} });
     expect((await readState(db(), "na")).staleFrom).toBeNull();
@@ -238,8 +216,8 @@ describe("players: merge", () => {
     await adminOk(`players/${alfa}/merge`, { into: alpha });
     const players = await rows("SELECT COUNT(*) AS n FROM players");
 
-    await upload(matchLog({ key: "000000000006", players: ["ALFA", "Bravo", "Echo", "Golf"] }), tokens.eu, hoursAgo(1));
-    await upload(matchLog({ key: "000000000007", players: ["Alpha", "Charlie", "Echo", "Golf"] }), tokens.na, hoursAgo(0.5));
+    await uploadLog(matchLog({ key: "000000000006", players: ["ALFA", "Bravo", "Echo", "Golf"] }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000007", players: ["Alpha", "Charlie", "Echo", "Golf"] }), tokens.na, hoursAgo(0.5));
     expect(await rows("SELECT COUNT(*) AS n FROM players")).toEqual(players);
     for (const key of ["000000000006", "000000000007"]) {
       expect(await rows(`SELECT player_id FROM match_players WHERE match_id = ${await matchId(key)} AND log_id = 1`)).toEqual([{ player_id: alpha }]);
@@ -289,7 +267,7 @@ describe("players: merge", () => {
     const { alpha, alfa } = await nameChange();
     let before: Awaited<ReturnType<typeof snapshot>>;
     const racing = beforeBatch(async () => {
-      await upload(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
+      await uploadLog(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
       before = await snapshot();
     });
     const response = await adminWith(racing, `players/${alfa}/merge`, { into: alpha });
@@ -318,10 +296,10 @@ describe("players: merge", () => {
 
   it("reviews a longer copy containing merged names and keeps existing review reasons", async () => {
     const { alpha, alfa } = await nameChange();
-    await upload(matchLog({ key: "000000000006", rounds: 1 }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000006", rounds: 1 }), tokens.eu, hoursAgo(1));
     await adminOk(`players/${alfa}/merge`, { into: alpha });
     await db().prepare("UPDATE hosts SET trust = 'untrusted' WHERE id = 1").run();
-    const response = await upload(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
+    const response = await uploadLog(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
     expect(response.matches).toMatchObject([{ action: "replace", status: "review", reviewReasons: ["untrusted_host", "merged_names"] }]);
     await finishRecompute();
     expect(await rows(`SELECT COUNT(*) AS n FROM rating_history WHERE match_id = ${await matchId("000000000006")}`)).toEqual([{ n: 0 }]);
@@ -329,16 +307,16 @@ describe("players: merge", () => {
 
   it("keeps admin voids and rejections when a longer copy contains merged names", async () => {
     const { alpha, alfa } = await nameChange();
-    await upload(matchLog({ key: "000000000006", rounds: 1 }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000007", rounds: 1 }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000006", rounds: 1 }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000007", rounds: 1 }), tokens.eu, hoursAgo(1));
     await db().batch([
       db().prepare("UPDATE matches SET status = 'void' WHERE match_key = '000000000006'"),
       db().prepare("UPDATE matches SET status = 'rejected', rejection_code = 'admin', rejection_message = 'Rejected' WHERE match_key = '000000000007'"),
     ]);
     await adminOk(`players/${alfa}/merge`, { into: alpha });
-    const voided = await upload(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(2));
+    const voided = await uploadLog(matchLog({ key: "000000000006", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(2));
     expect(voided.matches).toMatchObject([{ status: "void" }]);
-    const rejected = await upload(matchLog({ key: "000000000007", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
+    const rejected = await uploadLog(matchLog({ key: "000000000007", players: ["Alpha", "Alfa", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1));
     expect(rejected.matches).toMatchObject([{ status: "rejected", rejection: { code: "admin" } }]);
   });
 
@@ -390,8 +368,8 @@ describe("players: undo a merge", () => {
   it("gives back the matches uploaded under the merged names since the merge", async () => {
     const { alpha, alfa } = await nameChange();
     const { merge } = await adminOk<{ merge: { id: number } }>(`players/${alfa}/merge`, { into: alpha });
-    await upload(matchLog({ key: "000000000006", players: ["alfa", "Bravo", "Echo", "Golf"] }), tokens.eu, hoursAgo(1));
-    await upload(matchLog({ key: "000000000007", players: ["Alpha", "Charlie", "Echo", "Golf"] }), tokens.eu, hoursAgo(0.5));
+    await uploadLog(matchLog({ key: "000000000006", players: ["alfa", "Bravo", "Echo", "Golf"] }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000007", players: ["Alpha", "Charlie", "Echo", "Golf"] }), tokens.eu, hoursAgo(0.5));
 
     await adminOk(`merges/${merge.id}/undo`, {});
     expect(await rows(`SELECT player_id FROM match_players WHERE match_id = ${await matchId("000000000006")} AND log_id = 1`)).toEqual([{ player_id: alfa }]);
@@ -408,12 +386,12 @@ describe("players: undo a merge", () => {
   });
 
   it("moves a new Unicode spelling uploaded after reading the undo, by its persisted alias id", async () => {
-    await upload(matchLog(), tokens.eu, hoursAgo(3));
-    await upload(matchLog({ key: "000000000002", players: ["Älfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(3));
+    await uploadLog(matchLog({ key: "000000000002", players: ["Älfa", "Echo", "Foxtrot", "Golf"] }), tokens.eu, hoursAgo(2));
     const alpha = await playerId("Alpha");
     const alfa = (await db().prepare("SELECT player_id AS id FROM aliases WHERE name_key = ?").bind("älfa").first<{ id: number }>())!.id;
     const { merge } = await adminOk<{ merge: { id: number } }>(`players/${alfa}/merge`, { into: alpha });
-    const racing = beforeBatch(() => upload(matchLog({ key: "000000000003", players: ["ÄLFA", "Bravo", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1)));
+    const racing = beforeBatch(() => uploadLog(matchLog({ key: "000000000003", players: ["ÄLFA", "Bravo", "Charlie", "Delta"] }), tokens.eu, hoursAgo(1)));
     const response = await adminWith(racing, `merges/${merge.id}/undo`, {});
     expect(response.status).toBe(200);
     const id = await matchId("000000000003");
@@ -428,7 +406,7 @@ describe("players: undo a merge", () => {
   it("undoes merges newest first, and only once", async () => {
     const { alpha, alfa } = await nameChange();
     // Zulu never played with Alfa or Alpha.
-    await upload(matchLog({ key: "000000000006", players: ["Zulu", "Bravo", "Charlie", "Delta"] }), tokens.na, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000006", players: ["Zulu", "Bravo", "Charlie", "Delta"] }), tokens.na, hoursAgo(1));
     const zulu = await playerId("Zulu");
     const first = await adminOk<{ merge: { id: number } }>(`players/${zulu}/merge`, { into: alfa });
     // Alfa (with Zulu's names) goes into Alpha.
@@ -479,7 +457,7 @@ describe("players: display name", () => {
     const { alpha, alfa } = await nameChange();
     await adminOk(`players/${alfa}/merge`, { into: alpha });
     await finishRecompute();
-    const response = await upload(matchLog({ key: "000000000006" }), tokens.eu, hoursAgo(9.5));
+    const response = await uploadLog(matchLog({ key: "000000000006" }), tokens.eu, hoursAgo(9.5));
     expect(response.matches).toMatchObject([{ status: "accepted", reviewReasons: [] }]);
     expect(await rows(`SELECT name, name_fixed FROM players WHERE id = ${alpha}`)).toEqual([{ name: "Alfa", name_fixed: 0 }]);
     const candidates = await listTagCandidates(db(), "eu", 0, 0, "", defaults.rankTagsMaxNames);
@@ -498,14 +476,14 @@ describe("players: display name", () => {
       { name: "Alpha Prime", first_seen_at: "", last_seen_at: "" },
     ]);
 
-    await upload(matchLog({ key: "000000000006" }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000006" }), tokens.eu, hoursAgo(1));
     expect(await rows(`SELECT name FROM players WHERE id = ${alpha}`)).toEqual([{ name: "Alpha Prime" }]);
     // The rank tags keep the name the game shows.
     const candidates = await listTagCandidates(db(), "eu", 0, 0, "", defaults.rankTagsMaxNames);
     expect(candidates.find((c) => c.playerId === alpha)?.name).toBe("Alpha");
 
     // A log with the new name counts for the player.
-    await upload(matchLog({ key: "000000000007", players: ["alpha prime", "Bravo", "Charlie", "Delta"] }), tokens.eu, hoursAgo(0.5));
+    await uploadLog(matchLog({ key: "000000000007", players: ["alpha prime", "Bravo", "Charlie", "Delta"] }), tokens.eu, hoursAgo(0.5));
     expect(await rows(`SELECT player_id FROM match_players WHERE match_id = ${await matchId("000000000007")} AND log_id = 1`)).toEqual([{ player_id: alpha }]);
 
     await adminOk(`players/${alpha}/name`, { name: null });

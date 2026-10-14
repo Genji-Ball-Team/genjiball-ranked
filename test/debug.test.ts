@@ -10,7 +10,7 @@ import type { CandidateRow, KillRow, RoundRow } from "../src/rating/store";
 import { updateRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
 import example from "./fixtures/ranked-log-example.txt?raw";
-import { expectUpToDate, matchId, matchLog } from "./helpers";
+import { expectUpToDate, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
 
 // The admin debug tools (#33): the dry-run parse, the recompute, and the dry-run recompute that
 // `npm run ratings:dry-run` runs outside the Worker (its queries and logic, against the test D1).
@@ -36,17 +36,6 @@ beforeEach(async () => {
     db().prepare("INSERT INTO hosts (id, name, token_hash, trust) VALUES (3, 'untrusted', ?, 'untrusted')").bind(await sha256(tokens.untrusted)),
   ]);
 });
-
-const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
-
-async function upload(body: string, token: string, startedAt: string) {
-  const res = await SELF.fetch("https://example.com/api/upload", {
-    method: "POST",
-    body,
-    headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": startedAt },
-  });
-  expect(res.status, await res.clone().text()).toBe(200);
-}
 
 function post(path: string, body?: string, token: string | null = adminToken, method = "POST") {
   return SELF.fetch(`https://example.com/api/admin/${path}`, {
@@ -151,7 +140,7 @@ describe("POST /api/admin/parse", () => {
   });
 
   it("plans against a host's stored copies, which keep their region", async () => {
-    await upload(matchLog({ rounds: 1 }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ rounds: 1 }), tokens.eu, hoursAgo(1));
     const stored = await matchId("000000000001");
 
     const longer = await postOk<Parsed>("parse?host=1&region=na", matchLog());
@@ -197,7 +186,7 @@ describe("POST /api/admin/parse", () => {
   });
 
   it("answers duplicate before the parser's error, as the real paths do", async () => {
-    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(1));
     const asLegacy = await postOk<Parsed>("parse?legacy=1&host=1", matchLog());
     expect(asLegacy.upload).toMatchObject({ status: 200, result: "duplicate" });
     expect(asLegacy.parser.error).toMatchObject({ status: 422, error: "not_legacy" });
@@ -214,7 +203,7 @@ describe("POST /api/admin/parse", () => {
   });
 
   it("checks the host in the upload's order: revoked, then region, then rate limit, then duplicate", async () => {
-    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(1));
     const file = matchLog();
 
     // Rate limit before duplicate.
@@ -273,8 +262,8 @@ describe("POST /api/admin/ratings/recompute", () => {
     db().prepare("SELECT version, stale_played_at AS playedAt, stale_match_id AS id FROM rating_state WHERE board = ?").bind(board).first();
 
   it("marks the region stale from the start, logged, and leaves the rating to the cron", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002" }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002" }), tokens.eu, hoursAgo(1));
     await db().prepare("UPDATE ratings SET display = display + 40, mu = mu + 1 WHERE board = 'eu'").run();
     const drifted = await db().prepare("SELECT * FROM ratings ORDER BY player_id").all();
     const na = await state("na");
@@ -292,8 +281,8 @@ describe("POST /api/admin/ratings/recompute", () => {
   });
 
   it("with from=<match>, recomputes from that match only, keeping every match before it", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, hoursAgo(1));
     const [first, second] = (await db().prepare("SELECT id, played_at AS playedAt FROM matches ORDER BY played_at").all<{ id: number; playedAt: string }>()).results;
     // Drift in the first match's history (which a recompute from the second must not touch) and in the current ratings.
     await db().prepare("UPDATE rating_history SET mu = mu + 1 WHERE match_id = ?").bind(first!.id).run();
@@ -315,7 +304,7 @@ describe("POST /api/admin/ratings/recompute", () => {
   });
 
   it("refuses a from that isn't a match of the region", async () => {
-    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(1));
     const { id } = (await db().prepare("SELECT id FROM matches").first<{ id: number }>())!;
     const before = await snapshot();
     for (const from of ["abc", "0", "-1", String(id + 100)]) expect((await post(`ratings/recompute?region=eu&from=${from}`)).status).toBe(400);
@@ -333,8 +322,8 @@ describe("POST /api/admin/ratings/recompute", () => {
 
   it("recomputes matches with the same start time in id order", async () => {
     const at = hoursAgo(1);
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, at);
-    await upload(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, at);
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, at);
+    await uploadLog(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, at);
     await expectUpToDate();
     await db().prepare("UPDATE ratings SET mu = mu + 1 WHERE board = 'eu'").run();
     await postOk("ratings/recompute?region=eu");
@@ -380,8 +369,8 @@ const playerId = async (name: string) =>
 
 describe("dry-run recompute (npm run ratings:dry-run)", () => {
   it("finds nothing to change when the ratings are up to date, and reads only", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002" }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002" }), tokens.eu, hoursAgo(1));
     const before = await snapshot();
     const result = await dryRun("eu", { chunk: 1 });
     expect(await snapshot()).toEqual(before);
@@ -390,13 +379,13 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
   });
 
   it("isn't identical when only a stored win streak is wrong", async () => {
-    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(1));
     await db().prepare("UPDATE ratings SET best_streak = best_streak + 5 WHERE board = 'eu' AND player_id = ?").bind(await playerId("Alpha")).run();
     expect((await dryRun("eu")).summary).toMatchObject({ changed: 0, identical: false });
   });
 
   it("lists who would move, and by how much", async () => {
-    await upload(matchLog(), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(1));
     const alpha = await playerId("Alpha");
     const stored = (await db().prepare("SELECT display FROM ratings WHERE board = 'eu' AND player_id = ?").bind(alpha).first<{ display: number }>())!.display;
     await db().prepare("UPDATE ratings SET display = display + 40, mu = mu + 1 WHERE board = 'eu' AND player_id = ?").bind(alpha).run();
@@ -410,8 +399,8 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
   });
 
   it("rates tournaments as the recompute does", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002", players: ["Delta", "Charlie", "Bravo", "Alpha"] }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002", players: ["Delta", "Charlie", "Bravo", "Alpha"] }), tokens.eu, hoursAgo(1));
     await postOk("matches/" + (await matchId("000000000001")) + "/tournament", JSON.stringify({ tournament: true }));
     await updateRatings(db(), loadConfig(env), new Date(), log);
     await expectUpToDate();
@@ -424,15 +413,15 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
 
   it("orders matches with the same start time by id, as the recompute does", async () => {
     const at = hoursAgo(1);
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, at);
-    await upload(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, at);
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, at);
+    await uploadLog(matchLog({ key: "000000000002", players: ["Bravo", "Alpha", "Delta", "Charlie"] }), tokens.eu, at);
     await expectUpToDate();
     expect((await dryRun("eu", { chunk: 1 })).summary).toMatchObject({ changed: 0, identical: true });
   });
 
   it("counts an incomplete match only after the grace period", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002", end: false }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002", end: false }), tokens.eu, hoursAgo(1));
     const now = await dryRun("eu");
     expect(now).toMatchObject({ accepted: 2, counted: 1 });
     expect(now.summary.identical).toBe(true);
@@ -442,8 +431,8 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
   });
 
   it("shows a match that stopped counting: players lose its rounds or their rating", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002", players: ["Alpha", "Bravo", "Echo", "Foxtrot"] }), tokens.eu, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002", players: ["Alpha", "Bravo", "Echo", "Foxtrot"] }), tokens.eu, hoursAgo(1));
     await db().prepare("UPDATE matches SET status = 'void' WHERE match_key = '000000000002'").run();
 
     const result = await dryRun("eu");
@@ -453,8 +442,8 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
   });
 
   it("keeps the regions apart", async () => {
-    await upload(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
-    await upload(matchLog({ key: "000000000002", players: ["Alpha", "Bravo", "Echo", "Foxtrot"] }), tokens.na, hoursAgo(1));
+    await uploadLog(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(2));
+    await uploadLog(matchLog({ key: "000000000002", players: ["Alpha", "Bravo", "Echo", "Foxtrot"] }), tokens.na, hoursAgo(1));
     await db().prepare("UPDATE ratings SET display = display + 25 WHERE board = 'na'").run();
 
     const eu = await dryRun("eu");
@@ -475,7 +464,7 @@ describe("dry-run recompute (npm run ratings:dry-run)", () => {
   it("reads a rating state version that rating writes, recompute marks and tournament changes move on", async () => {
     const version = async () => (await dryRun("eu")).stale!.version;
     const v0 = await version();
-    await upload(matchLog(), tokens.eu, hoursAgo(1)); // rated on upload
+    await uploadLog(matchLog(), tokens.eu, hoursAgo(1)); // rated on upload
     const v1 = await version();
     expect(v1).toBeGreaterThan(v0);
     await postOk("ratings/recompute?region=eu");
