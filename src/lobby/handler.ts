@@ -1,8 +1,8 @@
 import type { Config } from "../config";
-import { fail } from "../http";
+import { fail, notAllowed, readJsonObject } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
-import { authHost, hostRegion, readLimited } from "../upload/handler";
+import { authHost, hostRegion } from "../upload/handler";
 import { closeLobby, deleteStaleLobbies, upsertLobby } from "./store";
 
 /**
@@ -36,7 +36,7 @@ export type LobbyConfig = Pick<
 
 export async function handleHostLobby(request: Request, db: D1Database, config: LobbyConfig, log: Logger, now = new Date()): Promise<Response> {
   if (request.method !== "PUT" && request.method !== "DELETE") {
-    return fail(405, "method_not_allowed", "Use PUT for a heartbeat, DELETE to close the lobby", { Allow: "PUT, DELETE" });
+    return notAllowed("PUT, DELETE", "Use PUT for a heartbeat, DELETE to close the lobby");
   }
   const host = await authHost(request, db);
   if (host instanceof Response) return host;
@@ -83,16 +83,9 @@ export function secondsBefore(now: Date, seconds: number): string {
 
 /** The heartbeat's `{ players, name }`, or what's wrong with it. */
 async function readHeartbeat(request: Request, config: LobbyConfig): Promise<{ players: number; name: string | null } | string> {
-  const bytes = await readLimited(request, config.lobbyBodyMaxBytes);
-  if (!bytes) return `The body is larger than ${config.lobbyBodyMaxBytes} bytes`;
-  let body: unknown;
-  try {
-    body = JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return "The body must be JSON: { players, name? }";
-  }
-  if (typeof body !== "object" || body === null || Array.isArray(body)) return "The body must be a JSON object: { players, name? }";
-  const { players, name } = body as Record<string, unknown>;
+  const body = await readJsonObject(request, config.lobbyBodyMaxBytes, "{ players, name? }");
+  if (typeof body === "string") return body;
+  const { players, name } = body;
   if (!Number.isInteger(players) || (players as number) < 0 || (players as number) > config.lobbyPlayersMax) {
     return `players must be a whole number from 0 to ${config.lobbyPlayersMax}`;
   }

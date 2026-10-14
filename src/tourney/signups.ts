@@ -1,8 +1,8 @@
 import type { Config } from "../config";
-import { fail } from "../http";
+import { fail, notAllowed, positiveId, readJsonObject } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
-import { readLimited, sha256 } from "../upload/handler";
+import { sha256 } from "../upload/handler";
 import { nameKey } from "../upload/plan";
 import { insertSignup, readSignupState, type SignupState } from "./signupStore";
 
@@ -39,10 +39,9 @@ export function signupSummary(status: string, count: number, capacity: number) {
 }
 
 export async function handleSignup(request: Request, db: D1Database, config: SignupConfig, log: Logger, now = new Date()): Promise<Response> {
-  if (request.method !== "POST") return fail(405, "method_not_allowed", "Use POST", { Allow: "POST" });
-  const idParam = new URL(request.url).pathname.split("/")[3] ?? "";
-  if (!/^[1-9]\d{0,15}$/.test(idParam)) return fail(404, "not_found", "No such tourney");
-  const tourneyId = Number(idParam);
+  if (request.method !== "POST") return notAllowed("POST");
+  const tourneyId = positiveId(new URL(request.url).pathname.split("/")[3]);
+  if (tourneyId === null) return fail(404, "not_found", "No such tourney");
 
   const name = await readName(request, config);
   if (typeof name !== "string") return fail(400, "bad_request", name.error);
@@ -100,16 +99,8 @@ function answer(status: number, name: string, signedUpAt: string, created: boole
 
 /** The trimmed name from the body, or what's wrong with it. */
 async function readName(request: Request, config: SignupConfig): Promise<string | { error: string }> {
-  const bytes = await readLimited(request, config.tourneySignupBodyMaxBytes);
-  if (!bytes) return { error: `The body is larger than ${config.tourneySignupBodyMaxBytes} bytes` };
-  let body: unknown;
-  try {
-    body = JSON.parse(new TextDecoder().decode(bytes));
-  } catch {
-    return { error: "The body must be JSON: { name }" };
-  }
-  if (typeof body !== "object" || body === null || Array.isArray(body)) return { error: "The body must be a JSON object: { name }" };
-  return checkName((body as Record<string, unknown>).name, config);
+  const body = await readJsonObject(request, config.tourneySignupBodyMaxBytes, "{ name }");
+  return typeof body === "string" ? { error: body } : checkName(body.name, config);
 }
 
 /** The trimmed in-game name, or what's wrong with it. Also checks the Discord bot's (`./botSignups.ts`). */

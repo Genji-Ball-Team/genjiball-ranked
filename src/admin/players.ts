@@ -1,4 +1,4 @@
-import { fail } from "../http";
+import { fail, notAllowed } from "../http";
 import { searchPlayers } from "../site/store";
 import { isoSeconds } from "../time";
 import { nameKey } from "../upload/plan";
@@ -18,7 +18,7 @@ import {
   type AdminPlayer,
   type MergeRow,
 } from "./playerStore";
-import { BadRequest, body, changedMeanwhile, notAllowed, text, type Context } from "./request";
+import { BadRequest, body, changedMeanwhile, text, type Context } from "./request";
 import { isStale } from "./store";
 
 /**

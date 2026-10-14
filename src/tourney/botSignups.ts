@@ -1,8 +1,8 @@
 import type { Config } from "../config";
-import { fail } from "../http";
+import { bearerToken, fail, notAllowed, positiveId, readLimited } from "../http";
 import type { Logger } from "../log";
 import { isoSeconds } from "../time";
-import { readLimited, sha256 } from "../upload/handler";
+import { sha256 } from "../upload/handler";
 import { nameKey } from "../upload/plan";
 import { checkName, signupSummary } from "./signups";
 
@@ -61,23 +61,23 @@ export async function handleBotSignups(
   log: Logger,
   now = new Date(),
 ): Promise<Response> {
-  const token = /^Bearer (.+)$/.exec(request.headers.get("Authorization") ?? "")?.[1]?.trim();
+  const token = bearerToken(request);
   if (!token) return fail(401, "unauthorized", "Send the bot token as Authorization: Bearer <token>");
   // Compare hashes, not the strings: the time taken says nothing about the token.
   if (!botToken || (await sha256(token)) !== (await sha256(botToken))) return fail(401, "unauthorized", "Unknown bot token");
 
   const m = /^\/api\/bot\/tourneys\/([^/]+)\/signups(?:\/([^/]+))?\/?$/.exec(new URL(request.url).pathname);
-  if (!m || !/^[1-9]\d{0,15}$/.test(m[1]!)) return fail(404, "not_found", "No such route");
-  const tourneyId = Number(m[1]);
+  const tourneyId = positiveId(m?.[1]);
+  if (!m || tourneyId === null) return fail(404, "not_found", "No such route");
 
   if (m[2] !== undefined) {
-    if (request.method !== "DELETE") return fail(405, "method_not_allowed", "Use DELETE", { Allow: "DELETE" });
+    if (request.method !== "DELETE") return notAllowed("DELETE");
     if (!snowflake.test(m[2])) return fail(404, "not_found", "Not a Discord user id");
     return unregister(db, config, tourneyId, m[2], log);
   }
   if (request.method === "GET") return list(db, config, tourneyId);
   if (request.method === "POST") return register(request, db, config, tourneyId, log, now);
-  return fail(405, "method_not_allowed", "Use GET or POST", { Allow: "GET, POST" });
+  return notAllowed("GET, POST", "Use GET or POST");
 }
 
 const stateQuery = `SELECT t.status,

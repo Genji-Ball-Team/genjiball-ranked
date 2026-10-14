@@ -1,4 +1,4 @@
-import { findRegion, type Config } from "../config";
+import { findRegion, notARegion, type Config } from "../config";
 import { diffRatings, type RatingDiff } from "./diff";
 import { displayRating, recompute, type RatingConfig } from "./engine";
 import type { StoredRating } from "./plan";
@@ -30,7 +30,7 @@ import { counts } from "./update";
 /** The region id, safe to write into SQL: one of the config's `regions`. */
 export function sqlRegion(regions: Config["regions"], id: string): string {
   const region = findRegion(regions, id);
-  if (!region || !/^[a-z]+$/.test(region.id)) throw new Error(`region must be one of ${regions.map((r) => r.id).join(", ")}`);
+  if (!region || !/^[a-z]+$/.test(region.id)) throw new Error(notARegion(regions, "region"));
   return region.id;
 }
 

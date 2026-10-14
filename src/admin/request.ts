@@ -1,6 +1,6 @@
 import type { QueryBudget } from "../budget";
-import { findRegion, type Config } from "../config";
-import { fail } from "../http";
+import { findRegion, notARegion, type Config } from "../config";
+import { fail, jsonObject } from "../http";
 import type { Logger } from "../log";
 import { anyStale } from "../rating/store";
 import { updateRatings, type UpdateConfig } from "../rating/update";
@@ -50,14 +50,9 @@ export class BadRequest extends Error {}
 export async function body(request: Request): Promise<Record<string, unknown>> {
   const raw = await request.text();
   if (!raw.trim()) return {};
-  let data: unknown;
-  try {
-    data = JSON.parse(raw);
-  } catch {
-    throw new BadRequest("The body must be JSON");
-  }
-  if (typeof data !== "object" || data === null || Array.isArray(data)) throw new BadRequest("The body must be a JSON object");
-  return data as Record<string, unknown>;
+  const data = jsonObject(raw);
+  if (typeof data === "string") throw new BadRequest(data);
+  return data;
 }
 
 /** An optional text field, trimmed. `null` when it's missing or blank. */
@@ -72,12 +67,8 @@ export function text(value: unknown, config: AdminConfig, field: string, max = c
 /** A region id from the config's `regions`. */
 export function regionField(value: unknown, config: AdminConfig, field: string): string {
   const region = typeof value === "string" ? findRegion(config.regions, value) : null;
-  if (!region) throw new BadRequest(`${field} must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+  if (!region) throw new BadRequest(notARegion(config.regions, field));
   return region.id;
-}
-
-export function notAllowed(allow: string): Response {
-  return fail(405, "method_not_allowed", `Use ${allow}`, { Allow: allow });
 }
 
 /**

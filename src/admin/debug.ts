@@ -1,5 +1,5 @@
-import { findRegion } from "../config";
-import { fail } from "../http";
+import { findRegion, notARegion } from "../config";
+import { fail, positiveId } from "../http";
 import type { ParsedMatch } from "../parser/types";
 import { fromStart, staleFromStatement, type MatchRef } from "../rating/store";
 import { isoSeconds } from "../time";
@@ -48,9 +48,9 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
   const legacy = flag(params, "legacy");
   let host: Host | null = null;
   if (params.has("host")) {
-    const hostParam = params.get("host") ?? "";
-    if (!/^[1-9]\d{0,15}$/.test(hostParam)) throw new BadRequest("host must be a host id");
-    host = await findHostById(ctx.db, Number(hostParam));
+    const hostId = positiveId(params.get("host"));
+    if (hostId === null) throw new BadRequest("host must be a host id");
+    host = await findHostById(ctx.db, hostId);
     if (!host) return fail(404, "not_found", "No such host");
   }
 
@@ -60,7 +60,7 @@ export async function dryRunParse(ctx: Context, request: Request): Promise<Respo
   if (legacy) {
     if (!host) stop = { status: 400, error: "bad_request", message: "host=<host id> is required" };
     else if (rawRegion !== null && !findRegion(ctx.config.regions, rawRegion)) {
-      stop = { status: 400, error: "bad_request", message: `region must be one of ${ctx.config.regions.map((r) => r.id).join(", ")}` };
+      stop = { status: 400, error: "bad_request", message: notARegion(ctx.config.regions, "region") };
     } else if (!(region = findRegion(ctx.config.regions, rawRegion)?.id ?? host.region)) {
       stop = { status: 400, error: "bad_request", message: "The host has no home region: add region=<region>" };
     }
@@ -220,10 +220,11 @@ export async function recomputeRegion(ctx: Context, request: Request): Promise<R
 
 /** The match `?from=` names, as a place in play order: it must exist and be in `region`. */
 async function recomputeFrom(ctx: Context, value: string, region: string): Promise<MatchRef> {
-  if (!/^[1-9]\d{0,15}$/.test(value)) throw new BadRequest("from must be a match id");
+  const id = positiveId(value);
+  if (id === null) throw new BadRequest("from must be a match id");
   const match = await ctx.db
     .prepare("SELECT id, played_at AS playedAt, region FROM matches WHERE id = ?")
-    .bind(Number(value))
+    .bind(id)
     .first<MatchRef & { region: string }>();
   if (!match) throw new BadRequest(`No match ${value}`);
   if (match.region !== region) throw new BadRequest(`Match ${value} is in ${match.region}, not ${region}`);

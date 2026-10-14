@@ -1,5 +1,5 @@
-import { findRegion, type Config, type Region } from "../config";
-import { fail } from "../http";
+import { findRegion, notARegion, type Config, type Region } from "../config";
+import { fail, notAllowed, pageNumber, positiveId } from "../http";
 import { secondsBefore } from "../lobby/handler";
 import { listLiveLobbies } from "../lobby/store";
 import { isoSeconds } from "../time";
@@ -88,97 +88,74 @@ export async function handleSite(
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
   const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head"].includes(route ?? "");
-  const region = regional ? regionParam(url, config) : null;
-  if (region instanceof Response) return region;
-  if (path.length === 1 && route === "leaderboard") {
-    if (!isRead(request)) return notAllowed();
-    return cached(await leaderboard(db, config, region!, url.searchParams.get("page"), now), config.publicCacheSeconds);
-  }
-  if (path.length === 1 && route === "server") {
-    if (!isRead(request)) return notAllowed();
-    const stale = await staleRegions(db);
-    const ratingsUpdating = config.regions.map((r) => r.id).filter((id) => stale.includes(id));
-    return cached({ testServer: config.testServer, regions: config.regions, ratingsUpdating }, config.publicCacheSeconds);
-  }
-  if (path.length === 1 && route === "rank-tags") {
-    if (!isRead(request)) return notAllowed();
-    return cached(await tags(db, config, region!, now), config.rankTagsCacheSeconds);
-  }
-  if (path.length === 1 && route === "players") {
-    if (!isRead(request)) return notAllowed();
-    const search = (url.searchParams.get("search") ?? "").trim();
-    if ([...search].length < config.playerSearchMinLength) {
-      return fail(400, "bad_request", `search needs at least ${config.playerSearchMinLength} characters`);
-    }
-    return cached(await playerSearch(db, config, region!, url.searchParams.has("region"), search, now), config.publicCacheSeconds);
-  }
-  if (path.length === 1 && route === "matches") {
-    if (!isRead(request)) return notAllowed();
-    // Every region's matches unless one is asked for.
-    const feedRegion = url.searchParams.has("region") ? regionParam(url, config) : null;
-    if (feedRegion instanceof Response) return feedRegion;
-    const body = await feed(db, config, feedRegion, url.searchParams.get("after"), url.searchParams.get("limit"));
-    if (!body) return fail(400, "bad_request", `after must be a cursor from this feed, 0 or latest; limit 1 to ${config.matchFeedLimit}`);
-    return cached(body, config.publicCacheSeconds);
-  }
-  if (path.length === 1 && route === "lobbies") {
-    if (!isRead(request)) return notAllowed();
-    return cached(await lobbies(db, config, region!, now), config.lobbiesCacheSeconds);
-  }
-  if (path.length === 1 && route === "records") {
-    if (!isRead(request)) return notAllowed();
-    return cached(await records(db, config, region!, now), config.publicCacheSeconds);
-  }
-  if (path.length === 3 && route === "players" && (path[2] === "history" || path[2] === "stats")) {
-    if (!isRead(request)) return notAllowed();
-    const id = /^[1-9]\d{0,15}$/.test(path[1]!) ? Number(path[1]) : null;
-    const body = id === null ? null : await (path[2] === "history" ? history : stats)(db, config, region!, id);
-    if (!body) return fail(404, "not_found", "No such player");
-    return cached(body, config.publicCacheSeconds);
-  }
-  if (path.length === 1 && route === "head-to-head") {
-    if (!isRead(request)) return notAllowed();
-    const a = playerIdParam(url.searchParams.get("a"));
-    const b = playerIdParam(url.searchParams.get("b"));
-    if (a === null || b === null || a === b) return fail(400, "bad_request", "a and b must be two different player ids");
-    const body = await headToHead(db, region!, a, b);
-    if (body === "same") return fail(400, "bad_request", "a and b are one player (merged)");
-    if (!body) return fail(404, "not_found", "No such player");
-    return cached(body, config.publicCacheSeconds);
-  }
-  if (path.length === 1 && route === "tourneys") {
-    if (!isRead(request)) return notAllowed();
-    return cached(await tourneys(db, config, region!, url.searchParams.get("page")), config.publicCacheSeconds);
-  }
-  if (path.length === 2 && route === "screenshots") {
-    if (!isRead(request)) return notAllowed();
-    return screenshot(db, proofs, path[1]!, config);
-  }
-  if (path.length === 2 && (route === "players" || route === "matches" || route === "tourneys")) {
-    if (!isRead(request)) return notAllowed();
-    const id = playerIdParam(path[1]!);
-    const read = { players: () => player(db, config, region!, id!, now), matches: () => match(db, id!), tourneys: () => tourney(db, config, id!) }[route];
-    const body = id === null ? null : await read();
-    if (!body) return fail(404, "not_found", { players: "No such player", matches: "No such match", tourneys: "No such tourney" }[route]);
-    return cached(body, config.publicCacheSeconds);
-  }
-  return null;
+  const asked = regional ? regionParam(url, config) : null;
+  if (asked instanceof Response) return asked;
+  const region = asked!;
+  const id = positiveId(path[1]);
+  const reads: Record<string, () => Promise<Response>> = {
+    leaderboard: async () => cached(await leaderboard(db, config, region, url.searchParams.get("page"), now), config.publicCacheSeconds),
+    server: async () => {
+      const stale = await staleRegions(db);
+      const ratingsUpdating = config.regions.map((r) => r.id).filter((id) => stale.includes(id));
+      return cached({ testServer: config.testServer, regions: config.regions, ratingsUpdating }, config.publicCacheSeconds);
+    },
+    "rank-tags": async () => cached(await tags(db, config, region, now), config.rankTagsCacheSeconds),
+    players: async () => {
+      const search = (url.searchParams.get("search") ?? "").trim();
+      if ([...search].length < config.playerSearchMinLength) {
+        return fail(400, "bad_request", `search needs at least ${config.playerSearchMinLength} characters`);
+      }
+      return cached(await playerSearch(db, config, region, url.searchParams.has("region"), search, now), config.publicCacheSeconds);
+    },
+    matches: async () => {
+      // Every region's matches unless one is asked for.
+      const feedRegion = url.searchParams.has("region") ? regionParam(url, config) : null;
+      if (feedRegion instanceof Response) return feedRegion;
+      const body = await feed(db, config, feedRegion, url.searchParams.get("after"), url.searchParams.get("limit"));
+      if (!body) return fail(400, "bad_request", `after must be a cursor from this feed, 0 or latest; limit 1 to ${config.matchFeedLimit}`);
+      return cached(body, config.publicCacheSeconds);
+    },
+    lobbies: async () => cached(await lobbies(db, config, region, now), config.lobbiesCacheSeconds),
+    records: async () => cached(await records(db, config, region, now), config.publicCacheSeconds),
+    "head-to-head": async () => {
+      const a = positiveId(url.searchParams.get("a"));
+      const b = positiveId(url.searchParams.get("b"));
+      if (a === null || b === null || a === b) return fail(400, "bad_request", "a and b must be two different player ids");
+      const body = await headToHead(db, region, a, b);
+      if (body === "same") return fail(400, "bad_request", "a and b are one player (merged)");
+      if (!body) return fail(404, "not_found", "No such player");
+      return cached(body, config.publicCacheSeconds);
+    },
+    tourneys: async () => cached(await tourneys(db, config, region, url.searchParams.get("page")), config.publicCacheSeconds),
+    "screenshots/:id": () => screenshot(db, proofs, path[1]!, config),
+    "players/:id": async () => found(id === null ? null : await player(db, config, region, id, now), "No such player", config),
+    "players/:id/history": async () => found(id === null ? null : await history(db, config, region, id), "No such player", config),
+    "players/:id/stats": async () => found(id === null ? null : await stats(db, config, region, id), "No such player", config),
+    "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match", config),
+    "tourneys/:id": async () => found(id === null ? null : await tourney(db, config, id), "No such tourney", config),
+  };
+  // The route's pattern: `players`, `players/:id`, `players/:id/history`.
+  const pattern = path.map((part, i) => (i === 1 ? ":id" : part)).join("/");
+  const read = Object.hasOwn(reads, pattern) ? reads[pattern] : undefined;
+  if (!read) return null;
+  if (request.method !== "GET" && request.method !== "HEAD") return notAllowed("GET, HEAD", "Use GET");
+  return read();
 }
 
-/** A positive id from the path or a parameter, or null. */
-function playerIdParam(param: string | null): number | null {
-  return param !== null && /^[1-9]\d{0,15}$/.test(param) ? Number(param) : null;
+/** The body, or the 404 when there's none. */
+function found(body: object | null, notFound: string, config: SiteConfig): Response {
+  return body ? cached(body, config.publicCacheSeconds) : fail(404, "not_found", notFound);
 }
 
 /** `?region=`: one of `regions`, the first without it, or the 400 for one that isn't a region. */
 function regionParam(url: URL, config: SiteConfig): Region | Response {
   const param = url.searchParams.get("region");
   const region = param === null ? config.regions[0]! : findRegion(config.regions, param);
-  return region ?? fail(400, "bad_request", `region must be one of ${config.regions.map((r) => r.id).join(", ")}`);
+  return region ?? fail(400, "bad_request", notARegion(config.regions, "region"));
 }
 
 async function leaderboard(db: D1Database, config: SiteConfig, region: Region, pageParam: string | null, now: Date) {
-  const page = pageParam && /^[1-9]\d{0,5}$/.test(pageParam) ? Number(pageParam) : 1;
+  const page = pageNumber(pageParam) ?? 1;
   const size = config.leaderboardPageSize;
   const offset = (page - 1) * size;
   // One more than a page, to know if there's a next one.
@@ -207,7 +184,7 @@ async function lobbies(db: D1Database, config: SiteConfig, region: Region, now: 
  * parameter is malformed.
  */
 async function feed(db: D1Database, config: SiteConfig, region: Region | null, afterParam: string | null, limitParam: string | null) {
-  const limit = limitParam === null ? config.matchFeedLimit : /^[1-9]\d{0,5}$/.test(limitParam) ? Number(limitParam) : 0;
+  const limit = limitParam === null ? config.matchFeedLimit : (pageNumber(limitParam) ?? 0);
   if (limit < 1 || limit > config.matchFeedLimit) return null;
   if (afterParam === "latest") return { cursor: await latestFeedSeq(db), hasMore: false, matches: [] };
   if (afterParam === null || !/^(0|[1-9]\d{0,15})$/.test(afterParam)) return null;
@@ -452,7 +429,7 @@ export function matchView({ match, players, rounds, roundPlayers }: MatchDetail)
  * first, each lobby with its standings.
  */
 async function tourneys(db: D1Database, config: SiteConfig, region: Region, pageParam: string | null) {
-  const page = pageParam && /^[1-9]\d{0,5}$/.test(pageParam) ? Number(pageParam) : 1;
+  const page = pageNumber(pageParam) ?? 1;
   const size = config.tourneysPageSize;
   // One more than a page, to know if there's a next one.
   const [upcoming, past] = await Promise.all([
@@ -519,14 +496,6 @@ async function screenshot(db: D1Database, proofs: R2Bucket | undefined, key: str
       ETag: object.httpEtag,
     },
   });
-}
-
-function isRead(request: Request): boolean {
-  return request.method === "GET" || request.method === "HEAD";
-}
-
-function notAllowed(): Response {
-  return fail(405, "method_not_allowed", "Use GET", { Allow: "GET, HEAD" });
 }
 
 function cached(body: unknown, seconds: number): Response {
