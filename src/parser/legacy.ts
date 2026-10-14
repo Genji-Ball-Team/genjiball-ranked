@@ -79,8 +79,13 @@ export function parseLegacyLog(text: string, options: LegacyOptions): ParsedMatc
   const id = (name: string) => ids.get(name)!;
   // Possibly killed for joining: their first line, with no attacker.
   const maybeJoin = (k: Kill, i: number) => k.attacker === null && first.get(k.victim) === i;
-  /** Time of the next death after kill `i` that may be in a round. */
-  const nextDeath = (i: number) => kills.find((k, j) => j > i && !maybeJoin(k, j))?.time ?? null;
+  // Time of the next death after each kill that may be in a round: one pass from the end, not a
+  // search per death (long logs have thousands).
+  const nextDeaths: (number | null)[] = [];
+  for (let i = kills.length - 1, next: number | null = null; i >= 0; i--) {
+    nextDeaths[i] = next;
+    if (!maybeJoin(kills[i]!, i)) next = kills[i]!.time;
+  }
   const bots = new Set(options.botNames);
 
   const rounds: ParsedRound[] = [];
@@ -162,7 +167,7 @@ export function parseLegacyLog(text: string, options: LegacyOptions): ParsedMatc
     // One player left wins, unless the next death comes too soon for a new round: then someone we
     // haven't seen yet (no line so far) is still alive in this one.
     const alive = roster.filter((name) => !open!.victims.some((v) => v.victim === name));
-    const next = nextDeath(i);
+    const next = nextDeaths[i] ?? null;
     if (next !== null && next - k.time < options.roundGapSeconds) return;
     if (alive.length === 1) close(roster, alive[0]!, null);
     else if (alive.length === 0) close(roster, null, allDied);
