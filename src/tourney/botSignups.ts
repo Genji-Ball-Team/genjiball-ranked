@@ -157,6 +157,7 @@ async function register(request: Request, db: D1Database, config: BotSignupConfi
         `UPDATE tourney_signups
          SET discord_user_id = (SELECT json_extract(value, '$.discordUserId') FROM json_each(?2) WHERE json_extract(value, '$.id') = tourney_signups.id)
          WHERE tourney_id = ?1 AND discord_user_id IS NULL AND removed_at IS NULL
+           AND EXISTS (SELECT 1 FROM tourneys WHERE id = ?1 AND status = 'scheduled')
            AND id IN (SELECT json_extract(value, '$.id') FROM json_each(?2))`,
       )
       .bind(tourneyId, JSON.stringify(claims)),
