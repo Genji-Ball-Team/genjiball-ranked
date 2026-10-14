@@ -37,7 +37,7 @@ export const defaults = {
    * and its 50 queries per request (see docs/database.md).
    */
   maxUploadBytes: 512 * 1024,
-  /** Stored uploads per host token per hour. Past it, uploads get 429 until the hour has passed. */
+  /** Files a host token may store in an hour, also those a longer copy replaced since. Past it, uploads get 429 until the hour has passed. */
   maxUploadsPerHour: 60,
   /**
    * Most UTF-8 bytes of JSON one bulk insert statement binds (docs/database.md, "Rules for code that

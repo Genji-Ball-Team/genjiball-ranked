@@ -19,10 +19,13 @@ export async function findHost(db: D1Database, tokenHash: string): Promise<Host 
   return db.prepare("SELECT id, name, trust, region FROM hosts WHERE token_hash = ?").bind(tokenHash).first<Host>();
 }
 
-/** Uploads stored for the host since `since` (ISO), for the rate limit. */
+/**
+ * Files the host stored in its current hour of uploads, if that started after `since` (ISO), for the
+ * rate limit. Kept on the host (`writeUpload`): a longer copy deletes the earlier file's row.
+ */
 export async function countRecentUploads(db: D1Database, hostId: number, since: string): Promise<number> {
   const row = await db
-    .prepare("SELECT count(*) AS n FROM uploads WHERE host_id = ? AND received_at > ?")
+    .prepare("SELECT CASE WHEN uploads_hour_start > ?2 THEN uploads_hour_count ELSE 0 END AS n FROM hosts WHERE id = ?1")
     .bind(hostId, since)
     .first<{ n: number }>();
   return row?.n ?? 0;
@@ -138,7 +141,11 @@ export interface UploadWrite {
   fileName: string | null;
   playedAt: string;
   now: string;
+  /** An hour before `now`: a host's hour of uploads that started before it is over (the rate limit). */
+  hourAgo: string;
   plans: MatchPlan[];
+  /** The stored copies the plans were made from: the write fails (`isStaleCopy`) if one changed since. */
+  stored: readonly StoredCopy[];
   rows: MatchRows;
   /** Names of AI bots (`legacyBotNames`): a new player with one is marked `bot`. */
   botNames: readonly string[];
@@ -190,7 +197,34 @@ export async function writeUpload(
     p.lobbyId === null ? [] : [{ matchKey: p.matchKey, lobbyId: p.lobbyId, roundLimit: p.match.tourney?.roundLimit ?? null }],
   );
 
+  // The stored copies this upload rewrites or repoints, as read: what the plans were made from.
+  const written = new Set(w.plans.filter((p) => p.action !== "skip").map((p) => p.storedId));
+  const read = w.stored
+    .filter((copy) => written.has(copy.id))
+    .map((copy) => ({
+      id: copy.id,
+      lineCount: copy.lineCount,
+      uploadId: copy.uploadId,
+      status: copy.status,
+      hostAfk: copy.hostAfk.length ? json(copy.hostAfk) : null,
+    }));
+
   const statements: D1PreparedStatement[] = [
+    // Another upload (a longer copy, new host AFK rounds) or an admin changed one of them since the
+    // read: fail the whole batch before anything is written (NOT NULL on `line_count`, `isStaleCopy`).
+    // When nothing changed, no row matches and nothing is written.
+    ...(read.length
+      ? [
+          db
+            .prepare(
+              `UPDATE matches SET line_count = NULL FROM json_each(?1) e
+               WHERE matches.id = e.value ->> 'id' AND (matches.line_count IS NOT e.value ->> 'lineCount'
+                 OR matches.upload_id IS NOT e.value ->> 'uploadId' OR matches.status IS NOT e.value ->> 'status'
+                 OR matches.host_afk IS NOT e.value ->> 'hostAfk')`,
+            )
+            .bind(json(read)),
+        ]
+      : []),
     ...(newUpload
       ? [
           db
@@ -341,7 +375,19 @@ export async function writeUpload(
          AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.upload_id = uploads.id)`,
       )
       .bind(json(oldUploadIds), w.contentHash),
-    ...(newUpload ? [db.prepare("UPDATE hosts SET last_upload_at = ?2 WHERE id = ?1").bind(w.hostId, w.now)] : []),
+    // The rate limit's count: a new hour starts with the first file stored after the last one ended.
+    ...(newUpload
+      ? [
+          db
+            .prepare(
+              `UPDATE hosts SET last_upload_at = ?2,
+                 uploads_hour_count = CASE WHEN uploads_hour_start > ?3 THEN uploads_hour_count + 1 ELSE 1 END,
+                 uploads_hour_start = CASE WHEN uploads_hour_start > ?3 THEN uploads_hour_start ELSE ?2 END
+               WHERE id = ?1`,
+            )
+            .bind(w.hostId, w.now, w.hourAgo),
+        ]
+      : []),
     ...(w.extra ?? []),
   ];
 
@@ -380,7 +426,7 @@ export async function writeUpload(
     if (index !== null) for (const r of results[index]!.results) reviews.set(r.matchKey, r.reviewReasons.split(","));
   }
   return {
-    uploadId: newUpload ? results[0]!.results[0]!.id : null,
+    uploadId: newUpload ? results[read.length ? 1 : 0]!.results[0]!.id : null,
     statements: statements.length,
     reviews: [...reviews].map(([matchKey, reviewReasons]) => ({ matchKey, reviewReasons })),
   };
@@ -428,6 +474,11 @@ function linkStatements(
       )
       .bind(json, hostId),
   ];
+}
+
+/** The error a write fails with when a stored copy changed since it was read: nothing was written. */
+export function isStaleCopy(error: unknown): boolean {
+  return String(error).includes("NOT NULL constraint failed: matches.line_count");
 }
 
 /** A row is bigger than a bulk insert may bind (`insertChunkBytes`): nothing was written. */
