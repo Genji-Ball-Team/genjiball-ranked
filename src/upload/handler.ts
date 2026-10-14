@@ -1,6 +1,6 @@
 import { gzip, sha256 } from "../bytes";
 import { findRegion, notARegion, type Config, type Region } from "../config";
-import { bearerToken, fail, notAllowed, readLimited, type ApiError } from "../http";
+import { bearerToken, fail, notAllowed, readLimited } from "../http";
 import type { Logger } from "../log";
 import { parseLegacyLog } from "../parser/legacy";
 import { parseLog } from "../parser/parse";
@@ -82,8 +82,6 @@ export interface MatchResult {
   /** The rounds the host is dropped from as AFK, as stored for the match now. */
   hostAfk: number[];
 }
-
-export type UploadError = ApiError;
 
 export type UploadConfig = UpdateConfig &
   Pick<

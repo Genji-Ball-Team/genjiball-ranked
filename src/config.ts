@@ -333,7 +333,10 @@ export const defaults = {
   lobbyPlayersMax: 12,
   /** Largest heartbeat body, in bytes. The JSON is a few dozen. */
   lobbyBodyMaxBytes: 1024,
-  /** How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. */
+  /**
+   * How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. The Lobbies page
+   * asks again this often (`lobbiesRefreshMs` in public/site.js): change both.
+   */
   lobbiesCacheSeconds: 15,
   /**
    * How long a browser may keep a CORS preflight answer for the public routes, in seconds

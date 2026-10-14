@@ -676,7 +676,7 @@ async function comparePage() {
     $("heading").textContent = players.length > 1 ? names.join(" vs ") : "Compare";
     loaded(
       table,
-      (missing.length ? `<p class="note">${count(missing.length, "player")} in the link no longer exist${missing.length === 1 ? "s" : ""}.</p>` : "") +
+      (missing.length ? `<p class="note">${count(missing.length, "player")} in the link no longer ${plural(missing.length, "exists", "exist")}.</p>` : "") +
         compareTable(players) +
         (players.length === 1 ? '<p class="note">Add another player to compare them with.</p>' : ""),
     );
@@ -886,7 +886,7 @@ async function livePage() {
               .map(
                 (l) => `<li><span class="dot" aria-hidden="true"></span>
                   <span class="what"><b>${esc(l.name ?? `${l.hostName}'s lobby`)}</b><small>Hosted by ${esc(l.hostName)}${l.tourney ? " · tourney" : ""}</small></span>
-                  <span class="count"><b class="num">${l.players}</b><small>${l.players === 1 ? "player" : "players"}</small></span>
+                  <span class="count"><b class="num">${l.players}</b><small>${plural(l.players, "player")}</small></span>
                   <span class="since"><b class="num">${esc(openFor(l.openedAt))}</b><small>open</small></span></li>`,
               )
               .join("")
@@ -919,7 +919,9 @@ function roundNote(r) {
   return "";
 }
 
-const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// "player" or "players"; `count`: "1 player", "3 players".
+const plural = (n, one, many = `${one}s`) => (n === 1 ? one : many);
+const count = (n, one, many) => `${n} ${plural(n, one, many)}`;
 
 // A round's kills and deflects for a cell's tooltip, after a ", ". A legacy log has no deflects.
 function roundStats(p) {
@@ -1037,7 +1039,6 @@ const verifiedChip = (verified) =>
   verified
     ? '<span class="chip good" title="An admin checked the screenshot against the standings">Verified</span>'
     : '<span class="chip plain" title="No admin has checked the screenshot against the standings yet">Unverified</span>';
-const lobbyCount = (n) => `${n} ${n === 1 ? "lobby" : "lobbies"}`;
 const played = (t) => t.lobbies.some((l) => l.standings.length);
 const winners = (lobby) => lobby.standings.filter((s) => s.place === 1);
 
@@ -1070,7 +1071,7 @@ const signedUp = (t) => `${t.signups.count}${t.capacity ? ` / ${t.capacity}` : "
 const fullChip = '<span class="chip plain" title="More players signed up than the lobbies hold: the admins add a lobby">Full</span>';
 
 function upcomingItem(t) {
-  const lobbies = t.lobbies.length ? `${lobbyCount(t.lobbies.length)}: ${t.lobbies.map((l) => esc(l.label)).join(", ")}` : "";
+  const lobbies = t.lobbies.length ? `${count(t.lobbies.length, "lobby", "lobbies")}: ${t.lobbies.map((l) => esc(l.label)).join(", ")}` : "";
   const signups = t.signups.open || t.signups.count ? `<small class="muted">${esc(signedUp(t))}</small>` : "";
   const when = t.status === "live" ? statusChip.live : `<span class="soon">${esc(until(t.startsAt))}</span>`;
   return `<li><a href="/tourney?id=${t.id}">
@@ -1254,7 +1255,7 @@ async function tourneyPage() {
     $("facts").innerHTML = [
       esc(dateTime(t.startsAt) + (t.status === "scheduled" ? `, ${until(t.startsAt)}` : "")),
       regionName(t.region),
-      t.lobbies.length && esc(lobbyCount(t.lobbies.length)),
+      t.lobbies.length && esc(count(t.lobbies.length, "lobby", "lobbies")),
     ]
       .filter(Boolean)
       .map((f) => `<li>${f}</li>`)

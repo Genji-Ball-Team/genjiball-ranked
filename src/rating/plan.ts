@@ -71,11 +71,6 @@ export function planRerate(input: RerateInput, config: RatingConfig): RatingWrit
   return { historyRemove, historyUpsert, ratingsUpsert, ratingsRemove };
 }
 
-/** Whether the plan writes nothing. */
-export function isEmpty(writes: RatingWrites): boolean {
-  return !writes.historyRemove.length && !writes.historyUpsert.length && !writes.ratingsUpsert.length && !writes.ratingsRemove.length;
-}
-
 function sameEntry(a: HistoryEntry | undefined, b: HistoryEntry): boolean {
   return (
     a !== undefined &&
