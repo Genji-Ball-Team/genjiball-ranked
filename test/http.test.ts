@@ -54,6 +54,22 @@ describe("error answers", () => {
     expect(await res.json()).toEqual({ error: "method_not_allowed", message });
   });
 
+  it("answers 404 for an unknown path under a site route, whatever the method", async () => {
+    for (const method of ["GET", "POST"]) {
+      const res = await send("/api/players/1/unknown", method);
+      expect(res.status, method).toBe(404);
+      expect(await res.json()).toEqual({ error: "not_found" });
+    }
+  });
+
+  it("checks the region before the route and the method", async () => {
+    for (const [path, method] of [["/api/leaderboard?region=mars", "POST"], ["/api/players/1/unknown?region=mars", "GET"], ["/api/players/1?region=mars", "DELETE"]]) {
+      const res = await send(path!, method);
+      expect(res.status, `${method} ${path}`).toBe(400);
+      expect(await res.json()).toEqual({ error: "bad_request", message: "region must be one of eu, na" });
+    }
+  });
+
   it("answers an unknown region with the regions", async () => {
     const res = await send("/api/leaderboard?region=mars");
     expect(res.status).toBe(400);
