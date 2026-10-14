@@ -55,12 +55,22 @@ export async function handleSignup(request: Request, db: D1Database, config: Sig
   const refused = refusal(state, config);
   if (refused) return refused;
   const at = isoSeconds(now);
-  const signedUpAt = await insertSignup(db, { tourneyId, name, nameKey: key, ipHash, at, max: config.tourneySignupsMax });
+  const signedUpAt = await insertSignup(db, {
+    tourneyId,
+    name,
+    nameKey: key,
+    ipHash,
+    at,
+    max: config.tourneySignupsMax,
+    since,
+    perHour: config.tourneySignupsPerHour,
+  });
   if (signedUpAt) {
     log.info("tourney sign-up", { tourney: tourneyId, name });
     return answer(201, name, signedUpAt, true, { ...state!, count: state!.count + 1 });
   }
-  // Something changed between the read and the write: the same name, the tourney started, the cap.
+  // Something changed between the read and the write: the same name, the tourney started, the cap,
+  // the IP's other sign-ups.
   state = await read();
   return refusal(state, config) ?? fail(409, "conflict", "The sign-ups changed meanwhile. Try again");
 }

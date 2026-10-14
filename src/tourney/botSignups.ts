@@ -166,9 +166,10 @@ async function register(request: Request, db: D1Database, config: BotSignupConfi
         `INSERT INTO tourney_signups (tourney_id, name, name_key, ip_hash, signed_up_at, discord_user_id)
          SELECT ?1, json_extract(value, '$.name'), json_extract(value, '$.nameKey'), ?3, ?4, json_extract(value, '$.discordUserId')
          FROM json_each(?2) WHERE EXISTS (SELECT 1 FROM tourneys WHERE id = ?1 AND status = 'scheduled')
+           AND key < ?5 - (SELECT count(*) FROM tourney_signups WHERE tourney_id = ?1)
          ON CONFLICT DO NOTHING`,
       )
-      .bind(tourneyId, JSON.stringify(creates), discordIpHash, isoSeconds(now)),
+      .bind(tourneyId, JSON.stringify(creates), discordIpHash, isoSeconds(now), config.tourneySignupsMax),
     db
       .prepare(
         `SELECT name, discord_user_id AS discordUserId, signed_up_at AS signedUpAt FROM tourney_signups
@@ -178,18 +179,22 @@ async function register(request: Request, db: D1Database, config: BotSignupConfi
     db.prepare(stateQuery).bind(tourneyId, config.tourneyLobbyCapacity),
   ]);
 
+  const after = afterRes!.results[0] as TourneyState & { count: number };
   const mine = new Map((mineRes!.results as { name: string; discordUserId: string; signedUpAt: string }[]).map((r) => [r.discordUserId, r]));
   const results = items.map((item) => {
     let status = planned.get(item.discordUserId)!;
     const row = mine.get(item.discordUserId);
-    // A planned write that didn't land: the list changed between the read and the write.
-    if ((status === "created" || status === "linked") && !row) status = "conflict";
+    // A planned write that didn't land: the list changed between the read and the write, maybe
+    // filling the tourney up to `tourneySignupsMax`.
+    if ((status === "created" || status === "linked") && !row) {
+      status = status === "created" && after.stored >= config.tourneySignupsMax ? "too_many" : "conflict";
+    }
     const signedUp = row && status !== "removed" ? { name: row.name, signedUpAt: row.signedUpAt } : null;
     return { discordUserId: item.discordUserId, status, signup: signedUp };
   });
   const written = results.filter((r) => r.status === "created" || r.status === "linked").length;
   if (written) log.info("bot sign-ups", { tourney: tourneyId, written });
-  return Response.json({ results, ...summary(afterRes!.results[0] as TourneyState & { count: number }) }, { status: written ? 201 : 200 });
+  return Response.json({ results, ...summary(after) }, { status: written ? 201 : 200 });
 }
 
 /** `DELETE`: the player unregistered in Discord. */
