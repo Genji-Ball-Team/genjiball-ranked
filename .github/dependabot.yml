@@ -1,0 +1,19 @@
+# Monthly version updates: minor and patch bumps in one PR per ecosystem, majors on their own.
+# A wrangler bump can bring a newer workerd: if the tests stop starting, see "compatibility_date"
+# in AGENTS.md.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      npm:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
