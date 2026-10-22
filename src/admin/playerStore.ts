@@ -1,3 +1,4 @@
+import { json } from "../db";
 import { ratingVersionStatement, staleFromPlayersStatement } from "../rating/store";
 import { queueRecountStatement, recordsUrgentStatement } from "../records/store";
 import { matchPairsInsert } from "../upload/pairs";
@@ -104,7 +105,6 @@ export interface MergeRow {
 const latestAlias = (idSql: string) =>
   `(SELECT a.name FROM aliases a WHERE a.player_id = ${idSql} ORDER BY a.last_seen_at DESC, a.id DESC LIMIT 1)`;
 
-const json = (value: unknown) => JSON.stringify(value);
 
 export async function findPlayers(db: D1Database, ids: readonly number[]): Promise<Map<number, AdminPlayer>> {
   const { results } = await db

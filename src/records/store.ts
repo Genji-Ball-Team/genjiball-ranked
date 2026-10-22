@@ -1,3 +1,4 @@
+import { json } from "../db";
 import {
   matchRecordNames,
   withoutMatches,
@@ -26,7 +27,6 @@ import {
 /** A match counted in the region's records: still accepted, and still there. `m` is the match, `?1` the region. */
 const counted = "m.status = 'accepted' AND m.region = ?1";
 
-const json = (value: unknown) => JSON.stringify(value);
 
 /** Matches changed in the feed since the cron last read it, oldest change first, at most `limit`. */
 export async function readFeedChanges(db: D1Database, limit: number): Promise<{ cursor: number; matches: FeedMatch[] }> {

@@ -1,5 +1,5 @@
 import type { QueryBudget } from "../budget";
-import type { Config } from "../config";
+import { regionIds, type Config } from "../config";
 import type { Logger } from "../log";
 import { hourMs, isoSeconds } from "../time";
 import type { RatingConfig } from "./engine";
@@ -229,7 +229,7 @@ export async function updateRatings(
   config: UpdateConfig,
   now: Date,
   log: Logger,
-  regions: readonly string[] = config.regions.map((r) => r.id),
+  regions: readonly string[] = regionIds(config.regions),
   queries?: QueryBudget,
 ): Promise<void> {
   // With `queries`, a step that might not fit in the invocation's D1 queries waits for the next run.

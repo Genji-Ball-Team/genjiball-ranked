@@ -1,3 +1,4 @@
+import { json } from "../db";
 import type { HistoryEntry, PlayerRating, RatingMatch } from "./engine";
 import type { RatingWrites, StoredRating } from "./plan";
 
@@ -40,7 +41,6 @@ export function compareRefs(a: MatchRef, b: MatchRef): number {
   return a.id - b.id;
 }
 
-const json = (value: unknown) => JSON.stringify(value);
 
 /** The region's rating state. A region added to the config gets its row here, the first time. */
 export async function readState(db: D1Database, board: string): Promise<RatingState> {

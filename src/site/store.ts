@@ -1,3 +1,4 @@
+import { json } from "../db";
 import { workshopStringMax } from "./rankTags";
 import type { FormRound, StoredHistoryRow } from "./history";
 
@@ -16,6 +17,11 @@ export interface TourneyRef {
   id: number;
   name: string;
   lobby: string;
+}
+
+/** A match's `tourney` column: a `TourneyRef` as JSON, or NULL. */
+function parseTourney(value: string | null): TourneyRef | null {
+  return value === null ? null : (JSON.parse(value) as TourneyRef);
 }
 
 /** `tourney`: a match's `TourneyRef` as JSON, or NULL. Reads through the lobby's unique `match_id`. */
@@ -98,7 +104,7 @@ export async function findCanonicalIds(db: D1Database, ids: readonly number[]): 
        )
        SELECT asked, id FROM chain WHERE merged_into IS NULL`,
     )
-    .bind(JSON.stringify(ids))
+    .bind(json(ids))
     .all<{ asked: number; id: number }>();
   return new Map(results.map((r) => [r.asked, r.id]));
 }
@@ -107,7 +113,7 @@ export async function findCanonicalIds(db: D1Database, ids: readonly number[]): 
 export async function listRatingsOf(db: D1Database, ids: readonly number[]): Promise<(RatingRow & { board: string })[]> {
   const { results } = await db
     .prepare(`SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.player_id IN (SELECT value FROM json_each(?1))`)
-    .bind(JSON.stringify(ids))
+    .bind(json(ids))
     .all<RatingRow & { board: string }>();
   return results;
 }
@@ -122,7 +128,7 @@ export async function listRanked(db: D1Database, board: string, ids: readonly nu
        FROM ratings r JOIN players p ON p.id = r.player_id
        WHERE r.board = ?1 AND r.rounds >= ?3 AND r.player_id IN (SELECT value FROM json_each(?2))`,
     )
-    .bind(board, JSON.stringify(ids), minRounds)
+    .bind(board, json(ids), minRounds)
     .all<RatingRow & { rank: number }>();
   return results;
 }
@@ -256,7 +262,7 @@ export async function listPlayerMatches(db: D1Database, board: string, playerId:
     legacy: m.legacy === 1,
     void: m.void === 1,
     tournament: m.tournament === 1,
-    tourney: m.tourney === null ? null : (JSON.parse(m.tourney) as TourneyRef),
+    tourney: parseTourney(m.tourney),
     ratingBefore: m.ratingAfter === null ? null : m.ratingBefore,
   }));
 }
@@ -368,7 +374,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       void: row.void === 1,
       complete: row.complete === 1,
       tournament: row.tournament === 1,
-      tourney: row.tourney === null ? null : (JSON.parse(row.tourney) as TourneyRef),
+      tourney: parseTourney(row.tourney),
     },
     players: (players!.results as MatchPlayerRow[]).map((p) => ({ ...p, ratingBefore: p.ratingAfter === null ? null : p.ratingBefore })),
     rounds: (rounds!.results as (Omit<RoundRow, "rated"> & { rated: number })[]).map((r) => ({ ...r, rated: r.rated === 1 })),
@@ -480,7 +486,7 @@ export async function listFeed(
           void: m.void === 1,
           complete: m.complete === 1,
           tournament: m.tournament === 1,
-          tourney: m.tourney === null ? null : (JSON.parse(m.tourney) as TourneyRef),
+          tourney: parseTourney(m.tourney),
           players: byMatch.get(m.id) ?? [],
         },
   }));

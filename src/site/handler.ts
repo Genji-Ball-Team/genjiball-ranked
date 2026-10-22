@@ -1,4 +1,4 @@
-import { findRegion, notARegion, type Config, type Region } from "../config";
+import { findRegion, notARegion, regionIds, type Config, type Region } from "../config";
 import { fail, notAllowed, pageNumber, positiveId } from "../http";
 import { listLiveLobbies } from "../lobby/store";
 import { dayMs, isoSeconds, secondsBefore } from "../time";
@@ -106,7 +106,7 @@ export async function handleSite(
     },
     server: async () => {
       const stale = await staleRegions(db);
-      const ratingsUpdating = config.regions.map((r) => r.id).filter((id) => stale.includes(id));
+      const ratingsUpdating = regionIds(config.regions).filter((id) => stale.includes(id));
       return Response.json({ testServer: config.testServer, regions: config.regions, ratingsUpdating });
     },
     "rank-tags": async () => cached(await tags(db, config, region, now), config.rankTagsCacheSeconds),
@@ -275,7 +275,7 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
       id: found.id,
       name: found.name,
       aliases: found.aliases,
-      regions: config.regions.map((r) => r.id).filter((r) => rated.includes(r)),
+      regions: regionIds(config.regions).filter((r) => rated.includes(r)),
       rating: rating && {
         rank: ranked ? await rankOf(db, region.id, rating, config.minRankedRounds) : null,
         ...ratingView(rating, config, now),

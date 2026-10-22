@@ -1,4 +1,5 @@
 import { gunzip } from "../bytes";
+import { json } from "../db";
 import { staleFromMatchesStatement } from "../rating/store";
 import { matchPairsInsert } from "./pairs";
 import { nameKey, tourneyReasons, type HostTrust, type MatchPlan, type MatchRows, type MatchStatus, type StoredCopy, type UploadLobby } from "./plan";
@@ -171,7 +172,6 @@ export async function writeUpload(
   db: D1Database,
   w: UploadWrite,
 ): Promise<{ uploadId: number | null; statements: number; reviews: { matchKey: string; reviewReasons: string[] }[] }> {
-  const json = (value: unknown) => JSON.stringify(value);
   const uploadId = "(SELECT id FROM uploads WHERE content_hash = ?2)";
   // CROSS JOIN keeps json_each the outer loop: SQLite has no row count for it, and with a plain JOIN
   // it may loop over every stored match (and its rounds and players) and scan the JSON for each,
@@ -451,7 +451,6 @@ function linkStatements(
   defaultRoundLimit: number,
 ): D1PreparedStatement[] {
   if (!links.length) return [];
-  const json = JSON.stringify(links);
   return [
     db
       .prepare(
@@ -462,13 +461,13 @@ function linkStatements(
            AND NOT EXISTS (SELECT 1 FROM tourney_lobbies o WHERE o.match_id = m.id)
            AND EXISTS (SELECT 1 FROM tourneys t WHERE t.id = tourney_lobbies.tourney_id AND t.status <> 'cancelled' AND t.region = m.region)`,
       )
-      .bind(json, hostId, defaultRoundLimit),
+      .bind(json(links), hostId, defaultRoundLimit),
     db
       .prepare(
         `UPDATE matches SET tournament = 1 WHERE tournament = 0 AND host_id = ?2
            AND id IN (SELECT l.match_id FROM json_each(?1) e CROSS JOIN tourney_lobbies l ON l.id = e.value ->> 'lobbyId')`,
       )
-      .bind(json, hostId),
+      .bind(json(links), hostId),
   ];
 }
 
