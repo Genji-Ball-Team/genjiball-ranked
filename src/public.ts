@@ -23,6 +23,8 @@ export const publicReadRoutes: readonly string[] = [
   "health",
   "server",
   "leaderboard",
+  "titles",
+  "tiers",
   "players",
   "matches",
   "tourneys",

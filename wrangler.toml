@@ -25,6 +25,12 @@ migrations_dir = "migrations"
 binding = "PROOFS"
 bucket_name = "genjiball-proofs"
 
+# The Discord bot's Worker (genjiball-discord-bot), on the same account: who has a title, God or
+# Demigod (src/site/titles.ts). Production only: the test server shows no titles.
+[[services]]
+binding = "BOT"
+service = "genjiball-discord-bot"
+
 # Every 10 minutes: rate incomplete matches past their grace period, and recompute the ratings when
 # they're stale. A run with nothing to do reads 3 rows; the free-tier budget is in docs/rating.md.
 # Also deletes live lobbies whose heartbeats stopped (docs/database.md, "Live lobbies").

@@ -24,7 +24,7 @@ describe("rankTags", () => {
       ["Grandmaster", "Grandmaster - 1900", ["Kenzo", "Momo"]],
       ["Ascendant", "Ascendant - 2200", []],
       ["Champion", "Champion - 2500", []],
-      ["God", "God - 2800", ["Zeus"]],
+      ["Sovereign", "Sovereign - 2800", ["Zeus"]],
     ]);
     expect(tags.tiers[0]!.color).toEqual([205, 127, 50, 255]);
   });

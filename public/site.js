@@ -132,18 +132,48 @@ function ladder(players, query = "") {
         head = `<li class="band">${p.tier ? `${chip(p.tier)}<span class="num">${p.tier.threshold}+</span>` : "No tier yet"}</li>`;
       }
       floor ||= p.rating <= 0;
-      const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
-      const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
-      return `${head}<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
-        <span class="pos num${p.rank <= 3 ? ` high${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>
-        <span class="who"><b>${highlight(p.name, query)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
-        <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
-        <span class="num muted">${p.rounds}</span>
-        <span class="num muted">${winRate(p.wins, p.rounds)}</span></a></li>`;
+      const pos = `<span class="pos num${p.rank <= 3 ? ` high${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>`;
+      return head + entry(p, query, pos, p.tier ? tierStyle(p.tier) : "");
     })
     .join("");
   $("floor-note").hidden = !floor;
   return html;
+}
+
+function entry(p, query, pos, style) {
+  const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
+  const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
+  return `<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${style ? ` style="${style}"` : ""}>
+        ${pos}
+        <span class="who"><b>${highlight(p.name, query)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
+        <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
+        <span class="num muted">${p.rounds}</span>
+        <span class="num muted">${winRate(p.wins, p.rounds)}</span></a></li>`;
+}
+
+// Titles (/api/titles): God and Demigod, the 1v1 tourney's winners, listed above everyone in their
+// own bands with no place. God is white, Demigod dark red.
+const titleStyles = { God: "--tier:#fff;--on-tier:var(--bg)", Demigod: "--tier:#8b0000;--on-tier:#fff" };
+const titleStyle = (title) => titleStyles[title] ?? "--tier:var(--soft)";
+
+function titleBands(titled, query = "") {
+  let band;
+  return titled
+    .map((p) => {
+      let head = "";
+      if (p.title !== band) {
+        band = p.title;
+        head = `<li class="band"><span class="chip" style="${titleStyle(p.title)}">${esc(p.title)}</span></li>`;
+      }
+      return head + entry(p, query, '<span class="pos"></span>', titleStyle(p.title));
+    })
+    .join("");
+}
+
+// The rest of the board without the titled players, numbered from 1 as if they weren't on it.
+function withoutTitled(players, titled) {
+  const ids = new Set(titled.map((p) => p.id));
+  return players.filter((p) => !ids.has(p.id)).map((p) => ({ ...p, rank: p.rank - titled.filter((t) => t.rank < p.rank).length }));
 }
 
 // Every leaderboard page, fetched once, for finding a player who isn't on the current page. A
@@ -172,10 +202,15 @@ async function leaderboardPage() {
   $("heading").textContent = `${short} leaderboard`;
   $("region-name").innerHTML = regionName(site.region);
   let shown;
+  // No titles when the site can't say: the board shows as it always did.
+  const titles = api(`titles?${inRegion()}`).then((t) => t.titles, () => []);
+  let titled = [];
   try {
     const d = await api(`leaderboard?${inRegion()}&page=${page}`);
+    titled = await titles;
     shown = () => {
-      loaded(box, d.players.length ? ladder(d.players) : '<li class="empty">No one has enough rated rounds for the leaderboard yet.</li>');
+      const html = (page === 1 ? titleBands(titled) : "") + ladder(withoutTitled(d.players, titled));
+      loaded(box, html || '<li class="empty">No one has enough rated rounds for the leaderboard yet.</li>');
       $("prev").hidden = page <= 1;
       $("next").hidden = !d.hasMore;
     };
@@ -201,7 +236,9 @@ async function leaderboardPage() {
       const found = (await allPlayers()).filter((p) => p.name.toLowerCase().includes(query));
       if (!current()) return;
       $("prev").hidden = $("next").hidden = true;
-      loaded(box, found.length ? ladder(found, query) : `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(find.value.trim())}”.</li>`);
+      const named = titled.filter((p) => p.name.toLowerCase().includes(query));
+      const html = titleBands(named, query) + ladder(withoutTitled(found, titled), query);
+      loaded(box, html || `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(find.value.trim())}”.</li>`);
     } catch (error) {
       if (current()) showError(box, error, "leaderboard");
     }

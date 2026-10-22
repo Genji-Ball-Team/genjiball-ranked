@@ -113,7 +113,7 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
   }
 
   if (url.pathname.startsWith("/api/")) {
-    const site = await handleSite(request, env.DB, config, new Date(), env.PROOFS);
+    const site = await handleSite(request, env.DB, config, new Date(), env.PROOFS, env.BOT);
     if (site) return site;
     return Response.json({ error: "not_found" }, { status: 404 });
   }

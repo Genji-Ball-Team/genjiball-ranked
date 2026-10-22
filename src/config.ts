@@ -259,7 +259,8 @@ export const defaults = {
   /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier
    * whose threshold their display rating reaches; below the first, no tier. Labels and colours
-   * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`.
+   * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`, except the top
+   * tier: Sovereign, dark purple, was God, a name now given to the 1v1 tourney's winner (`titles`).
    */
   tiers: [
     { label: "Apprentice", color: [205, 127, 50], threshold: 1300 },
@@ -267,8 +268,21 @@ export const defaults = {
     { label: "Grandmaster", color: [255, 140, 0], threshold: 1900 },
     { label: "Ascendant", color: [60, 160, 255], threshold: 2200 },
     { label: "Champion", color: [150, 0, 0], threshold: 2500 },
-    { label: "God", color: [160, 160, 160], threshold: 2800 },
+    { label: "Sovereign", color: [90, 20, 140], threshold: 2800 },
   ] as Tier[],
+
+  /**
+   * Titles: God and Demigod, won in the 1v1 tourney held every two months and given by the Discord
+   * staff as a role per region. The Discord bot keeps who has them (its `GET /titles`, through the
+   * `BOT` service binding); `/api/titles` and the leaderboard page show them above everyone else, in
+   * this order, at most `max` of each per region. A player keeps their tier: a title isn't one.
+   */
+  titles: [
+    { label: "God", max: 1 },
+    { label: "Demigod", max: 3 },
+  ] as Title[],
+  /** Most players one `/api/tiers` request asks for. The Discord bot asks for all it has linked at once. */
+  tiersMaxPlayers: 200,
 
   /**
    * Rated rounds a player needs before they show on the leaderboard and get a tier. Low, so someone
@@ -421,6 +435,13 @@ export interface Tier {
   color: [number, number, number];
   /** Lowest display rating in the tier. */
   threshold: number;
+}
+
+export interface Title {
+  /** As the Discord bot sends it, and as the site shows it. */
+  label: string;
+  /** Most players with the title in one region. */
+  max: number;
 }
 
 const logLevels: readonly LogLevel[] = ["error", "info", "debug"];

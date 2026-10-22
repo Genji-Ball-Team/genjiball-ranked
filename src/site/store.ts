@@ -84,6 +84,49 @@ export async function findRating(db: D1Database, board: string, playerId: number
     .first<RatingRow>();
 }
 
+/**
+ * The players the asked ids are now: an id merged into another (#8) is the player it was merged
+ * into. Ids that aren't a player are left out.
+ */
+export async function findCanonicalIds(db: D1Database, ids: readonly number[]): Promise<Map<number, number>> {
+  const { results } = await db
+    .prepare(
+      `WITH RECURSIVE chain(asked, id, merged_into) AS (
+         SELECT id, id, merged_into FROM players WHERE id IN (SELECT value FROM json_each(?1))
+         UNION
+         SELECT c.asked, p.id, p.merged_into FROM players p JOIN chain c ON p.id = c.merged_into
+       )
+       SELECT asked, id FROM chain WHERE merged_into IS NULL`,
+    )
+    .bind(JSON.stringify(ids))
+    .all<{ asked: number; id: number }>();
+  return new Map(results.map((r) => [r.asked, r.id]));
+}
+
+/** Every rating of these players, in any region (`board`). */
+export async function listRatingsOf(db: D1Database, ids: readonly number[]): Promise<(RatingRow & { board: string })[]> {
+  const { results } = await db
+    .prepare(`SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.player_id IN (SELECT value FROM json_each(?1))`)
+    .bind(JSON.stringify(ids))
+    .all<RatingRow & { board: string }>();
+  return results;
+}
+
+/** These players' ratings on one board with their place on its leaderboard, as `rankOf` counts it. Those not on it are left out. */
+export async function listRanked(db: D1Database, board: string, ids: readonly number[], minRounds: number): Promise<(RatingRow & { rank: number })[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${ratingColumns},
+         (SELECT COUNT(*) + 1 FROM ratings o WHERE o.board = ?1 AND o.rounds >= ?3
+           AND (o.display > r.display OR (o.display = r.display AND o.player_id < r.player_id))) AS rank
+       FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board = ?1 AND r.rounds >= ?3 AND r.player_id IN (SELECT value FROM json_each(?2))`,
+    )
+    .bind(board, JSON.stringify(ids), minRounds)
+    .all<RatingRow & { rank: number }>();
+  return results;
+}
+
 /** The player's place on the leaderboard, in the order `listLeaderboard` uses. */
 export async function rankOf(db: D1Database, board: string, rating: RatingRow, minRounds: number): Promise<number> {
   const row = await db
