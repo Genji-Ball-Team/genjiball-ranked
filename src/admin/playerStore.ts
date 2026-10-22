@@ -1,4 +1,3 @@
-import { json } from "../db";
 import { ratingVersionStatement, staleFromPlayersStatement } from "../rating/store";
 import { queueRecountStatement, recordsUrgentStatement } from "../records/store";
 import { matchPairsInsert } from "../upload/pairs";
@@ -117,7 +116,7 @@ export async function findPlayers(db: D1Database, ids: readonly number[]): Promi
          (SELECT COUNT(*) FROM match_players mp WHERE mp.player_id = p.id) AS matches
        FROM players p WHERE p.id IN (SELECT value FROM json_each(?1))`,
     )
-    .bind(json(ids))
+    .bind(JSON.stringify(ids))
     .all<Omit<AdminPlayer, "nameFixed" | "aliases" | "ratings"> & { nameFixed: number; aliases: string; ratings: string }>();
   return new Map(
     results.map((row) => [
@@ -141,7 +140,7 @@ export async function listAliasNames(db: D1Database, ids: readonly number[]): Pr
        FROM (SELECT * FROM aliases WHERE player_id IN (SELECT value FROM json_each(?1)) ORDER BY last_seen_at DESC, id DESC)
        GROUP BY player_id`,
     )
-    .bind(json(ids))
+    .bind(JSON.stringify(ids))
     .all<{ id: number; names: string }>();
   return new Map(results.map((row) => [row.id, JSON.parse(row.names) as string[]]));
 }
@@ -395,7 +394,7 @@ function mergeActionStatement(
   const withId = mergeIdSql === "NULL" ? "?3" : `json_set(?3, '$.merge', ${mergeIdSql})`;
   return db
     .prepare(`INSERT INTO admin_actions (admin_id, action, detail, at) VALUES (?1, ?2, ${withId}, ?4)`)
-    .bind(adminId, action, json(detail), at);
+    .bind(adminId, action, JSON.stringify(detail), at);
 }
 
 /**

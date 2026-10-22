@@ -1,5 +1,4 @@
 import { gunzip } from "../bytes";
-import { json } from "../db";
 import { staleFromMatchesStatement } from "../rating/store";
 import { matchPairsInsert } from "./pairs";
 import { nameKey, tourneyReasons, type HostTrust, type MatchPlan, type MatchRows, type MatchStatus, type StoredCopy, type UploadLobby } from "./plan";
@@ -202,7 +201,7 @@ export async function writeUpload(
       lineCount: copy.lineCount,
       uploadId: copy.uploadId,
       status: copy.status,
-      hostAfk: copy.hostAfk.length ? json(copy.hostAfk) : null,
+      hostAfk: copy.hostAfk.length ? JSON.stringify(copy.hostAfk) : null,
     }));
 
   const statements: D1PreparedStatement[] = [
@@ -218,7 +217,7 @@ export async function writeUpload(
                  OR matches.upload_id IS NOT e.value ->> 'uploadId' OR matches.status IS NOT e.value ->> 'status'
                  OR matches.host_afk IS NOT e.value ->> 'hostAfk')`,
             )
-            .bind(json(read)),
+            .bind(JSON.stringify(read)),
         ]
       : []),
     ...(newUpload
@@ -240,7 +239,7 @@ export async function writeUpload(
          SELECT e.value ->> 'name', ?2, e.value ->> 'key' IN (SELECT value FROM json_each(?3)) FROM json_each(?1) e
          WHERE NOT EXISTS (SELECT 1 FROM aliases a WHERE a.name_key = e.value ->> 'key')`,
       )
-      .bind(json(w.rows.names), w.now, json(w.botNames.map(nameKey))),
+      .bind(JSON.stringify(w.rows.names), w.now, JSON.stringify(w.botNames.map(nameKey))),
     db
       .prepare(
         `INSERT INTO aliases (player_id, name, name_key, first_seen_at, last_seen_at)
@@ -248,7 +247,7 @@ export async function writeUpload(
          FROM players p JOIN json_each(?1) e ON e.value ->> 'name' = p.name
          WHERE p.merged_into IS NULL AND NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
       )
-      .bind(json(w.rows.names), w.playedAt),
+      .bind(JSON.stringify(w.rows.names), w.playedAt),
     // Known names: last seen, and the spelling seen most recently becomes the display name, unless
     // an admin set the name (`name_fixed`). Not for a refresh's names: that match was seen before.
     db
@@ -256,7 +255,7 @@ export async function writeUpload(
         `UPDATE aliases SET name = e.value ->> 'name', last_seen_at = ?2
          FROM json_each(?1) e WHERE aliases.name_key = e.value ->> 'key' AND aliases.last_seen_at <= ?2 AND e.value ->> 'seen' = 1`,
       )
-      .bind(json(w.rows.names), w.playedAt),
+      .bind(JSON.stringify(w.rows.names), w.playedAt),
     db
       .prepare(
         `UPDATE players SET name = (SELECT a.name FROM aliases a WHERE a.player_id = players.id
@@ -264,7 +263,7 @@ export async function writeUpload(
          WHERE players.name_fixed = 0 AND players.id IN
            (SELECT a.player_id FROM json_each(?1) e CROSS JOIN aliases a ON a.name_key = e.value ->> 'key')`,
       )
-      .bind(json(w.rows.names)),
+      .bind(JSON.stringify(w.rows.names)),
 
     // A longer copy replaces a match's rows under the same match id.
     db
@@ -272,17 +271,17 @@ export async function writeUpload(
         `DELETE FROM round_players WHERE round_id IN
          (SELECT id FROM rounds WHERE match_id IN (SELECT value FROM json_each(?1)))`,
       )
-      .bind(json(replacedIds)),
+      .bind(JSON.stringify(replacedIds)),
     // Deleting match_pairs takes them out of the head-to-head totals (a trigger, docs/database.md).
     ...["match_pairs", "rounds", "match_players", "events"].map((table) =>
-      db.prepare(`DELETE FROM ${table} WHERE match_id IN (SELECT value FROM json_each(?1))`).bind(json(replacedIds)),
+      db.prepare(`DELETE FROM ${table} WHERE match_id IN (SELECT value FROM json_each(?1))`).bind(JSON.stringify(replacedIds)),
     ),
     // A longer log changes the standings the screenshot was checked against, at the same match id.
     // Host AFK changes only the rating, not the standings: a refresh keeps the verification.
     db.prepare(
       `UPDATE tourney_lobbies SET verified_by = NULL, verified_at = NULL, version = version + 1
        WHERE match_id IN (SELECT value FROM json_each(?))`,
-    ).bind(json(longerIds)),
+    ).bind(JSON.stringify(longerIds)),
     db
       .prepare(
         `UPDATE matches SET upload_id = coalesce((SELECT u.id FROM uploads u WHERE u.content_hash = e.value ->> 'uploadHash'), ${uploadId}),
@@ -294,14 +293,14 @@ export async function writeUpload(
            played_at = min(matches.played_at, e.value ->> 'playedAt'), complete = e.value ->> 'complete'
          FROM json_each(?1) e WHERE matches.id = e.value ->> 'id'`,
       )
-      .bind(json(w.rows.replaced), w.contentHash),
+      .bind(JSON.stringify(w.rows.replaced), w.contentHash),
     // A rated match whose rounds just changed: the ratings are stale from it (docs/rating.md).
     staleFromMatchesStatement(db, replacedIds, w.now, true),
     // A refresh doesn't go through the match feed, which the records follow: queue its recount.
-    db.prepare("INSERT INTO match_stats_recount (match_id) SELECT value FROM json_each(?1)").bind(json(refreshIds)),
+    db.prepare("INSERT INTO match_stats_recount (match_id) SELECT value FROM json_each(?1)").bind(JSON.stringify(refreshIds)),
     db
       .prepare(`UPDATE matches SET upload_id = ${uploadId} WHERE id IN (SELECT value FROM json_each(?1))`)
-      .bind(json(repointIds), w.contentHash),
+      .bind(JSON.stringify(repointIds), w.contentHash),
     db
       .prepare(
         `INSERT INTO matches (upload_id, host_id, match_key, line_count, format, game_version, legacy, status, rejection_code,
@@ -312,7 +311,7 @@ export async function writeUpload(
            e.value ->> 'playedAt', e.value ->> 'complete', ?4, e.value ->> 'hostAfk'
          FROM json_each(?1) e`,
       )
-      .bind(json(w.rows.inserted), w.hostId, w.contentHash, w.region),
+      .bind(JSON.stringify(w.rows.inserted), w.hostId, w.contentHash, w.region),
     ...linkStatements(db, links, w.hostId, w.tourneyRoundLimit),
 
     ...jsonChunks(w.rows.players, w.chunkBytes).map((rows) =>
@@ -361,7 +360,7 @@ export async function writeUpload(
     // Head-to-head (#18): the matches' pairs of players, after their rounds and events. The insert
     // trigger adds them to `pair_stats` when the match is accepted (migrations/0017_match_stats.sql).
     db.prepare(matchPairsInsert("SELECT id FROM matches WHERE host_id = ?2 AND match_key IN (SELECT value FROM json_each(?1))"))
-      .bind(json([...new Set(w.rows.players.map((p) => p.matchKey))]), w.hostId),
+      .bind(JSON.stringify([...new Set(w.rows.players.map((p) => p.matchKey))]), w.hostId),
 
     // The older file of a replaced or repointed match goes once no match is in it any more: a
     // shorter copy is always the start of the longer one, so nothing is lost.
@@ -370,7 +369,7 @@ export async function writeUpload(
         `DELETE FROM uploads WHERE id IN (SELECT value FROM json_each(?1)) AND id != ${uploadId}
          AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.upload_id = uploads.id)`,
       )
-      .bind(json(oldUploadIds), w.contentHash),
+      .bind(JSON.stringify(oldUploadIds), w.contentHash),
     // The rate limit's count: a new hour starts with the first file stored after the last one ended.
     ...(newUpload
       ? [
@@ -397,7 +396,7 @@ export async function writeUpload(
          WHERE host_id = ?1 AND match_key IN (SELECT e.value ->> 'matchKey' FROM json_each(?2) e) AND status IN ('accepted', 'review')
            AND NOT EXISTS (SELECT 1 FROM tourney_lobbies l WHERE l.match_id = matches.id)
          RETURNING match_key AS matchKey, review_reasons AS reviewReasons`,
-      ).bind(w.hostId, json(links), tourneyReasons.lobbyTaken),
+      ).bind(w.hostId, JSON.stringify(links), tourneyReasons.lobbyTaken),
     );
   }
 
@@ -412,7 +411,7 @@ export async function writeUpload(
            JOIN match_players mp ON mp.match_id = r.match_id AND mp.log_id = rp.log_id
            WHERE r.match_id = matches.id GROUP BY rp.round_id, rp.player_id HAVING COUNT(DISTINCT mp.alias_id) > 1)
        RETURNING match_key AS matchKey, review_reasons AS reviewReasons`,
-    ).bind(w.hostId, json([...w.rows.inserted, ...w.rows.replaced].map((m) => m.matchKey))),
+    ).bind(w.hostId, JSON.stringify([...w.rows.inserted, ...w.rows.replaced].map((m) => m.matchKey))),
   );
   if (statements.length > w.maxStatements) throw new TooManyStatements(statements.length);
   const results = await db.batch<{ id: number; matchKey: string; reviewReasons: string }>(statements);
@@ -451,6 +450,7 @@ function linkStatements(
   defaultRoundLimit: number,
 ): D1PreparedStatement[] {
   if (!links.length) return [];
+  const linked = JSON.stringify(links);
   return [
     db
       .prepare(
@@ -461,13 +461,13 @@ function linkStatements(
            AND NOT EXISTS (SELECT 1 FROM tourney_lobbies o WHERE o.match_id = m.id)
            AND EXISTS (SELECT 1 FROM tourneys t WHERE t.id = tourney_lobbies.tourney_id AND t.status <> 'cancelled' AND t.region = m.region)`,
       )
-      .bind(json(links), hostId, defaultRoundLimit),
+      .bind(linked, hostId, defaultRoundLimit),
     db
       .prepare(
         `UPDATE matches SET tournament = 1 WHERE tournament = 0 AND host_id = ?2
            AND id IN (SELECT l.match_id FROM json_each(?1) e CROSS JOIN tourney_lobbies l ON l.id = e.value ->> 'lobbyId')`,
       )
-      .bind(json(links), hostId),
+      .bind(linked, hostId),
   ];
 }
 

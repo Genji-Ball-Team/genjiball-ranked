@@ -1,4 +1,3 @@
-import { json } from "../db";
 import { workshopStringMax } from "./rankTags";
 import type { FormRound, StoredHistoryRow } from "./history";
 
@@ -104,7 +103,7 @@ export async function findCanonicalIds(db: D1Database, ids: readonly number[]): 
        )
        SELECT asked, id FROM chain WHERE merged_into IS NULL`,
     )
-    .bind(json(ids))
+    .bind(JSON.stringify(ids))
     .all<{ asked: number; id: number }>();
   return new Map(results.map((r) => [r.asked, r.id]));
 }
@@ -113,7 +112,7 @@ export async function findCanonicalIds(db: D1Database, ids: readonly number[]): 
 export async function listRatingsOf(db: D1Database, ids: readonly number[]): Promise<(RatingRow & { board: string })[]> {
   const { results } = await db
     .prepare(`SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.player_id IN (SELECT value FROM json_each(?1))`)
-    .bind(json(ids))
+    .bind(JSON.stringify(ids))
     .all<RatingRow & { board: string }>();
   return results;
 }
@@ -128,7 +127,7 @@ export async function listRanked(db: D1Database, board: string, ids: readonly nu
        FROM ratings r JOIN players p ON p.id = r.player_id
        WHERE r.board = ?1 AND r.rounds >= ?3 AND r.player_id IN (SELECT value FROM json_each(?2))`,
     )
-    .bind(board, json(ids), minRounds)
+    .bind(board, JSON.stringify(ids), minRounds)
     .all<RatingRow & { rank: number }>();
   return results;
 }

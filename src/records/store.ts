@@ -1,4 +1,3 @@
-import { json } from "../db";
 import {
   matchRecordNames,
   withoutMatches,
@@ -101,7 +100,7 @@ export async function readMatchCounts(db: D1Database, matchIds: readonly number[
              WHERE mp.match_id = e.match_id AND mp.log_id = e.actor_id AND p.bot = 1)
          GROUP BY e.match_id, e.round, e.actor_id`,
       )
-      .bind(json(matchIds)),
+      .bind(JSON.stringify(matchIds)),
     db
       .prepare(
         `SELECT e.match_id AS matchId, e.actor_id AS logId, COUNT(*) AS count FROM events e
@@ -110,19 +109,19 @@ export async function readMatchCounts(db: D1Database, matchIds: readonly number[
              WHERE mp.match_id = e.match_id AND mp.log_id IN (e.actor_id, e.target_id) AND p.bot = 1)
          GROUP BY e.match_id, e.actor_id`,
       )
-      .bind(json(matchIds)),
+      .bind(JSON.stringify(matchIds)),
     db
       .prepare(
         `SELECT match_id AS matchId, winner_id AS logId, COUNT(*) AS count FROM rounds
          WHERE match_id IN (${ids}) AND rated = 1 GROUP BY match_id, winner_id`,
       )
-      .bind(json(matchIds)),
+      .bind(JSON.stringify(matchIds)),
     db
       .prepare(
         `SELECT mp.match_id AS matchId, mp.log_id AS logId, mp.player_id AS playerId, p.bot FROM match_players mp
          JOIN players p ON p.id = mp.player_id WHERE mp.match_id IN (${ids})`,
       )
-      .bind(json(matchIds)),
+      .bind(JSON.stringify(matchIds)),
   ]);
   const winRows = wins!.results as { matchId: number; logId: number | null; count: number }[];
   const rated = new Map<number, number>();
@@ -154,13 +153,13 @@ export function syncStatements(
 ): D1PreparedStatement[] {
   const statements = [
     db.prepare("UPDATE records_state SET feed_cursor = CASE WHEN feed_cursor = ?1 THEN ?2 END WHERE id = 1").bind(from, to),
-    db.prepare("DELETE FROM match_stats_recount WHERE id IN (SELECT value FROM json_each(?1))").bind(json(queueRows)),
+    db.prepare("DELETE FROM match_stats_recount WHERE id IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(queueRows)),
     db
       .prepare(
         `DELETE FROM match_stats WHERE match_id IN (SELECT value FROM json_each(?1))
          AND NOT EXISTS (SELECT 1 FROM matches m WHERE m.id = match_stats.match_id AND m.status = 'accepted')`,
       )
-      .bind(json(changed)),
+      .bind(JSON.stringify(changed)),
   ];
   if (stats.length) {
     const columns: [string, keyof MatchStatsRow][] = [
@@ -185,14 +184,14 @@ export function syncStatements(
            FROM json_each(?1) e JOIN matches m ON m.id = e.value ->> 'matchId'
            WHERE m.status = 'accepted' AND m.line_count = e.value ->> 'lineCount'`,
         )
-        .bind(json(stats)),
+        .bind(JSON.stringify(stats)),
     );
   }
   // The regions read, and where the changed matches are now.
   const touched = "SELECT value FROM json_each(?1) UNION SELECT region FROM matches WHERE id IN (SELECT value FROM json_each(?2))";
   statements.push(
-    db.prepare(`INSERT OR IGNORE INTO records_revisions (region) ${touched}`).bind(json(regions), json(changed)),
-    db.prepare(`UPDATE records_revisions SET revision = revision + 1 WHERE region IN (${touched})`).bind(json(regions), json(changed)),
+    db.prepare(`INSERT OR IGNORE INTO records_revisions (region) ${touched}`).bind(JSON.stringify(regions), JSON.stringify(changed)),
+    db.prepare(`UPDATE records_revisions SET revision = revision + 1 WHERE region IN (${touched})`).bind(JSON.stringify(regions), JSON.stringify(changed)),
   );
   return statements;
 }
@@ -225,7 +224,7 @@ export async function readRecordsState(db: D1Database, regions: readonly string[
        FROM json_each(?1) j LEFT JOIN records_revisions v ON v.region = j.value LEFT JOIN records r ON r.region = j.value
        ORDER BY j.key`,
     )
-    .bind(json(regions))
+    .bind(JSON.stringify(regions))
     .all<RecordsState>();
   return results;
 }
@@ -353,7 +352,7 @@ export function writeRecordsStatement(
          revision = excluded.revision, rating_version = excluded.rating_version
        WHERE excluded.revision >= records.revision`,
     )
-    .bind(region, json(body), refreshedAt, revision, ratingVersion);
+    .bind(region, JSON.stringify(body), refreshedAt, revision, ratingVersion);
 }
 
 /**
@@ -375,7 +374,7 @@ export async function readRecords(db: D1Database, region: string): Promise<{ bod
   const ids = matchRecordNames.map((name) => body.records[name]?.matchId).filter((id): id is number => id !== undefined);
   const holders = Object.values(body.records).flatMap((record) => (record ? [record.player.id] : []));
   const [publicMatches, players] = await db.batch([
-    db.prepare(`SELECT m.id FROM matches m WHERE m.id IN (SELECT value FROM json_each(?2)) AND ${counted}`).bind(region, json(ids)),
+    db.prepare(`SELECT m.id FROM matches m WHERE m.id IN (SELECT value FROM json_each(?2)) AND ${counted}`).bind(region, JSON.stringify(ids)),
     // Each holder's player now: the end of their merge chain (#8).
     db
       .prepare(
@@ -385,7 +384,7 @@ export async function readRecords(db: D1Database, region: string): Promise<{ bod
            SELECT c.start, p.id, p.merged_into FROM players p JOIN chain c ON p.id = c.merged_into
          ) SELECT c.start, c.id, p.name FROM chain c JOIN players p ON p.id = c.id WHERE c.merged_into IS NULL`,
       )
-      .bind(json([...new Set(holders)])),
+      .bind(JSON.stringify([...new Set(holders)])),
   ]);
   const current = new Map((players!.results as { start: number; id: number; name: string }[]).map((p) => [p.start, { id: p.id, name: p.name }]));
   const shown = withoutMatches(body, new Set((publicMatches!.results as { id: number }[]).map((r) => r.id)));
