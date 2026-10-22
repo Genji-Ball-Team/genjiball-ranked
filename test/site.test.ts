@@ -69,11 +69,18 @@ describe("standing", () => {
   it("gives the tier only from minRankedRounds rated rounds", () => {
     expect(standing({ display: 1700, rounds: 9, lastPlayedAt: null }, config, now).tier).toBeNull();
     expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Master", color: [255, 215, 0], threshold: 1600 });
-    expect(standing({ display: 1299, rounds: 10, lastPlayedAt: null }, config, now).tier).toBeNull();
+    // Rookie is the site's only: the game's tier (`tier`, which the host tool colours the top 10 by) stays null.
+    expect(standing({ display: 1299, rounds: 10, lastPlayedAt: null }, config, now)).toMatchObject({
+      tier: null,
+      siteTier: { label: "Rookie", color: [126, 224, 200], threshold: 1100 },
+    });
+    expect(standing({ display: 1300, rounds: 10, lastPlayedAt: null }, config, now).siteTier?.label).toBe("Apprentice");
+    expect(standing({ display: 1099, rounds: 10, lastPlayedAt: null }, config, now).siteTier).toBeNull();
   });
 
   it("gives the next tier up, none at the top", () => {
-    expect(nextTier(0, config.tiers)).toEqual({ label: "Apprentice", color: [205, 127, 50], threshold: 1300 });
+    expect(nextTier(0, config.tiers)).toEqual({ label: "Rookie", color: [126, 224, 200], threshold: 1100 });
+    expect(nextTier(1100, config.tiers)).toEqual({ label: "Apprentice", color: [205, 127, 50], threshold: 1300 });
     expect(nextTier(1600, config.tiers)?.label).toBe("Grandmaster");
     expect(nextTier(1599, config.tiers)?.label).toBe("Master");
     expect(nextTier(2800, config.tiers)).toBeNull();
@@ -111,6 +118,17 @@ describe("leaderboard", () => {
     const board = await get<Board>("leaderboard");
     expect(board.players).toHaveLength(4);
     expect(board.players.find((p) => p.id === alpha)!.inactiveSince).toBe("2020-01-01T00:00:00Z");
+  });
+
+  it("gives Rookie as the site tier only: the game's tier, which the host tool colours the top 10 by, stays null", async () => {
+    await playMatches(matchesToRank);
+    const [alpha, bravo] = [await playerId("Alpha"), await playerId("Bravo")];
+    await db().prepare("UPDATE ratings SET display = 1200 WHERE player_id = ?").bind(alpha).run();
+    await db().prepare("UPDATE ratings SET display = 1300 WHERE player_id = ?").bind(bravo).run();
+    type Tiered = { id: number; tier: { label: string } | null; siteTier: { label: string } | null };
+    const board = (await get<{ players: Tiered[] }>("leaderboard")).players;
+    expect(board.find((p) => p.id === alpha)).toMatchObject({ tier: null, siteTier: { label: "Rookie" } });
+    expect(board.find((p) => p.id === bravo)).toMatchObject({ tier: { label: "Apprentice" }, siteTier: { label: "Apprentice" } });
   });
 
   it("pages, and ranks across pages", async () => {
@@ -214,7 +232,7 @@ describe("player search", () => {
     ]);
     const { players: found } = await search("KENZO");
     expect(found.map((p) => p.id)).toEqual([1, 2, 3, 4, 5]);
-    expect(found[0]).toEqual({ id: 1, name: "Kenzo", rating: 1200, tier: null, matchedAlias: null });
+    expect(found[0]).toEqual({ id: 1, name: "Kenzo", rating: 1200, tier: null, siteTier: { label: "Rookie", color: [126, 224, 200], threshold: 1100 }, matchedAlias: null });
     expect(found[1]!.tier?.label).toBe("Master");
     expect(found[4]).toMatchObject({ rating: null, tier: null });
   });

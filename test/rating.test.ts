@@ -302,8 +302,9 @@ describe("displayRating", () => {
 describe("tierFor", () => {
   const tiers = config.tiers;
 
-  it("has six tiers, lowest first, each higher than the last", () => {
+  it("has seven tiers, lowest first, each higher than the last", () => {
     expect(tiers.map((t) => [t.label, t.threshold])).toEqual([
+      ["Rookie", 1100],
       ["Apprentice", 1300],
       ["Master", 1600],
       ["Grandmaster", 1900],
@@ -319,9 +320,9 @@ describe("tierFor", () => {
   });
 
   it("is the highest tier reached, from its threshold on", () => {
-    expect(tierFor(tiers[0]!.threshold, tiers)?.label).toBe("Apprentice");
-    expect(tierFor(tiers[1]!.threshold - 1, tiers)?.label).toBe("Apprentice");
-    expect(tierFor(tiers[1]!.threshold, tiers)?.label).toBe("Master");
+    expect(tierFor(tiers[0]!.threshold, tiers)?.label).toBe("Rookie");
+    expect(tierFor(tiers[1]!.threshold - 1, tiers)?.label).toBe("Rookie");
+    expect(tierFor(tiers[1]!.threshold, tiers)?.label).toBe("Apprentice");
     expect(tierFor(99999, tiers)?.label).toBe("Sovereign");
   });
 });

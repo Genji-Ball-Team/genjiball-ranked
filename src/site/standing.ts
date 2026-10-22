@@ -12,8 +12,14 @@ export type TierView = Pick<Tier, "label" | "color" | "threshold">;
 export type StandingConfig = Pick<Config, "tiers" | "minRankedRounds" | "inactiveAfterDays">;
 
 export interface Standing {
-  /** Null below the first tier, or with fewer than `minRankedRounds` rated rounds. */
+  /**
+   * The tier the game knows: never a site-only one (Rookie). The host tool colours the in-game top
+   * 10 by it, so it stays as it was. Null below the game's first tier, or with fewer than
+   * `minRankedRounds` rated rounds.
+   */
   tier: TierView | null;
+  /** The tier the site and the Discord bot show: `tier`, or a site-only one below the game's. */
+  siteTier: TierView | null;
   /** When they last played, once that's more than `inactiveAfterDays` ago. Null while active. */
   inactiveSince: string | null;
 }
@@ -23,11 +29,14 @@ export function standing(
   config: StandingConfig,
   now: Date,
 ): Standing {
-  const tier = rating.rounds >= config.minRankedRounds ? tierFor(rating.display, config.tiers) : null;
+  const ranked = rating.rounds >= config.minRankedRounds;
+  const tier = ranked ? tierFor(rating.display, gameTiers(config.tiers)) : null;
+  const siteTier = ranked ? tierFor(rating.display, config.tiers) : null;
   const last = rating.lastPlayedAt === null ? null : Date.parse(rating.lastPlayedAt);
   const inactive = last !== null && now.getTime() - last > config.inactiveAfterDays * dayMs;
   return {
     tier: tier && tierView(tier),
+    siteTier: siteTier && tierView(siteTier),
     inactiveSince: inactive ? rating.lastPlayedAt : null,
   };
 }
@@ -36,6 +45,11 @@ export function standing(
 export function nextTier(display: number, tiers: readonly Tier[]): TierView | null {
   const next = tiers.find((tier) => tier.threshold > display);
   return next ? tierView(next) : null;
+}
+
+/** The tiers with a rank tag in game: all but the site-only ones (`siteOnly` in the config). */
+export function gameTiers(tiers: readonly Tier[]): Tier[] {
+  return tiers.filter((tier) => !tier.siteOnly);
 }
 
 function tierView(tier: Tier): TierView {

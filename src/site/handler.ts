@@ -14,7 +14,7 @@ import { staleRegions } from "../rating/store";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { fetchTitles, pickTitles } from "./titles";
-import { nextTier, standing } from "./standing";
+import { gameTiers, nextTier, standing } from "./standing";
 import {
   findHeadToHead,
   findMatchDetail,
@@ -356,13 +356,10 @@ async function playerSearch(db: D1Database, config: SiteConfig, region: Region, 
   const rows = await searchPlayers(db, nameKey(search), region.id, onlyRated, config.playerSearchLimit);
   return {
     region: region.id,
-    players: rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      rating: row.display,
-      tier: row.display === null ? null : standing({ ...row, display: row.display }, config, now).tier,
-      matchedAlias: row.matchedAlias,
-    })),
+    players: rows.map((row) => {
+      const rated = row.display === null ? null : standing({ ...row, display: row.display }, config, now);
+      return { id: row.id, name: row.name, rating: row.display, tier: rated?.tier ?? null, siteTier: rated?.siteTier ?? null, matchedAlias: row.matchedAlias };
+    }),
   };
 }
 
@@ -379,7 +376,7 @@ function ratingView(row: RatingRow, config: SiteConfig, now: Date) {
 }
 
 async function tags(db: D1Database, config: SiteConfig, region: Region, now: Date) {
-  const lowest = config.tiers[0];
+  const lowest = gameTiers(config.tiers)[0];
   const activeSince = isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * dayMs));
   const candidates = lowest
     ? await listTagCandidates(db, region.id, config.minRankedRounds, lowest.threshold, activeSince, config.rankTagsMaxNames)

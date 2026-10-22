@@ -259,8 +259,11 @@ export const defaults = {
    * whose threshold their display rating reaches; below the first, no tier. Labels and colours
    * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`, except the top
    * tier: Sovereign, dark purple, was God, a name now given to the 1v1 tourney's winner (`titles`).
+   * A `siteOnly` tier (Rookie) shows on the site and the Discord bot's rank roles but has no rank tag
+   * in game: `/api/rank-tags` leaves it out, so the game's tiers stay as they are.
    */
   tiers: [
+    { label: "Rookie", color: [126, 224, 200], threshold: 1100, siteOnly: true },
     { label: "Apprentice", color: [205, 127, 50], threshold: 1300 },
     { label: "Master", color: [255, 215, 0], threshold: 1600 },
     { label: "Grandmaster", color: [255, 140, 0], threshold: 1900 },
@@ -433,6 +436,8 @@ export interface Tier {
   color: [number, number, number];
   /** Lowest display rating in the tier. */
   threshold: number;
+  /** On the site and the Discord bot only: no rank tag in game (`/api/rank-tags` leaves it out). */
+  siteOnly?: boolean;
 }
 
 export interface Title {
