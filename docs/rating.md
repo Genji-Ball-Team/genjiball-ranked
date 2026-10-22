@@ -27,7 +27,7 @@ Sigma takes each round's full update. It used to be damped too, and then it neve
 
 ## Per-match cap
 
-After a match, nobody's display rating is more than `ratingMatchMaxChange` (150) points from where they started it, either way. It's a safety net for a long lobby against much weaker (or much stronger) players, and for a newcomer's lucky first match now that they show on the leaderboard after 3 rounds. On the v1.3.2 logs it changes prediction by less than 0.01. Tournaments have their own cap (below).
+After a match, nobody's display rating is more than `ratingMatchMaxChange` (150) points from where they started it, either way: someone who would move further ends exactly that far, at the mu that shows it (the display curve inverted). It's a safety net for a long lobby against much weaker (or much stronger) players, and for a newcomer's lucky first match now that they show on the leaderboard after 3 rounds. On the v1.3.2 logs it changes prediction by less than 0.01. Tournaments have their own cap (below).
 
 ## Recompute
 
@@ -72,14 +72,14 @@ A recompute all day on a busy day of uploads (about 45,600 rows written, docs/da
 
 ## Display rating and tiers
 
-The leaderboard shows an Elo-like number from the conservative rating, mu − `displayZ`·sigma. With `x = displayScale · (mu − displayZ · sigma − ratingMu)`:
+The leaderboard shows an Elo-like number from mu. With `x = displayScale · (mu − ratingMu)`:
 
 ```
 x ≥ 0:  display = displayCenter + x
 x < 0:  display = displayFloor + (displayCenter − displayFloor) · e^(x / (displayCenter − displayFloor))
 ```
 
-rounded. A new player shows `displayCenter` (1000). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. `displayZ` is 0: the number follows mu alone, so it doesn't drift up as sigma shrinks. Someone who stops playing keeps their number.
+rounded. A new player shows `displayCenter` (1000). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. Sigma doesn't count: a conservative rating, mu − z·sigma (z = 3 in the first version), drifts up as sigma shrinks, so players climbed by playing more, not by getting better. Someone who stops playing keeps their number.
 
 The tiers are Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Champion 2500 and Sovereign 2800 (dark purple; it was God, now a title for the 1v1 tourney's winner, [api.md](api.md#titles-and-tiers-get-apititlesregioneu-get-apitiersplayers12)). A player shows on the leaderboard, and gets a tier, from `minRankedRounds` (3) rated rounds: someone who drops into one lobby sees themselves there. The per-match cap keeps a lucky first match from putting them high. The labels and colours are those of GenjiBall-CE `src/features/rank-tags.opy`, plus Apprentice (bronze), which that file needs a sixth list for.
 

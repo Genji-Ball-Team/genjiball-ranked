@@ -144,14 +144,12 @@ export const defaults = {
   ratingMatchesPerRun: 100,
 
   /**
-   * Display rating: an Elo-like number for the leaderboard and the tiers, from the conservative
-   * rating mu − z·sigma. A new player shows `displayCenter`; above it each point of mu is worth
-   * `displayScale`. Below it the number eases toward `displayFloor` and never reaches it: a bad
-   * player settles in the 900s instead of sinking, and climbs again as they improve (the curve has
-   * the same slope on both sides of the center). `displayZ` is 0, so a player's number follows mu
-   * alone and doesn't drift up as sigma shrinks.
+   * Display rating: an Elo-like number for the leaderboard and the tiers, from mu alone (not
+   * mu − z·sigma, which would drift up as sigma shrinks). A new player shows `displayCenter`; above
+   * it each point of mu is worth `displayScale`. Below it the number eases toward `displayFloor` and
+   * never reaches it: a bad player settles in the 900s instead of sinking, and climbs again as they
+   * improve (the curve has the same slope on both sides of the center).
    */
-  displayZ: 0,
   displayCenter: 1000,
   displayScale: 70,
   displayFloor: 900,

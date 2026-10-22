@@ -114,7 +114,7 @@ describe("rateRound", () => {
     expect(ratings.get(1)!.sigma).toBeLessThan(config.ratingSigma / 2);
     const mu = ratings.get(1)!.mu;
     rateRound(ratings, [1, 2, 3], config);
-    expect(displayRating(ratings.get(1)!, config) - displayRating({ mu, sigma: 0 }, config)).toBeLessThanOrEqual(2);
+    expect(displayRating(ratings.get(1)!, config) - displayRating({ mu }, config)).toBeLessThanOrEqual(2);
   });
 
   it("doesn't rate a round with fewer than two players or a player listed twice", () => {
@@ -262,24 +262,22 @@ describe("recompute", () => {
 
 describe("displayRating", () => {
   it("is displayCenter for a new player and displayScale per point of mu above it", () => {
-    expect(displayRating({ mu: config.ratingMu, sigma: config.ratingSigma }, config)).toBe(config.displayCenter);
-    expect(displayRating({ mu: config.ratingMu + 2, sigma: 0 }, config)).toBe(config.displayCenter + 2 * config.displayScale);
+    expect(displayRating({ mu: config.ratingMu }, config)).toBe(config.displayCenter);
+    expect(displayRating({ mu: config.ratingMu + 2 }, config)).toBe(config.displayCenter + 2 * config.displayScale);
   });
 
-  it("uses the conservative rating mu − z·sigma when displayZ is set, rounded", () => {
-    const withZ = { ...config, displayZ: 3 };
-    expect(displayRating({ mu: 40, sigma: 2.01 }, withZ)).toBe(
-      Math.round(withZ.displayCenter + withZ.displayScale * (40 - withZ.displayZ * 2.01 - withZ.ratingMu)),
-    );
+  it("rounds", () => {
+    expect(displayRating({ mu: config.ratingMu + 1.01 / config.displayScale }, config)).toBe(config.displayCenter + 1);
   });
 
-  it("follows mu alone with the default displayZ of 0, so a shrinking sigma doesn't lift anyone", () => {
-    expect(config.displayZ).toBe(0);
-    expect(displayRating({ mu: 30, sigma: 8 }, config)).toBe(displayRating({ mu: 30, sigma: 2 }, config));
+  it("follows mu alone, so a shrinking sigma doesn't lift anyone", () => {
+    const unsure = { mu: 30, sigma: 8 };
+    const sure = { mu: 30, sigma: 2 };
+    expect(displayRating(unsure, config)).toBe(displayRating(sure, config));
   });
 
   it("eases toward displayFloor below the center instead of falling in a straight line", () => {
-    const at = (mu: number) => displayRating({ mu, sigma: 0 }, config);
+    const at = (mu: number) => displayRating({ mu }, config);
     const room = config.displayCenter - config.displayFloor;
     // Just below the center it falls as fast as it rises above it...
     expect(config.displayCenter - at(config.ratingMu - 0.1)).toBeCloseTo(0.1 * config.displayScale, -1);
@@ -292,12 +290,12 @@ describe("displayRating", () => {
   it("only goes up as mu goes up, and never below displayFloor", () => {
     let last = -Infinity;
     for (let mu = -20; mu <= 60; mu += 0.5) {
-      const shown = displayRating({ mu, sigma: 0 }, config);
+      const shown = displayRating({ mu }, config);
       expect(shown).toBeGreaterThanOrEqual(last);
       expect(shown).toBeGreaterThanOrEqual(config.displayFloor);
       last = shown;
     }
-    expect(displayRating({ mu: -1000, sigma: config.ratingSigma }, config)).toBe(config.displayFloor);
+    expect(displayRating({ mu: -1000 }, config)).toBe(config.displayFloor);
   });
 });
 
@@ -337,10 +335,8 @@ describe("the per-match cap", () => {
     const start = displayRating(ratings.get(1)!, capped);
     rateMatch(ratings, match(1, rounds), capped);
     const moved = (id: number) => displayRating(ratings.get(id)!, capped) - start;
-    expect(moved(1)).toBeGreaterThanOrEqual(capped.ratingMatchMaxChange - 1);
-    expect(moved(1)).toBeLessThanOrEqual(capped.ratingMatchMaxChange);
-    expect(moved(4)).toBeLessThanOrEqual(-capped.ratingMatchMaxChange + 1);
-    expect(moved(4)).toBeGreaterThanOrEqual(-capped.ratingMatchMaxChange);
+    expect(moved(1)).toBe(capped.ratingMatchMaxChange);
+    expect(moved(4)).toBe(-capped.ratingMatchMaxChange);
   });
 
   it("leaves a change within the cap alone", () => {
@@ -415,8 +411,7 @@ describe("tournaments", () => {
     for (const [start, cap] of [[1250, 50], [1500, 75], [2000, 100]] as const) {
       const ratings: Ratings = new Map([[1, at(start - 600, 6)], [2, at(start)], [3, at(start)], [4, at(start)]]);
       rateMatch(ratings, tourney(rounds), config);
-      expect(change(ratings, 4, start)).toBeGreaterThanOrEqual(-cap);
-      expect(change(ratings, 4, start)).toBeLessThanOrEqual(-cap + 1);
+      expect(change(ratings, 4, start)).toBe(-cap);
     }
   });
 
@@ -424,8 +419,7 @@ describe("tournaments", () => {
     const rounds = Array.from({ length: 30 }, () => [1, 2, 3, 4]);
     const ratings: Ratings = new Map([[1, at(1100, 6)], [2, at(2200)], [3, at(2200)], [4, at(2200)]]);
     rateMatch(ratings, tourney(rounds), config);
-    expect(change(ratings, 1, 1100)).toBeGreaterThanOrEqual(config.tournamentMaxGain + config.tournamentWinnerBonus - 1);
-    expect(change(ratings, 1, 1100)).toBeLessThanOrEqual(config.tournamentMaxGain + config.tournamentWinnerBonus);
+    expect(change(ratings, 1, 1100)).toBe(config.tournamentMaxGain + config.tournamentWinnerBonus);
   });
 
   it("gives the winner's bonus to everyone tied first, below the center too", () => {
