@@ -4,7 +4,7 @@ import { defaults } from "../src/config";
 import { handleSite } from "../src/site/handler";
 import { nextTier, standing } from "../src/site/standing";
 import { sha256 } from "../src/bytes";
-import { matchId, matchLog } from "./helpers";
+import { get, matchId, matchLog, playerId } from "./helpers";
 
 const db = () => env.DB;
 const token = "trusted-token";
@@ -41,16 +41,6 @@ async function playMatches(count: number) {
     });
     expect(res.status).toBe(200);
   }
-}
-
-async function get<T = Record<string, unknown>>(path: string): Promise<T> {
-  const res = await SELF.fetch(`https://example.com/api/${path}`);
-  expect(res.status, await res.clone().text()).toBe(200);
-  return res.json();
-}
-
-async function playerId(name: string): Promise<number> {
-  return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;
 }
 
 /** Matches it takes to reach minRankedRounds: each has 2 rated rounds. */

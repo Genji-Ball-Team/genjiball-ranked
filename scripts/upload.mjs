@@ -4,8 +4,9 @@
 // Files go oldest first, so the copies of one match arrive in order. X-Log-Started-At comes from the
 // file name (Log-2026-10-03-20-15-33.txt, read in this computer's time zone, so run it in the
 // host's), or the file's modified time when the name has no date.
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { requireSecureServer, startedAt } from "./shared.mjs";
 
 const [server, ...files] = process.argv.slice(2);
 const token = process.env.GENJIBALL_HOST_TOKEN?.trim();
@@ -16,15 +17,7 @@ if (!server || files.length === 0 || !token) {
 
 // The host token goes in a header: never over plain HTTP, except to a server on this computer.
 const url = new URL("/api/upload", server);
-if (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) {
-  console.error(`Use an https:// server URL (http:// only for localhost), not ${server}`);
-  process.exit(1);
-}
-
-function startedAt(file) {
-  const m = /(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})/.exec(basename(file));
-  return m ? new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6]) : statSync(file).mtime;
-}
+requireSecureServer(url, server);
 
 const sorted = files.map((file) => ({ file, started: startedAt(file) })).sort((a, b) => a.started - b.started);
 let failed = 0;

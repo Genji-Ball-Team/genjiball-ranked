@@ -1,5 +1,6 @@
 import type { QueryBudget } from "../budget";
 import type { Logger } from "../log";
+import { regionIds } from "../config";
 import { isoSeconds, minuteMs } from "../time";
 import { activityStart, matchStats, recordsView, type RecordsConfig } from "./stats";
 import {
@@ -71,7 +72,7 @@ export function isDue(state: RecordsState, config: Pick<RecordsConfig, "recordsR
 
 /** Rebuilds the stored records of the region that's waited longest. Returns its id, or null. */
 export async function refreshRecords(db: D1Database, config: RecordsConfig, now: Date, log: Logger): Promise<string | null> {
-  const states = await readRecordsState(db, config.regions.map((r) => r.id));
+  const states = await readRecordsState(db, regionIds(config.regions));
   const urgent = (s: RecordsState) => (s.builtRevision === null || s.builtRevision < s.urgent ? 0 : 1);
   const due = states
     .filter((s) => isDue(s, config, now))

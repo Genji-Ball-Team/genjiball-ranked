@@ -40,7 +40,6 @@ export function compareRefs(a: MatchRef, b: MatchRef): number {
   return a.id - b.id;
 }
 
-const json = (value: unknown) => JSON.stringify(value);
 
 /** The region's rating state. A region added to the config gets its row here, the first time. */
 export async function readState(db: D1Database, board: string): Promise<RatingState> {
@@ -169,7 +168,7 @@ export function groupRounds(matchIds: readonly number[], rows: readonly RoundRow
 /** The finishing order of each rated round of these matches, by player id, in round order. */
 export async function readRounds(db: D1Database, matchIds: readonly number[]): Promise<Map<number, number[][]>> {
   if (!matchIds.length) return groupRounds(matchIds, []);
-  const { results } = await db.prepare(roundsSql("SELECT value FROM json_each(?1)")).bind(json(matchIds)).all<RoundRow>();
+  const { results } = await db.prepare(roundsSql("SELECT value FROM json_each(?1)")).bind(JSON.stringify(matchIds)).all<RoundRow>();
   return groupRounds(matchIds, results);
 }
 
@@ -206,7 +205,7 @@ export function groupKills(rows: readonly KillRow[]): Map<number, Map<number, nu
 export async function readKills(db: D1Database, matches: readonly CandidateMatch[]): Promise<Map<number, Map<number, number>>> {
   const ids = matches.filter((m) => m.tournament).map((m) => m.id);
   if (!ids.length) return new Map();
-  const { results } = await db.prepare(killsSql("SELECT value FROM json_each(?1)")).bind(json(ids)).all<KillRow>();
+  const { results } = await db.prepare(killsSql("SELECT value FROM json_each(?1)")).bind(JSON.stringify(ids)).all<KillRow>();
   return groupKills(results);
 }
 
@@ -232,7 +231,7 @@ export async function readRatings(db: D1Database, board: string, playerIds: read
       `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt
        FROM ratings WHERE board = ?1 AND player_id IN (SELECT value FROM json_each(?2))`,
     )
-    .bind(board, json(playerIds))
+    .bind(board, JSON.stringify(playerIds))
     .all<StoredRating & { playerId: number }>();
   return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
 }
@@ -246,7 +245,7 @@ export async function readHistory(db: D1Database, board: string, matchIds: reado
          streak, best_streak AS bestStreak
        FROM rating_history WHERE board = ?1 AND match_id IN (SELECT value FROM json_each(?2))`,
     )
-    .bind(board, json(matchIds))
+    .bind(board, JSON.stringify(matchIds))
     .all<HistoryEntry>();
   return results;
 }
@@ -268,7 +267,7 @@ export async function readRatingsBefore(
            WHERE board = ?1 AND player_id = p.value AND (played_at, match_id) < (?3, ?4)
            ORDER BY played_at DESC, match_id DESC LIMIT 1)`,
     )
-    .bind(board, json(playerIds), from.playedAt, from.id)
+    .bind(board, JSON.stringify(playerIds), from.playedAt, from.id)
     .all<PlayerRating & { playerId: number }>();
   return new Map(results.map(({ playerId, ...rating }) => [playerId, rating]));
 }
@@ -304,7 +303,7 @@ export function isConflict(error: unknown): boolean {
  */
 export function staleFromMatchesStatement(db: D1Database, matchIds: readonly number[], now: string, onlyRated = false): D1PreparedStatement {
   return staleFromWhere(db, "id IN (SELECT value FROM json_each(?1)) AND (?3 = 0 OR rated_at IS NOT NULL)")
-    .bind(json(matchIds), now, onlyRated ? 1 : 0);
+    .bind(JSON.stringify(matchIds), now, onlyRated ? 1 : 0);
 }
 
 /**
@@ -315,7 +314,7 @@ export function staleFromPlayersStatement(db: D1Database, playerIds: readonly nu
   return staleFromWhere(
     db,
     "rated_at IS NOT NULL AND id IN (SELECT match_id FROM match_players WHERE player_id IN (SELECT value FROM json_each(?1)))",
-  ).bind(json(playerIds), now);
+  ).bind(JSON.stringify(playerIds), now);
 }
 
 /** Stale from the first match in each region of those `where` picks (`?2`: now). */
@@ -362,7 +361,7 @@ export function staleUntilStatement(db: D1Database, board: string, next: MatchRe
 export function ratedAtStatement(db: D1Database, matchIds: readonly number[], ratedAt: string | null): D1PreparedStatement {
   return db
     .prepare("UPDATE matches SET rated_at = ?2 WHERE id IN (SELECT value FROM json_each(?1))")
-    .bind(json(matchIds), ratedAt);
+    .bind(JSON.stringify(matchIds), ratedAt);
 }
 
 /** The statements that write a plan: only the rows that changed. */
@@ -375,7 +374,7 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
           `DELETE FROM rating_history WHERE board = ?1 AND (player_id, played_at, match_id) IN
            (SELECT e.value ->> 'playerId', e.value ->> 'playedAt', e.value ->> 'matchId' FROM json_each(?2) e)`,
         )
-        .bind(board, json(w.historyRemove)),
+        .bind(board, JSON.stringify(w.historyRemove)),
     );
   }
   if (w.historyUpsert.length) {
@@ -391,7 +390,7 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
              display = excluded.display, rounds = excluded.rounds, wins = excluded.wins, streak = excluded.streak,
              best_streak = excluded.best_streak`,
         )
-        .bind(board, json(w.historyUpsert)),
+        .bind(board, JSON.stringify(w.historyUpsert)),
     );
   }
   if (w.ratingsUpsert.length) {
@@ -406,14 +405,14 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
              rounds = excluded.rounds, wins = excluded.wins, streak = excluded.streak, best_streak = excluded.best_streak,
              last_played_at = excluded.last_played_at`,
         )
-        .bind(board, json(w.ratingsUpsert)),
+        .bind(board, JSON.stringify(w.ratingsUpsert)),
     );
   }
   if (w.ratingsRemove.length) {
     statements.push(
       db
         .prepare("DELETE FROM ratings WHERE board = ?1 AND player_id IN (SELECT value FROM json_each(?2))")
-        .bind(board, json(w.ratingsRemove)),
+        .bind(board, JSON.stringify(w.ratingsRemove)),
     );
   }
   return statements;

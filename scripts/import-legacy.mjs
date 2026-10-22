@@ -10,6 +10,7 @@
 // region (#47).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
+import { requireSecureServer, startedAt } from "./shared.mjs";
 
 const [server, hostId, ...rest] = process.argv.slice(2);
 const region = rest.find((arg) => arg.startsWith("--region="))?.slice("--region=".length).trim();
@@ -29,15 +30,7 @@ if (!server || !/^\d+$/.test(hostId ?? "") || files.length === 0 || !token || re
 
 // The admin token goes in a header: never over plain HTTP, except to a server on this computer.
 const base = new URL(server);
-if (base.protocol !== "https:" && !(base.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(base.hostname))) {
-  console.error(`Use an https:// server URL (http:// only for localhost), not ${server}`);
-  process.exit(1);
-}
-
-function startedAt(file) {
-  const m = /(\d{4})-(\d{2})-(\d{2})-(\d{2})-(\d{2})-(\d{2})/.exec(basename(file));
-  return m ? new Date(m[1], m[2] - 1, m[3], m[4], m[5], m[6]) : statSync(file).mtime;
-}
+requireSecureServer(base, server);
 
 const killLines = (text) =>
   text

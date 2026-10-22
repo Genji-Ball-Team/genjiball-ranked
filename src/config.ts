@@ -419,9 +419,14 @@ export function findRegion(regions: readonly Region[], id: string | null | undef
   return regions.find((region) => region.id === key) ?? null;
 }
 
+/** The ids of `regions`, in order. */
+export function regionIds(regions: readonly Region[]): string[] {
+  return regions.map((region) => region.id);
+}
+
 /** The message for a `field` that isn't one of `regions`: `region must be one of eu, na`. */
 export function notARegion(regions: readonly Region[], field: string): string {
-  return `${field} must be one of ${regions.map((r) => r.id).join(", ")}`;
+  return `${field} must be one of ${regionIds(regions).join(", ")}`;
 }
 
 export interface TournamentLossBand {

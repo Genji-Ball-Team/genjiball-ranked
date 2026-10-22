@@ -9,7 +9,7 @@ import { readFeedChanges, readMatchCounts, readRecountQueue, syncStatements } fr
 import { isDue, rebuildRecords, refreshQueries, syncMatchStats, syncQueries, updateRecords } from "../src/records/update";
 import { markAllStale, rateNewQueries, recomputeQueries } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
-import { hoursAgo, matchId, uploadLog } from "./helpers";
+import { hoursAgo, matchId, playerId, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -57,10 +57,6 @@ function richLog({ key = "000000000001", deflects = [] as [number, number, numbe
 const later = (minutes: number) => new Date(Date.now() + minutes * 60 * 1000);
 
 const upload = (body: string, hours: number, token = tokens.eu) => uploadLog(body, token, hoursAgo(hours));
-
-async function playerId(name: string): Promise<number> {
-  return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;
-}
 
 /** Brings the match stats up to date and rebuilds both regions' records now. */
 async function refresh(now = new Date()) {

@@ -57,6 +57,17 @@ export function matchLog({ key = "000000000001", players = ["Alpha", "Bravo", "C
   return lines.map((line) => `[00:00:01] ${line}`).join("\r\n");
 }
 
+/** GETs `/api/<path>` and returns the JSON, after checking the status. */
+export async function get<T = Record<string, unknown>>(path: string, status = 200): Promise<T> {
+  const res = await SELF.fetch(`https://example.com/api/${path}`);
+  expect(res.status, await res.clone().text()).toBe(status);
+  return res.json();
+}
+
+export async function playerId(name: string): Promise<number> {
+  return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;
+}
+
 export async function matchId(key: string): Promise<number> {
   return (await db().prepare("SELECT id FROM matches WHERE match_key = ?").bind(key).first<{ id: number }>())!.id;
 }

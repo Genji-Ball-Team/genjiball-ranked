@@ -14,7 +14,7 @@ import { handleUpload } from "../src/upload/handler";
 import { matchStats } from "../src/upload/plan";
 import { rebuildPairsStatements, rebuildTotalsStatements } from "../src/upload/pairs";
 import { jsonChunks, RowTooLarge, utf8Length } from "../src/upload/store";
-import { adminFetch, countingDb, hoursAgo, matchId, uploadLog } from "./helpers";
+import { adminFetch, countingDb, get, hoursAgo, matchId, uploadLog } from "./helpers";
 
 /** Match stats (#15) and head-to-head records (#18). */
 
@@ -101,12 +101,6 @@ function statsLog(key: string, { extra = false, lateKill = false } = {}): string
 
 const upload = (body: string, hours: number, region?: string) => uploadLog(body, token, hoursAgo(hours), region ? { "X-Region": region } : {});
 const admin = (path: string, body: unknown = {}) => adminFetch(adminToken, path, body);
-
-async function get<T = Record<string, unknown>>(path: string, status = 200): Promise<T> {
-  const res = await SELF.fetch(`https://example.com/api/${path}`);
-  expect(res.status, await res.clone().text()).toBe(status);
-  return res.json();
-}
 
 async function ids(): Promise<Record<string, number>> {
   const { results } = await db().prepare("SELECT id, name FROM players").all<{ id: number; name: string }>();
