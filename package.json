@@ -30,15 +30,15 @@
   },
   "homepage": "https://github.com/Genji-Ball-Team/genjiball-ranked#readme",
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
-    "@cloudflare/workers-types": "^5.20261003.1",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
+    "@cloudflare/workers-types": "^5.20261019.1",
     "@eslint/js": "^10.0.1",
-    "esbuild": "^0.28.1",
-    "eslint": "^10.12.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.13.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0",
+    "typescript-eslint": "^8.72.0",
     "vitest": "^4.1.11",
-    "wrangler": "^4.147.0"
+    "wrangler": "^4.151.2"
   },
   "private": true,
   "engines": {
