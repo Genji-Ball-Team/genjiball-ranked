@@ -1,4 +1,4 @@
-import { env, SELF } from "cloudflare:test";
+import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handleAdmin } from "../src/admin/handler";
 import { playerIdColumns, writeMerge } from "../src/admin/playerStore";
@@ -12,7 +12,7 @@ import { listTagCandidates } from "../src/site/store";
 import { handleSite } from "../src/site/handler";
 import { sha256 } from "../src/bytes";
 import { handleUpload, type UploadResponse } from "../src/upload/handler";
-import { adminFetch, adminJson, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
+import { adminFetch, adminJson, get, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -57,12 +57,6 @@ function adminWith(database: D1Database, path: string, body: unknown) {
 }
 
 const adminOk = <T = Record<string, unknown>>(path: string, body?: unknown) => adminJson<T>(adminToken, path, body, undefined, 200);
-
-async function get<T = Record<string, unknown>>(path: string): Promise<T> {
-  const res = await SELF.fetch(`https://example.com/api/${path}`);
-  expect(res.status, await res.clone().text()).toBe(200);
-  return res.json();
-}
 
 async function playerId(name: string): Promise<number> {
   return (await db().prepare("SELECT player_id AS id FROM aliases WHERE name_key = lower(?)").bind(name).first<{ id: number }>())!.id;

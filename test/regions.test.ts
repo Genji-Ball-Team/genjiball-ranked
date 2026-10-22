@@ -8,7 +8,7 @@ import { ratingMatches, readKills, readRounds, readState } from "../src/rating/s
 import { markMatchesChanged, updateRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
 import { handleUpload, type UploadResponse } from "../src/upload/handler";
-import { adminFetch, countingDb, hoursAgo, matchId, matchLog } from "./helpers";
+import { adminFetch, countingDb, get, hoursAgo, matchId, matchLog, playerId } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -45,17 +45,7 @@ async function uploadOk(body: string, token: string, startedAt: string, region?:
   return res.json();
 }
 
-async function get<T = Record<string, unknown>>(path: string): Promise<T> {
-  const res = await SELF.fetch(`https://example.com/api/${path}`);
-  expect(res.status, await res.clone().text()).toBe(200);
-  return res.json();
-}
-
 const admin = (path: string, body?: unknown) => adminFetch(adminToken, path, body);
-
-async function playerId(name: string): Promise<number> {
-  return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;
-}
 
 /** The region's ratings in D1, and what a recompute from scratch over its accepted matches gives. */
 async function regionRatings(region: string) {

@@ -9,7 +9,7 @@ import { imageType, isScreenshotKey, screenshotKey } from "../src/tourney/screen
 import { standings } from "../src/tourney/standings";
 import { deleteLobby, findLobby, isLobbyChanged, pendingScreenshots, queueScreenshot, setScreenshot, setVerified, stageScreenshot, tournamentStatement, updateLobby } from "../src/tourney/store";
 import { sha256 } from "../src/bytes";
-import { expectUpToDate, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
+import { expectUpToDate, get, hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const adminToken = "admin-token";
@@ -55,12 +55,6 @@ function admin(path: string, init: { method?: string; body?: unknown; raw?: Body
 async function adminOk<T = Record<string, unknown>>(path: string, init: Parameters<typeof admin>[1] = {}): Promise<T> {
   const res = await admin(path, init);
   expect(res.status, await res.clone().text()).toBeLessThan(300);
-  return res.json();
-}
-
-async function get<T = Record<string, unknown>>(path: string): Promise<T> {
-  const res = await SELF.fetch(`https://example.com/api/${path}`);
-  expect(res.status, await res.clone().text()).toBe(200);
   return res.json();
 }
 

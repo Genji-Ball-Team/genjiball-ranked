@@ -6,7 +6,7 @@ import { listFormRounds, listHistory } from "../src/site/store";
 import { handleSite } from "../src/site/handler";
 import worker from "../src/index";
 import { sha256 } from "../src/bytes";
-import { hoursAgo, matchId, matchLog, uploadLog } from "./helpers";
+import { hoursAgo, matchId, matchLog, playerId, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const tokens = { eu: "history-eu", na: "history-na" };
@@ -25,10 +25,6 @@ beforeEach(async () => {
 });
 
 const upload = (key: string, hours: number, token = tokens.eu, body = matchLog({ key })) => uploadLog(body, token, hoursAgo(hours));
-
-async function playerId(name: string): Promise<number> {
-  return (await db().prepare("SELECT id FROM players WHERE name = ?").bind(name).first<{ id: number }>())!.id;
-}
 
 interface History {
   region: string;
