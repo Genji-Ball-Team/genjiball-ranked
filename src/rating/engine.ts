@@ -18,7 +18,6 @@ export type RatingConfig = Pick<
   | "ratingBeta"
   | "ratingTau"
   | "ratingRoundsPerMatch"
-  | "displayZ"
   | "displayCenter"
   | "displayScale"
   | "displayFloor"
@@ -243,7 +242,7 @@ export function rateTournament(ratings: Ratings, started: ReadonlyMap<number, Pl
   for (const { playerId, score } of standings) {
     if (score !== best) continue;
     const rating = ratings.get(playerId)!;
-    rating.mu = muForDisplay(displayExact(rating, config) + config.tournamentWinnerBonus, rating.sigma, config);
+    rating.mu = muForDisplay(displayExact(rating, config) + config.tournamentWinnerBonus, config);
   }
 }
 
@@ -253,28 +252,16 @@ export function tournamentMaxLoss(display: number, config: Pick<RatingConfig, "t
 }
 
 /**
- * If the match moved a player more than `maxLoss` display points down or `maxGain` up, moves
- * their mu back toward where they started, as little as it takes to move exactly that many (sigma,
- * rounds, wins and streaks stay as the match left them).
+ * If the match moved a player more than `maxLoss` display points down or `maxGain` up, sets their
+ * mu to the one that shows exactly that many from where they started (sigma, rounds, wins and
+ * streaks stay as the match left them). The display only depends on mu, so that's `muForDisplay`.
+ * A loss cap that reaches `displayFloor` never applies: the display can't get below it.
  */
 export function capChange(rating: PlayerRating, started: PlayerRating, maxLoss: number, maxGain: number, config: RatingConfig): void {
   const from = displayRating(started, config);
-  const within = (r: Pick<PlayerRating, "mu" | "sigma">) => {
-    const change = displayRating(r, config) - from;
-    return change >= -maxLoss && change <= maxGain;
-  };
-  if (within(rating)) return;
-  // Bisection on how far to move mu from the start toward the match's result. t = 0 moves nothing
-  // (always allowed), t = 1 moves too far.
-  const end = rating.mu;
-  let allowed = 0;
-  let tooFar = 1;
-  for (let step = 0; step < 50; step++) {
-    const t = (allowed + tooFar) / 2;
-    if (within({ mu: started.mu + t * (end - started.mu), sigma: rating.sigma })) allowed = t;
-    else tooFar = t;
-  }
-  rating.mu = started.mu + allowed * (end - started.mu);
+  const change = displayRating(rating, config) - from;
+  if (change > maxGain) rating.mu = muForDisplay(from + maxGain, config);
+  else if (change < -maxLoss) rating.mu = muForDisplay(from - maxLoss, config);
 }
 
 /** Play order: by `playedAt`, then by id, so the same matches always rate the same way. */
@@ -301,29 +288,29 @@ export function recompute(matches: readonly RatingMatch[], config: RatingConfig)
 }
 
 /**
- * The leaderboard number: the conservative rating mu − z·sigma on an Elo-like scale. A new player
- * is `displayCenter`. Above it the number rises `displayScale` per point of rating. Below it the
- * curve eases toward `displayFloor` and never reaches it, with the same slope at the center, so
- * weak players pile up in the 900s instead of falling without end.
+ * The leaderboard number: mu on an Elo-like scale. A new player is `displayCenter`. Above it the
+ * number rises `displayScale` per point of mu. Below it the curve eases toward `displayFloor` and
+ * never reaches it, with the same slope at the center, so weak players pile up in the 900s instead
+ * of falling without end. Sigma doesn't count: a number that took off z·sigma would rise as sigma
+ * shrinks, so players would climb by playing more, not by getting better.
  */
-export function displayRating(rating: Pick<PlayerRating, "mu" | "sigma">, config: RatingConfig): number {
+export function displayRating(rating: Pick<PlayerRating, "mu">, config: RatingConfig): number {
   return Math.max(config.displayFloor, Math.round(displayExact(rating, config)));
 }
 
 /** `displayRating` before rounding. */
-function displayExact(rating: Pick<PlayerRating, "mu" | "sigma">, config: RatingConfig): number {
-  const conservative = rating.mu - config.displayZ * rating.sigma;
-  const x = config.displayScale * (conservative - config.ratingMu);
+function displayExact(rating: Pick<PlayerRating, "mu">, config: RatingConfig): number {
+  const x = config.displayScale * (rating.mu - config.ratingMu);
   if (x >= 0) return config.displayCenter + x;
   const room = config.displayCenter - config.displayFloor;
   return config.displayFloor + room * Math.exp(x / room);
 }
 
-/** The mu that `displayExact` turns into `display`, at this sigma. */
-function muForDisplay(display: number, sigma: number, config: RatingConfig): number {
+/** The mu that `displayExact` turns into `display`, which must be above `displayFloor`. */
+function muForDisplay(display: number, config: RatingConfig): number {
   const room = config.displayCenter - config.displayFloor;
   const x = display >= config.displayCenter ? display - config.displayCenter : room * Math.log((display - config.displayFloor) / room);
-  return config.ratingMu + x / config.displayScale + config.displayZ * sigma;
+  return config.ratingMu + x / config.displayScale;
 }
 
 /** The highest tier the display rating reaches, or null below the first. `tiers` is lowest first. */
