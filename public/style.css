@@ -20,6 +20,7 @@
   --bg: #090b10; --panel: #0e1117; --raised: #151922; --line: #1d222b; --border: #252a34;
   --fg: #eef1f7; --soft: #b4bbc7; --muted: #858d9a; --faint: #5d6573; --good: #67d49a; --bad: #ef6b6b;
   --gold: #f3cf6b;
+  --bad-bg: #3a1517; --bad-fg: #ffb3b3; --gold-bg: #2b2410; --good-bg: #10301f;
   --narrow: 72%;
   /* The region's colour (#48, region.js sets data-region): the header stripe, the switch, the current
      page, links and focus, so a screenshot shows the region at a glance. Green for EU, gold for NA.
@@ -113,7 +114,7 @@ footer a { color: var(--muted); }
   vertical-align: .2em; white-space: nowrap;
 }
 .chip.plain { background: var(--raised); color: var(--soft); }
-.chip.bad { background: #3a1517; color: #ffb3b3; }
+.chip.bad { background: var(--bad-bg); color: var(--bad-fg); }
 
 /* Leaderboard */
 .title-row { display: flex; align-items: end; justify-content: space-between; gap: 1rem 2rem; flex-wrap: wrap; }
@@ -383,8 +384,8 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .recap { margin-top: 1.75rem; }
 
 /* Tourneys: a list of dates down the left, like a fixture board. */
-.chip.tourney { background: #2b2410; color: var(--gold); }
-.chip.good { background: #10301f; color: var(--good); }
+.chip.tourney, .chip.warn { background: var(--gold-bg); color: var(--gold); }
+.chip.good { background: var(--good-bg); color: var(--good); }
 .chip.live { background: var(--bad); color: var(--bg); }
 .events { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .events a {
@@ -495,7 +496,7 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .admin button:disabled { opacity: .55; cursor: default; }
 .admin button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 650; }
 .admin button.primary:hover { background: color-mix(in srgb, var(--accent) 85%, white); }
-.admin button.danger { background: #3a1517; border-color: #5a2023; color: #ffb3b3; }
+.admin button.danger { background: var(--bad-bg); border-color: #5a2023; color: var(--bad-fg); }
 .admin button.danger:hover { border-color: var(--bad); }
 .admin button.ghost { background: none; border-color: transparent; color: var(--soft); }
 .admin button.ghost:hover { background: var(--raised); color: var(--fg); }
@@ -511,7 +512,6 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 }
 @keyframes spin { to { rotate: 1turn; } }
 
-.chip.warn { background: #2b2410; color: var(--gold); }
 .chip.gold { background: var(--gold); color: var(--bg); }
 .admin .chip { vertical-align: .1em; }
 .admin .chip + .chip { margin-left: .3rem; }
@@ -716,7 +716,7 @@ a.card:hover { border-color: var(--muted); }
 .check.inline { display: inline-grid; margin: 0; font-size: .9rem; color: var(--soft); }
 .admin .check input { width: 1.05rem; height: 1.05rem; padding: 0; accent-color: var(--accent); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.25rem; }
-.dialog-error { margin: 0; padding: .6rem .8rem; border-radius: 6px; background: #3a1517; color: #ffb3b3; font-size: .9rem; }
+.dialog-error { margin: 0; padding: .6rem .8rem; border-radius: 6px; background: var(--bad-bg); color: var(--bad-fg); font-size: .9rem; }
 .preview { min-height: 1.4rem; font-size: .9rem; }
 .match-preview { padding: .55rem .75rem; border-radius: 6px; background: var(--raised); }
 .match-preview small { display: block; color: var(--muted); margin-top: .15rem; }
