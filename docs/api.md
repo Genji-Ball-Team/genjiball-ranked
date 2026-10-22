@@ -374,7 +374,7 @@ Each of `players` changes on the leaderboard: `{ playerId, name, before, after, 
 
 Everything a community tool can read without a token: the [Site](#site-apileaderboard-apiplayersid-apiplayersidhistory-apiplayersidstats-apiplayerssearch-apimatchesid-apimatchesafter-apihead-to-head-apirecords-apitourneys-apilobbies) routes (the live lobbies included), the [rank tags](#rank-tags-get-apirank-tagsregioneu), `/api/server` and `/api/health`. A page on any website can read them from the browser. Code: `src/public.ts`, applied to every route in `src/index.ts`, so a handler doesn't set any of this itself.
 
-**The rule.** A path is public when its first segment after `/api/` is in `publicReadRoutes` (`src/public.ts`): `health`, `server`, `leaderboard`, `players`, `matches`, `tourneys`, `lobbies`, `head-to-head`, `records`, `rank-tags`, `screenshots`, and everything under them (`/api/players/12/history` is under `players`). **A new public route lists its first segment there**; one under an existing segment gets it already. `admin`, `host`, `upload` and `bot` (`privateRoutes`) need a token: they never get CORS headers, whatever the list says, and every answer on them is `Cache-Control: no-store`.
+**The rule.** A path is public when its first segment after `/api/` is in `publicReadRoutes` (`src/public.ts`): `health`, `server`, `leaderboard`, `titles`, `tiers`, `players`, `matches`, `tourneys`, `lobbies`, `head-to-head`, `records`, `rank-tags`, `screenshots`, and everything under them (`/api/players/12/history` is under `players`). **A new public route lists its first segment there**; one under an existing segment gets it already. `admin`, `host`, `upload` and `bot` (`privateRoutes`) need a token: they never get CORS headers, whatever the list says, and every answer on them is `Cache-Control: no-store`.
 
 On a public path:
 
@@ -472,6 +472,17 @@ A result's `status`:
 | `conflict` | The list changed between the read and the write: send it again |
 
 As on the page: only while the tourney is `scheduled` (`409 closed` for the `POST` and for a `DELETE` that would remove one), past capacity is fine. Not rate-limited by IP. `400 bad_request` for a bad body, `404 not_found` for an unknown tourney, `405 method_not_allowed` for another method.
+
+## Titles and tiers: `GET /api/titles?region=eu`, `GET /api/tiers?players=1,2`
+
+**Titles** are God and Demigod: the 1v1 tourney held every two months makes its winner God and the runner-up Demigod, and the Discord staff give them as a Discord role per region. They aren't tiers: a titled player keeps their rating, tier and place on `/api/leaderboard`, and the game's rank tags and top 10 don't change. Who has a title is the Discord bot's to know: it reads the roles of the players it linked to their site player and answers `GET /titles` on its own Worker, which the site reaches through the `BOT` service binding (`wrangler.toml`; the test server has none, so no titles). Public, cached like the [Site](#site-apileaderboard-apiplayersid-apiplayersidhistory-apiplayersidstats-apiplayerssearch-apimatchesid-apimatchesafter-apihead-to-head-apirecords-apitourneys-apilobbies) routes. Code: `src/site/titles.ts`.
+
+| Route | Answers |
+|---|---|
+| `GET /api/titles?region=eu` | `{ region, titles }`: the region's titled players, in the order of `titles` in the config (God, then Demigod), best rated first within one, at most `max` of each (1 God, 3 Demigods). Each: `title`, then as on the leaderboard (`rank, id, name, rating, rounds, wins, lastPlayedAt, tier, inactiveSince`), `rank` being their real place there. A merged player's id counts as the player it was merged into; a player without `minRankedRounds` rated rounds in the region isn't listed. Empty when nobody has a title, or the bot doesn't answer. The leaderboard page lists them above everyone in their own bands, God white and Demigod dark red, and numbers the rest from 1 without them |
+| `GET /api/tiers?players=1,2,3` | For the Discord bot's rank roles, every linked player in one request: `{ players }`, each `{ id, playerId, name, regions }`. `id` is the asked id, `playerId` the player it is now (merges followed). `regions`: by region id, as on the leaderboard without `rank` (`id, name, rating, rounds, wins, lastPlayedAt, tier, inactiveSince`); `{}` and `name` `null` with no rating anywhere. Ids that aren't a player are left out. `400 bad_request` without `players`, with one that isn't an id, or with more than `tiersMaxPlayers` (200) |
+
+The bot's `GET /titles` answers `{ titles: [{ playerId, region, title }] }`; malformed entries are skipped.
 
 ## Rank tags: `GET /api/rank-tags?region=eu`
 

@@ -311,7 +311,7 @@ describe("tierFor", () => {
       ["Grandmaster", 1900],
       ["Ascendant", 2200],
       ["Champion", 2500],
-      ["God", 2800],
+      ["Sovereign", 2800],
     ]);
   });
 
@@ -324,7 +324,7 @@ describe("tierFor", () => {
     expect(tierFor(tiers[0]!.threshold, tiers)?.label).toBe("Apprentice");
     expect(tierFor(tiers[1]!.threshold - 1, tiers)?.label).toBe("Apprentice");
     expect(tierFor(tiers[1]!.threshold, tiers)?.label).toBe("Master");
-    expect(tierFor(99999, tiers)?.label).toBe("God");
+    expect(tierFor(99999, tiers)?.label).toBe("Sovereign");
   });
 });
 

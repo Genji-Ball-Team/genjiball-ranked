@@ -13,10 +13,12 @@ import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
+import { fetchTitles, pickTitles } from "./titles";
 import { nextTier, standing } from "./standing";
 import {
   findHeadToHead,
   findMatchDetail,
+  findCanonicalIds,
   findCanonicalPlayer,
   findPlayerStats,
   findRating,
@@ -26,7 +28,9 @@ import {
   listHistory,
   listLeaderboard,
   listPlayerMatches,
+  listRanked,
   listRatedRegions,
+  listRatingsOf,
   listRivals,
   listTagCandidates,
   rankOf,
@@ -58,6 +62,8 @@ export type SiteConfig = RankTagsConfig &
   Pick<
     Config,
     | "leaderboardPageSize"
+    | "titles"
+    | "tiersMaxPlayers"
     | "matchFeedLimit"
     | "playerRecentMatches"
     | "playerRivalsLimit"
@@ -80,17 +86,24 @@ export async function handleSite(
   config: SiteConfig,
   now = new Date(),
   proofs?: R2Bucket,
+  bot?: Fetcher,
 ): Promise<Response | null> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head"].includes(route ?? "");
+  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head"].includes(route ?? "");
   const asked = regional ? regionParam(url, config) : null;
   if (asked instanceof Response) return asked;
   const region = asked!;
   const id = positiveId(path[1]);
   const reads: Record<string, () => Promise<Response>> = {
     leaderboard: async () => Response.json(await leaderboard(db, config, region, url.searchParams.get("page"), now)),
+    titles: async () => Response.json(await titled(db, config, region, bot, now)),
+    tiers: async () => {
+      const ids = playerIds(url.searchParams.get("players"), config.tiersMaxPlayers);
+      if (!ids) return fail(400, "bad_request", `players must be 1 to ${config.tiersMaxPlayers} player ids, comma separated`);
+      return Response.json(await tiers(db, config, ids, now));
+    },
     server: async () => {
       const stale = await staleRegions(db);
       const ratingsUpdating = config.regions.map((r) => r.id).filter((id) => stale.includes(id));
@@ -163,6 +176,52 @@ async function leaderboard(db: D1Database, config: SiteConfig, region: Region, p
     pageSize: size,
     hasMore: rows.length > size,
     players: rows.slice(0, size).map((row, i) => ({ rank: offset + i + 1, ...ratingView(row, config, now) })),
+  };
+}
+
+/**
+ * The region's God and Demigod (`titles` in the config, src/site/titles.ts), with their rating and
+ * real place on the leaderboard: the page lists them above everyone and numbers the rest without them.
+ */
+async function titled(db: D1Database, config: SiteConfig, region: Region, bot: Fetcher | undefined, now: Date) {
+  const entries = (await fetchTitles(bot)).filter((e) => e.region === region.id);
+  if (!entries.length) return { region: region.id, titles: [] };
+  const canonical = await findCanonicalIds(db, entries.map((e) => e.playerId));
+  const resolved = entries.flatMap((e) => (canonical.has(e.playerId) ? [{ ...e, playerId: canonical.get(e.playerId)! }] : []));
+  const rows = await listRanked(db, region.id, [...new Set(resolved.map((e) => e.playerId))], config.minRankedRounds);
+  const picked = pickTitles(resolved, region.id, config.titles, new Map(rows.map((row) => [row.playerId, row])));
+  return {
+    region: region.id,
+    titles: picked.map(({ title, rating }) => ({ title, rank: rating.rank, ...ratingView(rating, config, now) })),
+  };
+}
+
+/** `?players=1,2,3`: distinct positive ids, at most `max`, or null. */
+function playerIds(param: string | null, max: number): number[] | null {
+  if (!param) return null;
+  const ids = param.split(",").map((part) => positiveId(part.trim()));
+  if (ids.length > max || ids.some((id) => id === null)) return null;
+  return [...new Set(ids as number[])];
+}
+
+/**
+ * Each asked player's rating and tier in every region they have one, for the Discord bot's rank
+ * roles: one request for all its linked players. `id` is the asked id, `playerId` the player it is
+ * now (a merged id answers for the player it was merged into). Ids that aren't a player are left out.
+ */
+async function tiers(db: D1Database, config: SiteConfig, ids: number[], now: Date) {
+  const canonical = await findCanonicalIds(db, ids);
+  const rows = canonical.size ? await listRatingsOf(db, [...new Set(canonical.values())]) : [];
+  return {
+    players: [...canonical].map(([id, playerId]) => {
+      const mine = rows.filter((row) => row.playerId === playerId);
+      return {
+        id,
+        playerId,
+        name: mine[0]?.name ?? null,
+        regions: Object.fromEntries(mine.map((row) => [row.board, ratingView(row, config, now)])),
+      };
+    }),
   };
 }
 
