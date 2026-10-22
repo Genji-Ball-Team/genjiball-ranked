@@ -99,7 +99,7 @@ function showError(box, error, what) {
   );
 }
 
-// The tier's colour is the game's tag colour, unchanged. The chip's text is dark or light,
+// The tier's colour is the game's tag colour, unchanged (Rookie, on the site only, has its own). The chip's text is dark or light,
 // whichever contrasts more with it, so dark tiers like Champion stay readable.
 function tierStyle(tier) {
   const [r, g, b] = tier.color;
@@ -127,13 +127,13 @@ function ladder(players, query = "") {
   const html = players
     .map((p) => {
       let head = "";
-      if (p.tier?.label !== band) {
-        band = p.tier?.label;
-        head = `<li class="band">${p.tier ? `${chip(p.tier)}<span class="num">${p.tier.threshold}+</span>` : "No tier yet"}</li>`;
+      if (p.siteTier?.label !== band) {
+        band = p.siteTier?.label;
+        head = `<li class="band">${p.siteTier ? `${chip(p.siteTier)}<span class="num">${p.siteTier.threshold}+</span>` : "No tier yet"}</li>`;
       }
       floor ||= p.rating <= 0;
       const pos = `<span class="pos num${p.rank <= 3 ? ` high${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>`;
-      return head + entry(p, query, pos, p.tier ? tierStyle(p.tier) : "");
+      return head + entry(p, query, pos, p.siteTier ? tierStyle(p.siteTier) : "");
     })
     .join("");
   $("floor-note").hidden = !floor;
@@ -272,10 +272,10 @@ function change(before, after) {
 
 // How far a ranked player is from the next tier: a bar from their tier's start to the next one's.
 function progress(r) {
-  const from = r.tier?.threshold ?? 0;
+  const from = r.siteTier?.threshold ?? 0;
   const to = r.nextTier.threshold;
   const share = Math.min(1, Math.max(0, (r.rating - from) / (to - from)));
-  return `<div class="track" style="${r.tier ? tierStyle(r.tier) : ""}"><span style="width:${(share * 100).toFixed(1)}%"></span></div>
+  return `<div class="track" style="${r.siteTier ? tierStyle(r.siteTier) : ""}"><span style="width:${(share * 100).toFixed(1)}%"></span></div>
     <p><span class="num">${to - r.rating}</span> to ${chip(r.nextTier)}</p>`;
 }
 
@@ -482,7 +482,7 @@ function historySection(h, r) {
     .join("");
   ratingGraph($("graph"), {
     series: [{ name: h.player.name, points: h.points, peak: h.peak, color: "var(--accent)" }],
-    tiers: [r?.tier, r?.nextTier].filter(Boolean),
+    tiers: [r?.siteTier, r?.nextTier].filter(Boolean),
     label: graphLabel(h),
   });
   const f = h.form;
@@ -528,7 +528,7 @@ async function playerPage() {
     const here = regionName(site.region);
     title(`${p.name} (${site.short(site.region)})`);
     $("name").textContent = p.name;
-    $("tier").innerHTML = r ? chip(r.tier) : "";
+    $("tier").innerHTML = r ? chip(r.siteTier) : "";
     const others = p.aliases.filter((a) => a !== p.name);
     // A rating in another region is a separate one: a link to it, not a mix on this page.
     const elsewhere = p.regions
@@ -625,7 +625,7 @@ function compareTable(players) {
   const head = players
     .map(
       (p, i) => `<th scope="col"><span class="key"><i style="--series:${seriesColors[i]}"></i><a href="${playerLink(p.id)}">${esc(p.name)}</a></span>
-        ${chip(p.rating?.tier)}<button type="button" class="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></th>`,
+        ${chip(p.rating?.siteTier)}<button type="button" class="remove" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></th>`,
     )
     .join("");
   const rows = compareRows
@@ -767,7 +767,7 @@ async function comparePage() {
               .slice(0, 8)
               .map(
                 (p) => `<li><button type="button" data-id="${p.id}"><b>${highlight(p.name, query.toLowerCase())}</b>${p.matchedAlias ? `<small>was ${esc(p.matchedAlias)}</small>` : ""}
-                  ${chip(p.tier)}<span class="rating num">${p.rating === null ? "" : rating(p.rating)}</span></button></li>`,
+                  ${chip(p.siteTier)}<span class="rating num">${p.rating === null ? "" : rating(p.rating)}</span></button></li>`,
               )
               .join("")
           : `<li class="hint">No one in ${regionName(site.region)} is called “${esc(query)}”.</li>`;
@@ -1385,8 +1385,8 @@ function searchSheet() {
       results.innerHTML = found.length
         ? found
             .map(
-              (p) => `<li><a href="${playerLink(p.id)}"${p.tier ? ` style="${tierStyle(p.tier)}"` : ""}>
-                <span class="pos num">${p.rank}</span><b>${highlight(p.name, query)}</b>${chip(p.tier)}<span class="rating num">${rating(p.rating)}</span></a></li>`,
+              (p) => `<li><a href="${playerLink(p.id)}"${p.siteTier ? ` style="${tierStyle(p.siteTier)}"` : ""}>
+                <span class="pos num">${p.rank}</span><b>${highlight(p.name, query)}</b>${chip(p.siteTier)}<span class="rating num">${rating(p.rating)}</span></a></li>`,
             )
             .join("")
         : `<li class="hint">No one on the leaderboard is called “${esc(input.value.trim())}”.</li>`;

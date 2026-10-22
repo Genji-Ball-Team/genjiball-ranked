@@ -1,6 +1,6 @@
 import type { Config } from "../config";
 import { isoSeconds } from "../time";
-import { standing, type StandingConfig } from "./standing";
+import { gameTiers, standing, type StandingConfig } from "./standing";
 import type { RatingRow } from "./store";
 
 /**
@@ -32,7 +32,7 @@ export interface RankTags {
  * best ones.
  */
 export function rankTags(candidates: readonly RatingRow[], config: RankTagsConfig, now: Date): RankTags {
-  const tiers = config.tiers.map((tier) => ({
+  const tiers = gameTiers(config.tiers).map((tier) => ({
     label: tier.label,
     color: [...tier.color, 255] as [number, number, number, number],
     guide: `${tier.label} - ${tier.threshold}`,
@@ -42,6 +42,7 @@ export function rankTags(candidates: readonly RatingRow[], config: RankTagsConfi
   for (const player of candidates) {
     if (count >= config.rankTagsMaxNames) break;
     if (!isWritable(player.name)) continue;
+    // `tier` is the game's: a player in a site-only tier (Rookie) has none, so no tag.
     const { tier, inactiveSince } = standing(player, config, now);
     if (!tier || inactiveSince) continue;
     tiers.find((t) => t.label === tier.label)!.names.push(player.name);

@@ -45,6 +45,12 @@ describe("rankTags", () => {
     expect(tags.tiers.flatMap((t) => t.names)).toEqual(['Quote"Back\\slash']);
   });
 
+  it("leaves out the site-only Rookie tier: the game's tiers and tags don't change", () => {
+    const tags = rankTags([player("Kenzo", 1300), player("Rook", 1299), player("Rookie2", 1100)], defaults, now);
+    expect(tags.tiers.map((t) => t.label)).toEqual(["Apprentice", "Master", "Grandmaster", "Ascendant", "Champion", "Sovereign"]);
+    expect(tags.tiers.flatMap((t) => t.names)).toEqual(["Kenzo"]);
+  });
+
   it("keeps the best rankTagsMaxNames names", () => {
     const tags = rankTags([player("A", 2000), player("B", 1950), player("C", 1300)], { ...defaults, rankTagsMaxNames: 2 }, now);
     expect(tags.tiers.flatMap((t) => t.names)).toEqual(["A", "B"]);
@@ -66,6 +72,7 @@ describe("GET /api/rank-tags", () => {
       ["Gone", 2000, defaults.minRankedRounds, inactive],
       ["New", 2000, defaults.minRankedRounds - 1, active],
       ["Low", 1000, defaults.minRankedRounds, active],
+      ["Rook", 1200, defaults.minRankedRounds, active],
       ["{0}", 2500, defaults.minRankedRounds, active],
     ];
     await db().batch(
@@ -78,11 +85,11 @@ describe("GET /api/rank-tags", () => {
     );
 
     // A name the Workshop can't hold doesn't take a place under rankTagsMaxNames.
-    await db().prepare("INSERT INTO players (id, name) VALUES (6, 'Second')").run();
-    await db().prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('eu', 6, 25, 1, 1300, ?, ?)").bind(defaults.minRankedRounds, active).run();
+    await db().prepare("INSERT INTO players (id, name) VALUES (7, 'Second')").run();
+    await db().prepare("INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, last_played_at) VALUES ('eu', 7, 25, 1, 1300, ?, ?)").bind(defaults.minRankedRounds, active).run();
     const capped = await handleSite(new Request("https://example.com/api/rank-tags"), db(), { ...defaults, rankTagsMaxNames: 2 });
     expect(((await capped!.json()) as RankTags).tiers.map((t) => t.names)).toEqual([["Second"], ["Kenzo"], [], [], [], []]);
-    await db().prepare("DELETE FROM ratings WHERE player_id = 6").run();
+    await db().prepare("DELETE FROM ratings WHERE player_id = 7").run();
 
     const res = await SELF.fetch("https://example.com/api/rank-tags");
     expect(res.status).toBe(200);
