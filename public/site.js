@@ -31,6 +31,22 @@ async function api(path) {
   return res.json();
 }
 
+// Browser storage can throw (private windows, blocked site data): then nothing is kept.
+function remember(storage, key, value) {
+  try {
+    storage.setItem(key, value);
+  } catch {
+    // not kept
+  }
+}
+function remembered(storage, key) {
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 // Motion is skipped for whoever asks for less (the stylesheet does the same).
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -1243,11 +1259,7 @@ function signupSection(t) {
   const input = $("signup-name");
   const message = $("signup-message");
   form.hidden = $("signup-hint").hidden = false;
-  try {
-    input.value = localStorage.getItem(signupNameKey) ?? "";
-  } catch {
-    // not kept
-  }
+  input.value = remembered(localStorage, signupNameKey) ?? "";
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = input.value.trim();
@@ -1265,11 +1277,7 @@ function signupSection(t) {
       if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
       if (data.created) names.push(data.signup.name);
       count = data.signups.count;
-      try {
-        localStorage.setItem(signupNameKey, data.signup.name);
-      } catch {
-        // not kept
-      }
+      remember(localStorage, signupNameKey, data.signup.name);
       message.textContent = data.created ? `You're signed up as ${data.signup.name}.` : `${data.signup.name} is already signed up.`;
       draw();
     } catch (error) {
@@ -1452,20 +1460,12 @@ const scrollKey = () => `scroll:${location.pathname}${location.search}`;
 const returning = performance.getEntriesByType("navigation")[0]?.type === "back_forward";
 history.scrollRestoration = "manual";
 addEventListener("pagehide", () => {
-  try {
-    sessionStorage.setItem(scrollKey(), String(Math.round(scrollY)));
-  } catch {
-    // not kept
-  }
+  remember(sessionStorage, scrollKey(), String(Math.round(scrollY)));
 });
 function restoreScroll() {
   if (!returning) return;
-  try {
-    const y = Number(sessionStorage.getItem(scrollKey()));
-    if (y) scrollTo(0, y);
-  } catch {
-    // not kept
-  }
+  const y = Number(remembered(sessionStorage, scrollKey()));
+  if (y) scrollTo(0, y);
 }
 
 const page = document.body.dataset.page;
