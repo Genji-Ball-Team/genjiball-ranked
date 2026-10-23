@@ -11,7 +11,8 @@ Each rated round is one game of [OpenSkill](https://github.com/philihp/openskill
 - Only `WIN` rounds that aren't broken. The order is the winner, then the `ELIM`s from last out to first.
 - A player who left during the round is dropped from it: their rating doesn't change, and the others are rated on their order without them. Leaving is never punished.
 - **Host AFK.** The host is dropped the same way from the rounds the host tool says they were AFK in (`X-Host-Afk`, [api.md](api.md)): every round that started while the AFK button was on. The host is the player whose `JOIN` has `host` `1` (every id of a host who left and came back). Their stats and round wins still count; only the rating skips them. The upload applies it (`withHostAfk`, `src/upload/hostAfk.ts`) before it writes the rounds: the host gets no `position` (`round_players.afk` is set), so the engine and a recompute from scratch never see them in those rounds. The rounds are stored with the match (`matches.host_afk`), so a longer copy or a re-parse drops the host again. New AFK rounds for a rated match rewrite its rounds and make the ratings stale from it, like a late upload.
-- A round needs at least 2 players after that (leavers and an AFK host dropped).
+- **First rounds.** A player's first `ratingUnratedRounds` (3) rounds in a region aren't rated: the round is rated without them, the same way as a leaver, so a one-off or fresh account can't hand out or take rating. They still count as rounds played, and wins and streaks move. A tournament match's standings bonus leaves out anyone who started the match inside those rounds.
+- A round needs at least 2 players after that (leavers, an AFK host and players in their first rounds dropped). One that has fewer is rated for nobody, but its rounds, wins and streaks still count.
 
 The parser builds the finishing order. The engine gets it with player ids (`players.id`) instead of log ids.
 

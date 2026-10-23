@@ -22,6 +22,7 @@ export type RatingConfig = Pick<
   | "displayScale"
   | "displayFloor"
   | "ratingMatchMaxChange"
+  | "ratingUnratedRounds"
   | "tournamentBonusWeight"
   | "tournamentWinValueGrowth"
   | "tournamentWinnerBonus"
@@ -81,10 +82,11 @@ export function newRating(config: RatingConfig): PlayerRating {
 }
 
 /**
- * Rates one round in place. `order` is the finishing order, winner first. A round with fewer than
+ * Rates one round in place. `order` is the finishing order, winner first (`winner` is the round's
+ * winner when they sit the rating out, see `ratingUnratedRounds`). A round with fewer than
  * two players, or a player listed twice, changes nothing and returns false.
  */
-export function rateRound(ratings: Ratings, order: readonly number[], config: RatingConfig): boolean {
+export function rateRound(ratings: Ratings, order: readonly number[], config: RatingConfig, winner = order[0]): boolean {
   if (order.length < 2 || new Set(order).size !== order.length) return false;
 
   const n = config.ratingRoundsPerMatch;
@@ -103,7 +105,8 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
   order.forEach((id, i) => {
     const prior = before[i]!;
     const full = after[i]![0]!;
-    const streak = i === 0 ? prior.streak + 1 : 0;
+    const won = id === winner;
+    const streak = won ? prior.streak + 1 : 0;
     // Damping: mu moves 1/n of the way to the full update. Sigma takes the full update: damping it
     // too kept every regular's sigma near 6 however much they played, so the ratings never settled
     // and a strong player kept gaining a lot from beating far weaker ones (docs/rating.md).
@@ -111,13 +114,28 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
       mu: prior.mu + (full.mu - prior.mu) / n,
       sigma: full.sigma,
       rounds: prior.rounds + 1,
-      wins: prior.wins + (i === 0 ? 1 : 0),
+      wins: prior.wins + (won ? 1 : 0),
       streak,
       bestStreak: Math.max(prior.bestStreak, streak),
       lastPlayedAt: prior.lastPlayedAt,
     });
   });
   return true;
+}
+
+/** Counts a round for `ids` without rating it: rounds, wins and streaks move, mu and sigma don't. */
+function countRound(ratings: Ratings, ids: readonly number[], winner: number, config: RatingConfig): void {
+  for (const id of ids) {
+    const prior = ratings.get(id) ?? newRating(config);
+    const streak = id === winner ? prior.streak + 1 : 0;
+    ratings.set(id, {
+      ...prior,
+      rounds: prior.rounds + 1,
+      wins: prior.wins + (id === winner ? 1 : 0),
+      streak,
+      bestStreak: Math.max(prior.bestStreak, streak),
+    });
+  }
 }
 
 /**
@@ -138,12 +156,23 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
   const played = new Set<number>();
   const rated: number[][] = [];
   for (const order of match.rounds) {
-    if (!rateRound(ratings, order, config)) continue;
+    if (order.length < 2 || new Set(order).size !== order.length) continue;
+    // Players still in their first `ratingUnratedRounds` rounds sit the rating out: the round is
+    // rated without them, and only their round counts move. With fewer than two others left,
+    // nobody is rated and every count still moves.
+    const winner = order[0]!;
+    const fresh = order.filter((id) => (ratings.get(id) ?? newRating(config)).rounds < config.ratingUnratedRounds);
+    const counted = order.filter((id) => !fresh.includes(id));
+    if (counted.length >= 2) rateRound(ratings, counted, config, winner);
+    else countRound(ratings, counted, winner, config);
+    countRound(ratings, fresh, winner, config);
     order.forEach((id) => played.add(id));
     rated.push(order);
   }
   if (match.tournament) {
-    rateTournament(ratings, started, tournamentStandings(rated, match.kills ?? new Map(), config), config);
+    // Only players already past their unrated rounds when the match began take part in the bonus.
+    const standings = tournamentStandings(rated, match.kills ?? new Map(), config).filter(({ playerId }) => started.get(playerId)!.rounds >= config.ratingUnratedRounds);
+    rateTournament(ratings, started, standings, config);
   } else {
     for (const id of played) capChange(ratings.get(id)!, started.get(id)!, config.ratingMatchMaxChange, config.ratingMatchMaxChange, config);
   }

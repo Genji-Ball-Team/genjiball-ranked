@@ -127,6 +127,13 @@ export const defaults = {
    * On the v1.3.2 logs it barely changes how well rounds are predicted.
    */
   ratingMatchMaxChange: 150,
+  /**
+   * A player's first this many rounds in a region aren't rated: they count as rounds played, but
+   * nobody's rating moves for them, theirs or anyone else's (the round is rated without them). So a
+   * one-off or fresh account can't hand out or take rating before it has played a little. 0 rates
+   * every round. A change makes every rating stale: it needs a migration that marks them all stale.
+   */
+  ratingUnratedRounds: 3,
 
   /**
    * A match with no MATCH_END is rated once this many hours have passed since it started: until

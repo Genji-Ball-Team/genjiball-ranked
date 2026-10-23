@@ -6,7 +6,7 @@ import { createLogger } from "../src/log";
 import { readState } from "../src/rating/store";
 import { markAllStale, markMatchesChanged, rateNewMatches, recomputeRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
-import { expectUpToDate, historyTable, matchId, matchLog, ratingsTable, uploadLog } from "./helpers";
+import { expectUpToDate, historyTable, matchId, matchLog, playerId, ratingsTable, uploadLog } from "./helpers";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -24,11 +24,11 @@ beforeEach(async () => {
 
 const upload = (body: string, startedAt: string, headers: Record<string, string> = {}) => uploadLog(body, token, startedAt, headers);
 
-async function recomputeUntilDone(budget = defaults.ratingMatchesPerRun): Promise<number> {
+async function recomputeUntilDone(budget = defaults.ratingMatchesPerRun, config = defaults): Promise<number> {
   let runs = 0;
   for (;;) {
     runs++;
-    const result = await recomputeRatings(db(), defaults, new Date(), log, "eu", budget);
+    const result = await recomputeRatings(db(), config, new Date(), log, "eu", budget);
     if (result.done) return runs;
     expect(runs).toBeLessThan(100);
   }
@@ -249,5 +249,23 @@ describe("ratings: host AFK", () => {
     await recomputeUntilDone();
     expect(await rated()).toMatchObject({ Alpha: [2, 1], Bravo: [4, 2] });
     await expectUpToDate();
+  });
+});
+
+describe("ratings: unrated first rounds", () => {
+  it("re-rates everything without each player's first rounds after markAllStale", async () => {
+    // The uploads rate with the tests' ratingUnratedRounds of 0 (test/setup.ts): every round counts.
+    await upload(matchLog(), "2026-09-01T20:00:00Z");
+    await upload(matchLog({ key: "000000000002" }), "2026-09-02T20:00:00Z");
+    const everyRound = await ratingsTable();
+
+    await markAllStale(db(), new Date());
+    await recomputeUntilDone(defaults.ratingMatchesPerRun, { ...defaults, ratingUnratedRounds: 3 });
+    const fromFourth = await ratingsTable();
+    expect(fromFourth.map((r) => [r.rounds, r.wins])).toEqual(everyRound.map((r) => [r.rounds, r.wins]));
+    for (const r of fromFourth) expect(r.mu as number).not.toBeCloseTo(everyRound.find((e) => e.playerId === r.playerId)!.mu as number, 6);
+    // Only the fourth round is rated, and Bravo won it.
+    const top = fromFourth.reduce((a, b) => ((a.mu as number) >= (b.mu as number) ? a : b));
+    expect(top.playerId).toBe(await playerId("Bravo"));
   });
 });

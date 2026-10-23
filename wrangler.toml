@@ -45,7 +45,8 @@ crons = ["*/10 * * * *"]
 LOG_LEVEL = "info"
 # Matches re-rated a cron run. The free plan's 100,000 rows written a day: a recompute all day at 5
 # writes about 28,800 and leaves room for a busy day of uploads (docs/rating.md, "Ratings in the database").
-RATING_MATCHES_PER_RUN = "5"
+# 10 while a full recompute runs (migration 0024); back to 5 once it's done.
+RATING_MATCHES_PER_RUN = "10"
 
 # The test server (#37): the same Worker with its own D1, for playtests and trying changes before
 # they reach the real leaderboard. Deploy with `npm run deploy:test`. Nothing here touches the

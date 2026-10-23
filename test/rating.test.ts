@@ -15,7 +15,8 @@ import {
   type Ratings,
 } from "../src/rating/engine";
 
-const config = defaults;
+// Most tests start from new players, so they rate from the first round; `ratingUnratedRounds` has its own tests.
+const config = { ...defaults, ratingUnratedRounds: 0 };
 
 function match(id: number, rounds: number[][], playedAt = `2026-10-${String(id).padStart(2, "0")}T20:00:00Z`): RatingMatch {
   return { id, playedAt, rounds };
@@ -474,5 +475,33 @@ describe("tournaments", () => {
     const kills = Object.fromEntries(before.map(([id, , , k]) => [id, k]));
     rateMatch(ratings, tourney(placings, kills), config);
     expect(before.map(([id]) => change(ratings, id, starts.get(id)!))).toEqual([7, 75, 36, 132, -38, -56, -50]);
+  });
+});
+
+describe("ratingUnratedRounds", () => {
+  const unrated = { ...defaults, ratingUnratedRounds: 3 };
+
+  it("rates nobody for a player's first rounds, but counts them", () => {
+    const ratings: Ratings = new Map();
+    // 1 and 2 are past their first rounds; 3 is new.
+    for (const id of [1, 2]) ratings.set(id, { ...newRating(unrated), rounds: 3 });
+    rateMatch(ratings, match(1, [[3, 1, 2], [3, 2, 1], [3, 1, 2]]), unrated);
+    const alone: Ratings = new Map();
+    for (const id of [1, 2]) alone.set(id, { ...newRating(unrated), rounds: 3 });
+    rateMatch(alone, match(1, [[1, 2], [2, 1], [1, 2]]), unrated);
+    expect(ratings.get(3)).toMatchObject({ mu: unrated.ratingMu, sigma: unrated.ratingSigma, rounds: 3, wins: 3, streak: 3 });
+    expect(ratings.get(1)!.mu).toBeCloseTo(alone.get(1)!.mu, 12);
+    expect(ratings.get(2)!.mu).toBeCloseTo(alone.get(2)!.mu, 12);
+    // The new player won every round, so nobody else won one.
+    expect(ratings.get(1)!.wins).toBe(0);
+    expect(ratings.get(2)!.wins).toBe(0);
+  });
+
+  it("rates a player from their fourth round", () => {
+    const ratings: Ratings = new Map();
+    rateMatch(ratings, match(1, [[1, 2], [1, 2], [1, 2], [1, 2]]), unrated);
+    expect(ratings.get(1)!.rounds).toBe(4);
+    expect(ratings.get(1)!.mu).toBeGreaterThan(unrated.ratingMu);
+    expect(ratings.get(2)!.mu).toBeLessThan(unrated.ratingMu);
   });
 });
