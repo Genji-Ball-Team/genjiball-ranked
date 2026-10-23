@@ -19,7 +19,7 @@ The region head script and the banners also have Node tests (`test/*.node.mjs`),
 
 Every tunable lives in `src/config.ts`, with its default and a comment saying what it does: rating parameters, tier thresholds, limits, timeouts, accepted log versions, feature flags. Code reads `config.someValue`, never a literal.
 
-- A wrangler.toml var can override a default (`LOG_LEVEL` overrides `logLevel`). Secrets (webhook URLs, keys) are `wrangler secret`s, never in `wrangler.toml` or the repo.
+- A wrangler.toml var can override a default (`LOG_LEVEL` overrides `logLevel`). Secrets (`BOT_TOKEN`, any key) are `wrangler secret`s, never in `wrangler.toml` or the repo.
 - Unfinished features ship behind a flag in the config, off by default.
 - `LOG_LEVEL=debug` should be enough to see why a log was parsed, rejected or rated the way it was. Log through `src/log.ts`, not `console.log`.
 

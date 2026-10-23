@@ -85,7 +85,7 @@ function sameEntry(a: HistoryEntry | undefined, b: HistoryEntry): boolean {
   );
 }
 
-function sameRating(a: StoredRating | undefined, b: StoredRating): boolean {
+export function sameRating(a: StoredRating | undefined, b: StoredRating): boolean {
   return (
     a !== undefined &&
     a.mu === b.mu &&

@@ -16,8 +16,7 @@ export type PublicConfig = Pick<Config, "publicCacheSeconds" | "corsMaxAgeSecond
 
 /**
  * First path segments of the public read routes: `/api/<segment>` and everything under it. A new
- * public route adds its segment here. Some are listed before their routes exist (`lobbies`,
- * `head-to-head`, `records`): an unknown path under them is still a `404`.
+ * public route adds its segment here. An unknown path under one is still a `404`.
  */
 export const publicReadRoutes: readonly string[] = [
   "health",
