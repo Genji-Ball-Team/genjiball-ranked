@@ -58,7 +58,7 @@ function guesses(path) {
   // That, /@Name or just /Name: a player, most likely. Search the board for them.
   const name = forPlayer ? parts[1] : parts.length === 1 && !best ? parts[0].replace(/^@/, "") : null;
   if (name && name.length <= 32 && !/\.\w{2,4}$/.test(name)) {
-    out.push(`Looking for a player? <a href="/?q=${encodeURIComponent(name)}">Search the leaderboard for “${esc(name)}”</a>.`);
+    out.push(`<a href="/?q=${encodeURIComponent(name)}">Search for “${esc(name)}”</a>`);
   }
   return out;
 }
@@ -200,7 +200,7 @@ function start() {
 function pause() {
   if (state !== "playing") return;
   state = "paused";
-  show("Paused.", `${deflects} ${deflects === 1 ? "deflect" : "deflects"} so far.`, "Resume");
+  show("Paused.", `${deflects} so far.`, "Resume");
 }
 
 function resume() {
@@ -222,9 +222,9 @@ function eliminated() {
     remember("localStorage", bestKey, String(best));
     $("lost-best").textContent = best;
   }
-  const said = deflects === 0 ? "Eliminated before a single deflect." : `Eliminated after ${deflects} ${deflects === 1 ? "deflect" : "deflects"}.`;
+  const said = `Eliminated. ${deflects} ${deflects === 1 ? "deflect" : "deflects"}.`;
   // Let the burst play out before the card covers it.
-  setTimeout(() => show(said, record && deflects > 0 ? "A new best on this device." : best ? `Your best here is ${best}.` : "Deflect it before it lands.", "Play again"), 650);
+  setTimeout(() => show(said, record && deflects > 0 ? "New best!" : `Best: ${best}`, "Play again"), 650);
 }
 
 function show(title, sub, button) {

@@ -100,20 +100,15 @@ h2 { font-size: 1.35rem; font-weight: 600; margin: 2.75rem 0 .75rem; }
 .lede a, .note a { color: var(--fg); text-decoration-color: var(--accent); text-underline-offset: 3px; }
 .note { color: var(--muted); font-size: .875rem; margin: 1rem 0 0; }
 
-/* Footer: what Genji Ball is, where else to find it, and the not-affiliated line. */
+/* Footer: one quiet line. */
 .foot {
-  max-width: 60rem; width: 100%; margin: 0 auto; padding: 1.5rem 1.25rem 2.5rem;
-  border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem;
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .75rem 2rem; align-items: start;
+  max-width: 60rem; width: 100%; margin: 0 auto; padding: 1.25rem 1.25rem 2rem;
+  display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap;
+  border-top: 1px solid var(--line); color: var(--faint); font-size: .85rem;
 }
-.foot p { margin: 0; }
-.foot-about { display: flex; gap: .6rem; max-width: 34rem; text-wrap: pretty; }
-.foot-about img { flex: none; margin-top: .15rem; }
-.foot-about b { color: var(--soft); font-weight: 600; }
 .foot-links { display: flex; gap: 1.25rem; }
-.foot-links a { color: var(--soft); text-decoration: none; }
+.foot-links a { color: var(--muted); text-decoration: none; }
 .foot-links a:hover { color: var(--fg); }
-.foot-legal { grid-column: 1 / -1; color: var(--faint); font-size: .75rem; }
 
 /* Tier chip: the game's tag colour filled in, with whichever of dark or light text reads on it. */
 .chip {
@@ -826,7 +821,7 @@ a.card:hover { border-color: var(--muted); }
   .top nav { gap: 1rem; }
   body:has(.tabbar) .regions { margin: 0 0 0 auto; }
   .regions a { padding: .3rem .8rem; }
-  .foot { padding-bottom: 1.5rem; grid-template-columns: minmax(0, 1fr); }
+  .foot { padding-bottom: 1.5rem; }
   body:has(.tabbar) .find { display: none; }
   .entry { padding-top: .8rem; padding-bottom: .8rem; }
   main { padding-top: 1.75rem; }
@@ -949,7 +944,7 @@ a.card:hover { border-color: var(--muted); }
 
 .lost-ways { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin: 3rem 0 0; }
 .lost-ways a {
-  position: relative; display: grid; gap: .15rem; padding: .9rem 1rem 1rem; overflow: hidden;
+  position: relative; display: grid; gap: .15rem; padding: .85rem 1rem; overflow: hidden;
   border: 1px solid var(--border); border-radius: 8px; background: var(--panel); text-decoration: none;
   transition: border-color .15s, translate .15s, background .15s;
 }
@@ -959,7 +954,6 @@ a.card:hover { border-color: var(--muted); }
 .lost-ways a:hover { border-color: var(--accent); background: var(--raised); translate: 0 -2px; }
 .lost-ways a:hover::after { color: var(--accent); translate: 3px 0; }
 .lost-ways b { font-size: 1.1rem; font-weight: 650; font-stretch: var(--narrow); }
-.lost-ways span { color: var(--muted); font-size: .82rem; line-height: 1.35; }
 
 .lost-game { margin-top: 3.25rem; }
 .lost-game-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .75rem; }
