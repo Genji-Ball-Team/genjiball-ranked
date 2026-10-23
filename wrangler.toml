@@ -12,6 +12,9 @@ routes = [{ pattern = "genjiball.us", custom_domain = true }]
 [assets]
 directory = "public"
 binding = "ASSETS"
+# Pages with a link preview of their own (src/site/preview.ts): the Worker runs first for these,
+# and hands every visitor but a link preview crawler the file as it is.
+run_worker_first = ["/player", "/match", "/compare"]
 
 [[d1_databases]]
 binding = "DB"
