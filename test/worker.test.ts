@@ -19,4 +19,11 @@ describe("worker", () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("Genji Ball Ranked");
   });
+
+  it("answers a page that isn't there with the 404 page and a 404 status", async () => {
+    const res = await SELF.fetch("https://example.com/no-such-page");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("Content-Type")).toContain("text/html");
+    expect(await res.text()).toContain('data-page="not-found"');
+  });
 });

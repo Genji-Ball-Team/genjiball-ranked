@@ -119,5 +119,16 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
   }
 
   log.debug("no asset or route", { path: url.pathname });
-  return env.ASSETS.fetch(request);
+  const asset = await env.ASSETS.fetch(request);
+  if (asset.status !== 404 || !["GET", "HEAD"].includes(request.method)) return asset;
+  return notFoundPage(request, env);
+}
+
+/** The site's own 404 page (public/404.html), still with a 404 status, for a page that isn't there. */
+async function notFoundPage(request: Request, env: Env): Promise<Response> {
+  const page = await env.ASSETS.fetch(new Request(new URL("/404", request.url), { method: request.method }));
+  if (!page.ok) return new Response(null, { status: 404 });
+  const headers = new Headers(page.headers);
+  headers.set("Cache-Control", "no-store");
+  return new Response(page.body, { status: 404, headers });
 }
