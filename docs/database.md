@@ -199,6 +199,18 @@ Assumed: **40 matches a day, every day**, 8 players, 25 rounds a match. From the
 
 A view of a page made before a match left reads 5 more rows. Top hosts and the ratings scans grow with the region's history: past a year, raise `recordsRefreshMinutes`, or keep per-host counts. The cost to watch is a **rating recompute** (#6): it reads every rated `round_players` row of the matches it re-rates, about 200 a match, and a full one would read about 3 million rows after a year at this rate, most of a day's reads. So a new match is rated incrementally, and a recompute starts at the first changed match, from the players' `rating_history` just before it, not from scratch. It re-rates `ratingMatchesPerRun` matches a run (about 2,000 rows read) and writes only the history and ratings rows that changed, so a late upload only rewrites the later matches of the players it moved ([rating.md](rating.md), "Ratings in the database"). The dry-run recompute (`npm run ratings:dry-run`, run by hand) does read a whole region from scratch, about 225 rows a match, writing nothing ([api.md](api.md), "Debug tools").
 
+**Queries whose join order is forced.** SQLite sometimes starts a join from the wrong table, and a read that should seek a few rows then walks a whole board (found on prod on 2026-10-23: 120 million rows read in a week, against the 5 million a day the free plan allows). These are written so the order can't flip, with a comment at each; `test/reads.test.ts` checks the rows read. Check one with `EXPLAIN QUERY PLAN`, or the `meta.rows_read` of a `wrangler d1 execute --remote --json`, before changing it.
+
+| Query | Forced with | Rows read on prod, before and after |
+|---|---|---|
+| `readRatingsBefore` (the rating cron: each player's last history row before a match) | `CROSS JOIN` from `json_each` (the players) | 82,783 to 58 for 12 players: the board's whole history, once a call, to a seek per player |
+| `listRatedRegions` (player page) | `board IN (the configured regions)`, so `ratings` is read by primary key | 2,208 (the table) to 4 |
+| `listFormRounds` (`/api/players/:id/history`) | The player's matches newest first, then `CROSS JOIN` to their rounds and `INDEXED BY round_players_player`, which stops at `recentFormRounds` | 7,400 to 300 for a regular (10,600 to 200 for the busiest), about the same for a player with 3 matches |
+| The match feed's players (`listFeed`, the Discord bot polls it) | Rounds and wins per player counted once for the page (`rs`), from the page's rounds by key, instead of a subquery per player over all their rounds | 884,000 to 7,400 for a page of 20 matches |
+| Tourney standings (`readStandings`) | Kills from `match_players.kills` (counted at upload from the same `KILL` lines) instead of the match's `events` | about 600 rows a match to about 50 |
+
+None of these adds an index, a column or a write.
+
 ### Live lobbies
 
 `live_lobbies` (#11) has one row per host, written by the host tool's heartbeat (`PUT /api/host/lobby`, [api.md](api.md)). Settings in `src/config.ts`: `lobbyHeartbeatSeconds` (60), `lobbyHeartbeatMinSeconds` (30), `lobbyTtlSeconds` (180).

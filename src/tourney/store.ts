@@ -152,8 +152,9 @@ export async function findHostLobby(db: D1Database, id: number, hostId: number |
 
 /**
  * The standings of these matches, in one batch of three reads: the players with their rating before
- * and after (as on the match page), round wins per log id, and kills per log id. Reads each match's
- * rounds and events, about 600 rows a match.
+ * and after (as on the match page), round wins per log id, and kills per log id. The kills are
+ * `match_players.kills`, counted at upload from the same `KILL` lines (not a self-kill) that
+ * `events` holds, so no event is read: about 50 rows a match instead of about 600.
  */
 export async function readStandings(db: D1Database, matchIds: readonly number[]): Promise<Map<number, Standing[]>> {
   const result = new Map<number, Standing[]>();
@@ -181,9 +182,8 @@ export async function readStandings(db: D1Database, matchIds: readonly number[])
       .bind(ids),
     db
       .prepare(
-        `SELECT match_id AS matchId, actor_id AS logId, COUNT(*) AS n FROM events
-         WHERE match_id IN (SELECT value FROM json_each(?1)) AND type = 'KILL' AND actor_id IS NOT NULL AND actor_id IS NOT target_id
-         GROUP BY match_id, actor_id`,
+        `SELECT match_id AS matchId, log_id AS logId, kills AS n FROM match_players
+         WHERE match_id IN (SELECT value FROM json_each(?1)) AND kills > 0`,
       )
       .bind(ids),
   ]);

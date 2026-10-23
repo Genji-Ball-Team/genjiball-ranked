@@ -250,7 +250,13 @@ export async function readHistory(db: D1Database, board: string, matchIds: reado
   return results;
 }
 
-/** Each player's rating just before `from`: their last history row before it. */
+/**
+ * Each player's rating just before `from`: their last history row before it.
+ *
+ * CROSS JOIN forces `json_each` (the players) to be the outer loop. With a plain JOIN SQLite picks
+ * `rating_history` (board = ?) as the outer loop and walks the whole board's history for every call
+ * (about 80,000 rows read on prod for 12 players); this way each player is a primary-key seek.
+ */
 export async function readRatingsBefore(
   db: D1Database,
   board: string,
@@ -261,7 +267,7 @@ export async function readRatingsBefore(
   const { results } = await db
     .prepare(
       `SELECT h.player_id AS playerId, h.mu, h.sigma, h.rounds, h.wins, h.streak, h.best_streak AS bestStreak, h.played_at AS lastPlayedAt
-       FROM json_each(?2) p JOIN rating_history h ON h.board = ?1 AND h.player_id = p.value
+       FROM json_each(?2) p CROSS JOIN rating_history h ON h.board = ?1 AND h.player_id = p.value
          AND (h.played_at, h.match_id) = (
            SELECT played_at, match_id FROM rating_history
            WHERE board = ?1 AND player_id = p.value AND (played_at, match_id) < (?3, ?4)
