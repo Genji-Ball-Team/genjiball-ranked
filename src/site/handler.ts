@@ -265,7 +265,7 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
   const [rating, matches, rated, rivals] = await Promise.all([
     findRating(db, region.id, found.id),
     listPlayerMatches(db, region.id, found.id, config.playerRecentMatches),
-    listRatedRegions(db, found.id),
+    listRatedRegions(db, found.id, regionIds(config.regions)),
     listRivals(db, region.id, found.id, config.playerRivalsLimit),
   ]);
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds;

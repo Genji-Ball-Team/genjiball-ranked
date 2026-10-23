@@ -144,9 +144,16 @@ export async function rankOf(db: D1Database, board: string, rating: RatingRow, m
   return row!.rank;
 }
 
-/** The regions the player has a rating in. */
-export async function listRatedRegions(db: D1Database, playerId: number): Promise<string[]> {
-  const { results } = await db.prepare("SELECT board FROM ratings WHERE player_id = ?").bind(playerId).all<{ board: string }>();
+/**
+ * The regions (of `regions`, ids) the player has a rating in. `ratings` is keyed (board, player_id), so
+ * `WHERE player_id = ?` alone scans the table; naming the boards makes each one a primary-key seek.
+ */
+export async function listRatedRegions(db: D1Database, playerId: number, regions: readonly string[]): Promise<string[]> {
+  if (!regions.length) return [];
+  const { results } = await db
+    .prepare("SELECT board FROM ratings WHERE player_id = ?1 AND board IN (SELECT value FROM json_each(?2))")
+    .bind(playerId, JSON.stringify(regions))
+    .all<{ board: string }>();
   return results.map((r) => r.board);
 }
 
@@ -446,20 +453,29 @@ export async function listFeed(
       )
       .bind(after, limit, region),
     // A player who rejoined has two log ids: one row, with the name they last joined as.
+    // Each page match's rounds and wins per player are counted once (`rs`), from its rounds and their
+    // players by primary key. As a subquery per player this walked the player's every round
+    // (`round_players_player`): about 880,000 rows on prod for a page of 20 matches, now about 7,000.
+    // CROSS JOIN fixes the order: the page first, never `matches` as the outer loop.
     db
       .prepare(
-        `SELECT mp.match_id AS matchId, mp.player_id AS id, mp.name, max(mp.log_id) AS logId,
-           (SELECT COUNT(*) FROM rounds r JOIN round_players rp ON rp.round_id = r.id
-            WHERE r.match_id = mp.match_id AND r.rated = 1 AND rp.player_id = mp.player_id AND rp.position IS NOT NULL) AS rounds,
-           (SELECT COUNT(*) FROM rounds r JOIN round_players rp ON rp.round_id = r.id
-            WHERE r.match_id = mp.match_id AND r.rated = 1 AND rp.player_id = mp.player_id AND rp.position = 1) AS wins,
+        `WITH page AS MATERIALIZED (${page}),
+         rs AS (
+           SELECT r.match_id AS match_id, rp.player_id AS player_id, COUNT(*) AS rounds, coalesce(SUM(rp.position = 1), 0) AS wins
+           FROM page CROSS JOIN rounds r ON r.match_id = page.id AND r.rated = 1
+             CROSS JOIN round_players rp ON rp.round_id = r.id AND rp.position IS NOT NULL
+           GROUP BY r.match_id, rp.player_id
+         )
+         SELECT mp.match_id AS matchId, mp.player_id AS id, mp.name, max(mp.log_id) AS logId,
+           coalesce(rs.rounds, 0) AS rounds, coalesce(rs.wins, 0) AS wins,
            (SELECT h.display FROM rating_history h
             WHERE h.board = m.region AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
            (SELECT h.display FROM rating_history h
             WHERE h.board = m.region AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
             ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
-         FROM match_players mp JOIN matches m ON m.id = mp.match_id
-         WHERE mp.match_id IN (${page}) AND m.status IN ${publicStatuses}
+         FROM page CROSS JOIN match_players mp ON mp.match_id = page.id CROSS JOIN matches m ON m.id = mp.match_id
+           LEFT JOIN rs ON rs.match_id = mp.match_id AND rs.player_id = mp.player_id
+         WHERE m.status IN ${publicStatuses}
          GROUP BY mp.match_id, mp.player_id ORDER BY mp.match_id, wins DESC, mp.player_id`,
       )
       .bind(after, limit, region),
@@ -513,17 +529,24 @@ export async function listHistory(db: D1Database, board: string, playerId: numbe
 /**
  * Recent form (#17): the player's newest `limit` rated rounds in the region, newest first, of
  * matches public there now, with how many players were in each round's rated order.
+ *
+ * Reads the player's matches newest first (their `rating_history` rows, a few hundred at most) and,
+ * match by match, each round and the player's own `round_players` row by the `(player_id, round_id)`
+ * index, stopping at `limit`: the order is forced (CROSS JOIN, INDEXED BY) and matches ORDER BY, so
+ * there's no sort of the player's every round (about 7,000 rows read for a regular, now about 300).
  */
 export async function listFormRounds(db: D1Database, board: string, playerId: number, limit: number): Promise<FormRound[]> {
   const { results } = await db
     .prepare(
       `WITH newest AS MATERIALIZED (
-         SELECT r.id AS roundId, r.match_id AS matchId, h.played_at AS playedAt, r.number AS round, rp.position
-         FROM rating_history h JOIN matches m ON m.id = h.match_id
-           JOIN rounds r ON r.match_id = m.id JOIN round_players rp ON rp.round_id = r.id
-         WHERE h.board = ?1 AND h.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
-           AND r.rated = 1 AND rp.player_id = ?2 AND rp.position IS NOT NULL
-         ORDER BY h.played_at DESC, h.match_id DESC, r.number DESC LIMIT ?3
+         SELECT r.id AS roundId, r.match_id AS matchId, hm.played_at AS playedAt, r.number AS round, rp.position
+         FROM (SELECT h.match_id, h.played_at FROM rating_history h JOIN matches m ON m.id = h.match_id
+                WHERE h.board = ?1 AND h.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
+                ORDER BY h.played_at DESC, h.match_id DESC) hm
+           CROSS JOIN rounds r ON r.match_id = hm.match_id AND r.rated = 1
+           CROSS JOIN round_players rp INDEXED BY round_players_player
+             ON rp.round_id = r.id AND rp.player_id = ?2 AND rp.position IS NOT NULL
+         ORDER BY hm.played_at DESC, hm.match_id DESC, r.number DESC LIMIT ?3
        )
        SELECT n.matchId, n.round, n.position,
          (SELECT COUNT(*) FROM round_players x WHERE x.round_id = n.roundId AND x.position IS NOT NULL) AS players
