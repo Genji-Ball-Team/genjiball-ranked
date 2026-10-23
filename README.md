@@ -24,21 +24,26 @@ npm run dev                # http://localhost:8787
 
 `npm run dev` runs the Worker with a local D1 (stored in `.wrangler/`), so nothing touches the real database.
 
-Rating recomputation processes 100 matches per run by default, intended for the Workers Standard plan. On the free plan, set `RATING_MATCHES_PER_RUN = "10"` under `[vars]` in `wrangler.toml`, and under `[env.test.vars]` if the test deployment uses the free plan too. Environment variables are configured separately for each deployment. See [docs/rating.md](docs/rating.md) for the resource budget. To see what recomputing a region would change without writing anything, run `npm run ratings:dry-run -- --region eu --remote` on your computer ([docs/api.md](docs/api.md), "Debug tools").
+Rating recomputation processes 100 matches per run by default, intended for the Workers Standard plan. `wrangler.toml` sets `RATING_MATCHES_PER_RUN = "5"` for the free plan, under `[vars]` and `[env.test.vars]`; each deployment has its own variables. See [docs/rating.md](docs/rating.md) for the resource budget. To see what recomputing a region would change without writing anything, run `npm run ratings:dry-run -- --region eu --remote` on your computer ([docs/api.md](docs/api.md), "Debug tools").
 
 | Command | Use |
 |---|---|
 | `npm run dev` | Run the Worker and website locally |
 | `npm run check` | Typecheck, lint and test. What CI runs |
-| `npm test` | Tests only (in the Workers runtime, with a local D1) |
+| `npm test` | Tests only: Vitest in the Workers runtime with a local D1, then the Node tests for the browser scripts |
 | `npm run db:migrate:local` | Apply migrations to the local D1 |
 | `npm run admin:token -- <name>` | Make an admin token, and the SQL file that adds the admin |
+| `npm run deploy` | Migrate and deploy production, from `main` after a merge ([deployment.md](docs/deployment.md)) |
 | `npm run deploy:test` | Migrate and deploy the test server |
 | `npm run upload -- <server> <file>...` | Upload log files by hand, with `GENJIBALL_HOST_TOKEN` set |
 | `npm run import:legacy -- <server> <host id> <folder or file>...` | Import old v1.3.2 logs, with `GENJIBALL_ADMIN_TOKEN` set ([legacy.md](docs/legacy.md)) |
 | `npm run tune:rating -- <log folder> [--grid]` | Score the rating config on real logs and fit the display scale ([rating.md](docs/rating.md#tuning)) |
+| `npm run ratings:dry-run -- --region <id> [--remote]` | Show what recomputing a region's ratings would change, writing nothing ([api.md](docs/api.md), "Debug tools") |
+| `npm run rebuild:head-to-head -- <first match id> <last match id>` | Write the SQL that re-derives head-to-head pairs, and print the command to run it ([database.md](docs/database.md)) |
 
-The leaderboard is at `/`, with player (`/player?id=`) and match (`/match?id=`) pages. The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
+The pages: the leaderboard at `/`, `/player?id=`, `/compare?ids=`, `/match?id=`, `/live` (open lobbies), `/records`, `/tourneys` and `/tourney?id=`. Other paths get the 404 page (`public/404.html`). The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
+
+Links to a player, match or compare page get a title and description of their own in Discord, X and the like: for a link preview crawler (`linkPreviewAgents` in `src/config.ts`) the Worker fills them into the page's meta tags (`src/site/preview.ts`, `run_worker_first` in `wrangler.toml`). The Share button on those pages draws a card of the page in the browser (`public/share.js`), so it costs the server nothing.
 
 ## Tourney screenshot storage
 
@@ -70,8 +75,8 @@ A second deployment for playtests and for trying changes before they reach the r
 | `public/` | The website's static files |
 | `migrations/` | D1 schema migrations. Tables and free-tier budget: [docs/database.md](docs/database.md) |
 | `docs/` | [deployment.md](docs/deployment.md) (Cloudflare setup, updating, admins, backups, rollback), [api.md](docs/api.md) (the upload, host token check, admin, site and rank tags APIs, CORS and caching of the public API), [rating.md](docs/rating.md), [database.md](docs/database.md), [legacy.md](docs/legacy.md) (old v1.3.2 logs) |
-| `scripts/` | Small Node scripts (`admin:token`, `rebuild:head-to-head`) |
-| `test/` | Vitest tests |
+| `scripts/` | Node scripts behind the `npm run` commands above (`upload`, `admin:token`, `import:legacy`, `tune:rating`, `ratings:dry-run`, `rebuild:head-to-head`) |
+| `test/` | Vitest tests (`*.test.ts`) and Node tests for the browser scripts (`*.node.mjs`) |
 
 ## Contributing
 
