@@ -560,7 +560,8 @@ async function playerPage() {
     title(`${p.name} (${site.short(site.region)})`);
     $("name").textContent = p.name;
     $("tier").innerHTML = r ? chip(r.siteTier) : "";
-    titleHero((await titles).find((t) => t.id === p.id)?.title);
+    const crown = (await titles).find((t) => t.id === p.id)?.title;
+    titleHero(crown);
     const others = p.aliases.filter((a) => a !== p.name);
     // A rating in another region is a separate one: a link to it, not a mix on this page.
     const elsewhere = p.regions
@@ -604,8 +605,31 @@ async function playerPage() {
             .join("")
         : `<li class="empty">No matches in ${here} yet.</li>`,
     );
+    const shareCard = (h) => ({
+      kind: "player",
+      file: `${p.name}-${site.region}`,
+      url: new URL(playerLink(p.id), location.origin).href,
+      title: `${p.name} on ${siteName}`,
+      text: r?.rating ? `${p.name}: ${r.siteTier ? `${r.siteTier.label}, ` : ""}${rating(r.rating)}${r.rank ? `, #${r.rank} in ${site.label(site.region)}` : ""} on ${siteName}` : `${p.name} on ${siteName}`,
+      name: p.name,
+      region: site.label(site.region),
+      crown,
+      tier: r?.siteTier ?? null,
+      rating: r?.rating > 0 ? r.rating : null,
+      rank: r?.rank ?? null,
+      rounds: r?.rounds ?? null,
+      winRate: r?.rounds ? winRate(r.wins, r.rounds) : null,
+      peak: h?.peak?.rating > 0 ? h.peak.rating : null,
+      bestStreak: h?.matches ? h.bestStreak : null,
+      form: h ? [...h.form.results].reverse().map((f) => f.position) : [],
+      points: h ? h.points.map((point) => point.rating) : [],
+    });
+    share.attach(document.querySelector("#hero .headline"), shareCard(null));
     const h = await history;
-    if (h) historySection(h, r);
+    if (h) {
+      historySection(h, r);
+      share.attach(document.querySelector("#hero .headline"), shareCard(h));
+    }
   } catch (error) {
     $("name").textContent = error.message === "not_found" ? "Player not found" : "Player";
     showError($("matches"), error, "player");
@@ -727,6 +751,7 @@ async function comparePage() {
     if (!ids.length) {
       title("Compare");
       $("heading").textContent = "Compare";
+      share.attach(document.querySelector(".headline"), null);
       loaded(table, '<p class="empty">Add a player to start, then one or two more to compare them with.</p>');
       return;
     }
@@ -750,6 +775,26 @@ async function comparePage() {
         (players.length === 1 ? '<p class="note">Add another player to compare them with.</p>' : ""),
     );
     if (players.length === 2) headToHeadSection(players[0], players[1], () => run === shown);
+    share.attach(document.querySelector(".headline"), {
+      kind: "compare",
+      file: names.join("-vs-"),
+      url: new URL(compareLink(players.map((p) => p.id)), location.origin).href,
+      title: `${names.join(" vs ")} on ${siteName}`,
+      text: `${names.join(" vs ")} in ${site.label(site.region)} on ${siteName}`,
+      region: site.label(site.region),
+      players: players.map((p, i) => ({
+        name: p.name,
+        color: seriesColors[i],
+        tier: p.rating?.siteTier ?? null,
+        rating: p.rating?.rating > 0 ? p.rating.rating : null,
+        rank: p.rating?.rank ?? null,
+        winRate: p.rating?.rounds ? winRate(p.rating.wins, p.rating.rounds) : null,
+        winShare: p.rating?.rounds ? p.rating.wins / p.rating.rounds : null,
+        killsPerRound: perRound(p.stats.kills, p.stats.rounds),
+        peak: p.history.peak?.rating > 0 ? p.history.peak.rating : null,
+        points: p.history.points.map((point) => ({ rating: point.rating, t: Date.parse(point.playedAt) })),
+      })),
+    });
     const series = players
       .map((p, i) => ({ name: p.name, points: p.history.points, peak: p.history.peak, color: seriesColors[i] }))
       .filter((s) => s.points.length);
@@ -1056,6 +1101,25 @@ async function matchPage() {
     // Overall place first (#15), as the API ranks them; the same place by rating.
     const players = [...m.players].sort((a, b) => a.place - b.place || (b.ratingAfter ?? -1) - (a.ratingAfter ?? -1));
     loaded($("summary"), m.rounds.length ? summary(m, players) : "");
+    const won = players.filter((p) => p.place === 1 && p.roundWins > 0);
+    const headline = `Match ${m.id}${won.length ? `: ${won.map((p) => p.name).join(" & ")} ${won.length > 1 ? "share the win" : "wins"}` : ""}`;
+    share.attach(document.querySelector(".headline"), {
+      kind: "match",
+      file: `match-${m.id}`,
+      url: new URL(`/match?id=${m.id}`, location.origin).href,
+      title: `${headline} on ${siteName}`,
+      text: `${headline} on ${siteName}`,
+      id: m.id,
+      region: site.label(m.region),
+      date: date(m.playedAt),
+      map: mapName(m.map),
+      tourney: m.tourney ? `${m.tourney.name}, ${m.tourney.lobby}` : null,
+      rounds: count(m.rounds.length, "round"),
+      playerCount: count(players.length, "player"),
+      winners: won.map((p) => p.name),
+      winnerLine: won.length ? `${count(won[0].roundWins, "round")} won · ${count(won[0].kills, "kill")}` : "",
+      rows: players.map((p) => ({ place: p.place, name: p.name, won: p.roundWins, kills: p.kills, before: p.ratingBefore, after: p.ratingAfter })),
+    });
     const places = m.rounds.map((r) => new Map(r.placements.map((p) => [p.playerId, p])));
     const head = m.rounds
       .map((r) => `<th class="r${r.rated ? "" : " unrated"}" scope="col"${r.rated ? "" : ` title="Not rated"`}>${r.number}</th>`)

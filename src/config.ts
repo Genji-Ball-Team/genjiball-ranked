@@ -328,6 +328,30 @@ export const defaults = {
   publicCacheSeconds: 60,
 
   /**
+   * Link previews: a link to a player, match or compare page posted in Discord, X and the like shows
+   * that page's own title and description (src/site/preview.ts). Only a request whose user agent has
+   * one of these in it gets them, so a visitor's page costs no database read.
+   */
+  linkPreviewAgents: [
+    "Discordbot",
+    "Twitterbot",
+    "facebookexternalhit",
+    "Slackbot",
+    "TelegramBot",
+    "WhatsApp",
+    "LinkedInBot",
+    "redditbot",
+    "Embedly",
+    "SkypeUriPreview",
+    "Iframely",
+    "Mastodon",
+    "Cardyb",
+    "Applebot",
+  ] as string[],
+  /** Players a compare page shows at most (site.js's `compareMax`): its link preview names as many. */
+  compareMaxPlayers: 3,
+
+  /**
    * Live lobbies (#11): how often the host tool sends a heartbeat while a ranked lobby is open, in
    * seconds. The heartbeat's answer says this, so the host tool follows the server. A heartbeat of an
    * open lobby is one row written, opening one two, closing one: a lobby open an hour is about 62

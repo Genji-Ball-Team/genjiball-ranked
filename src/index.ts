@@ -9,6 +9,7 @@ import { isPrivate, isPublicRead, isPublicWrite, isSameOrigin, preflight, signup
 import { updateRatings } from "./rating/update";
 import { updateRecords } from "./records/update";
 import { handleSite } from "./site/handler";
+import { isPreviewAgent, pagePreview, previewPages, withPreview } from "./site/preview";
 import { handleBotSignups } from "./tourney/botSignups";
 import { expireOld } from "./tourney/expiry";
 import { handleHostTourneyLobby, handleHostTourneys } from "./tourney/host";
@@ -118,10 +119,30 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 
+  if (previewPages.includes(url.pathname)) return previewPage(request, env, config, log, url);
+
   log.debug("no asset or route", { path: url.pathname });
   const asset = await env.ASSETS.fetch(request);
   if (asset.status !== 404 || !["GET", "HEAD"].includes(request.method)) return asset;
   return notFoundPage(request, env);
+}
+
+/**
+ * A page with a link preview of its own (`run_worker_first` in wrangler.toml): the file as it is, or
+ * for a link preview crawler, with the player's, match's or players' title and description
+ * (src/site/preview.ts). A preview that fails to load leaves the site's.
+ */
+async function previewPage(request: Request, env: Env, config: Config, log: Logger, url: URL): Promise<Response> {
+  const page = await env.ASSETS.fetch(request);
+  if (!page.ok || request.method !== "GET" || !isPreviewAgent(request, config)) return page;
+  let preview = null;
+  try {
+    preview = await pagePreview(env.DB, config, url, new Date());
+  } catch (error) {
+    log.error("link preview failed", { path: url.pathname, error: String(error) });
+  }
+  log.debug("link preview", { url: url.href, preview });
+  return withPreview(page, preview, url);
 }
 
 /** The site's own 404 page (public/404.html), still with a 404 status, for a page that isn't there. */

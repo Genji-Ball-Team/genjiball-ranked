@@ -820,6 +820,58 @@ a.card:hover { border-color: var(--muted); }
   .modal[open] { animation: rise .16s ease-out; }
   @keyframes rise { from { opacity: 0; translate: 0 .5rem; } }
 }
+/* Share (share.js): a button in the page's headline, and the sheet it opens with the drawn card. */
+.share-button {
+  display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; padding: .35rem .85rem .35rem .7rem;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--fg);
+  font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.share-button:hover { border-color: var(--accent); background: var(--raised); }
+.share-button svg, .share-sheet svg { width: 1.1rem; height: 1.1rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+/* The seal sits on the right of the player's headline: the button goes after it. */
+.headline .seal + .share-button { margin-left: 0; }
+.share-sheet { width: min(44rem, calc(100vw - 2rem)); }
+.share-body { padding: 1.1rem 1.25rem 1.25rem; }
+.share-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
+.share-head h2 { margin: 0; }
+.share-formats { display: flex; padding: 3px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+.share-formats button {
+  padding: .25rem .8rem; border: 0; border-radius: 6px; background: none; color: var(--muted);
+  font: inherit; font-size: .85rem; font-weight: 600; cursor: pointer;
+}
+.share-formats button[aria-pressed="true"] { background: var(--raised); color: var(--fg); }
+.share-close {
+  margin-left: auto; width: 2rem; height: 2rem; border: 0; border-radius: 6px; background: none;
+  color: var(--muted); font-size: 1.5rem; line-height: 1; cursor: pointer;
+}
+.share-close:hover { color: var(--fg); background: var(--raised); }
+.share-preview {
+  display: grid; place-items: center; margin: 0; min-height: 12rem; padding: .75rem;
+  border-radius: 8px; background: var(--bg); border: 1px solid var(--line);
+}
+.share-preview img { display: block; max-width: 100%; max-height: 52vh; border-radius: 6px; box-shadow: 0 10px 30px rgb(0 0 0 / .45); }
+.share-preview img:not([src]) { display: none; }
+.share-preview[aria-busy="true"] img { opacity: .35; }
+.share-preview[aria-busy="true"]::after { content: "Drawing…"; position: absolute; color: var(--muted); font-size: .9rem; }
+.share-preview { position: relative; }
+.share-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; margin-top: 1rem; }
+.share-sites { margin-top: .5rem; }
+.share-actions button {
+  display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .55rem .75rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--raised); color: var(--fg);
+  font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s;
+}
+.share-actions button:hover:not(:disabled) { border-color: var(--muted); }
+.share-actions button:disabled { opacity: .5; cursor: default; }
+.share-actions button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.share-actions button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 85%, white); }
+.share-sites button { background: none; color: var(--soft); font-weight: 500; }
+.share-status { min-height: 1.4rem; margin: .75rem 0 0; color: var(--good); font-size: .9rem; text-align: center; }
+@media (max-width: 640px) {
+  .share-button span { display: none; }
+  .share-button { padding: .45rem; }
+  .share-preview img { max-height: 44vh; }
+}
 .field { display: flex; flex-direction: column; gap: .3rem; margin: 0 0 1rem; }
 .field > span { font-size: .85rem; color: var(--soft); font-weight: 500; }
 .field > small { color: var(--muted); }
