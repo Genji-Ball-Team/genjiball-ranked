@@ -1,4 +1,4 @@
-import type { StoredRating } from "./plan";
+import { sameRating, type StoredRating } from "./plan";
 
 /**
  * What a recompute would change on a leaderboard (#33): the stored ratings against the recomputed
@@ -102,17 +102,4 @@ function ranks(ratings: ReadonlyMap<number, StoredRating>, minRounds: number): M
     .filter(([, r]) => r.rounds >= minRounds)
     .sort(([idA, a], [idB, b]) => b.display - a.display || idA - idB);
   return new Map(ranked.map(([id], i) => [id, i + 1]));
-}
-
-function sameRating(a: StoredRating, b: StoredRating): boolean {
-  return (
-    a.mu === b.mu &&
-    a.sigma === b.sigma &&
-    a.display === b.display &&
-    a.rounds === b.rounds &&
-    a.wins === b.wins &&
-    a.streak === b.streak &&
-    a.bestStreak === b.bestStreak &&
-    a.lastPlayedAt === b.lastPlayedAt
-  );
 }
