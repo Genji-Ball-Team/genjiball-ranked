@@ -108,7 +108,7 @@ and `status`, the match's status after the upload:
 
 | Value | Meaning |
 |---|---|
-| `accepted` | Counts for the ratings. A complete match is rated straight away (by the next cron run when the upload took too many of D1's queries per request to rate it too); one with no `MATCH_END` after `ratingIncompleteGraceHours` (6 h), by the cron (every 10 minutes) ([rating.md](rating.md)) |
+| `accepted` | Counts for the ratings. A complete match is rated straight away (by the next cron run when the upload took too many of D1's queries per request to rate it too); one with no `MATCH_END` after `ratingIncompleteGraceHours` (1 h), by the cron (every 10 minutes) ([rating.md](rating.md)) |
 | `review` | Waits for an admin. `reviewReasons`: `duplicate_name` (two players with the same name at once), `merged_names` (different aliases resolve to one player in the same round), `untrusted_host`, and for a tourney match not linked to its lobby `tourney_unknown_lobby`, `tourney_cancelled`, `tourney_wrong_host`, `tourney_wrong_region`, `tourney_lobby_taken`, `tourney_round_limit` ([Tourney matches](#tourney-matches)) |
 | `rejected` | Never counts. `rejection.code`: `unranked` (an `UNRANKED` line), `unknown_format` (kept to re-parse when the server learns the format), `too_few_players` (fewer than `minMatchPlayers`, 2, in rated rounds. A 1v1 with a rated round counts; a match with no rated round is rejected), `untrusted_host` (when `untrustedHostUploads` is `reject`), `no_match_key`, `admin` (an admin rejected it from the review queue; a longer copy doesn't change that) |
 | `void` | An admin voided it. A longer copy doesn't change that |
