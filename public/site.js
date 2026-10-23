@@ -174,7 +174,7 @@ function entry(p, query, pos, style, title) {
 
 // Titles (/api/titles): God and Demigod, the 1v1 tourney's winners. They keep their real place on
 // the leaderboard; their row and profile stand out instead. God is light: a white rim running round
-// the row, a halo on the place, sparkles and motes. Demigod is dark red: a slower red rim turning the
+// the row, a glowing place, sparkles and motes. Demigod is dark red: a slower red rim turning the
 // other way, a red haze, and red mist on the profile.
 const titleLooks = { God: "god", Demigod: "demi" };
 const titleChip = (title) => `<span class="chip ${titleLooks[title]}">${esc(title)}</span>`;

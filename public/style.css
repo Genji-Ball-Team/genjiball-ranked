@@ -180,8 +180,8 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .pager a { color: var(--soft); }
 
 /* Titles (site.js, titleFx): God and Demigod keep their place on the leaderboard and stand out there
-   and on their profile instead. God is light: a white rim running round the row, a halo on its place,
-   a shine, sparkles and motes. Demigod is dark red: a slower red rim turning the other way and a red
+   and on their profile instead. God is light: a white rim running round the row, a glowing place, a
+   shine, sparkles and motes. Demigod is dark red: a slower red rim turning the other way and a red
    haze, then red mist on the profile. Without motion, the rims and glows stay and nothing moves. */
 @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 .entry.god, .entry.demi, .hero.god, .hero.demi {
@@ -201,13 +201,7 @@ a.entry.god {
   box-shadow: 0 0 18px rgb(255 240 200 / .12);
 }
 a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
-.entry.god .pos {
-  display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border: 2px solid transparent; border-radius: 50%;
-  background: radial-gradient(rgb(255 246 216 / .16), var(--panel) 70%) padding-box,
-    conic-gradient(from var(--spin), transparent 0 20%, #fff 35%, var(--gold) 50%, transparent 65% 100%) border-box;
-  color: #fff; font-weight: 700; filter: drop-shadow(0 0 4px rgb(255 233 168 / .6));
-}
-.entry.god .rating { color: #fff; text-shadow: 0 0 12px rgb(255 236 170 / .8); }
+.entry.god .pos, .entry.god .rating { color: #fff; text-shadow: 0 0 12px rgb(255 236 170 / .8); }
 .entry.god .name, .hero.god h1 {
   background: linear-gradient(110deg, #fff 0 35%, #ffe39a 45%, #fff 50%, var(--gold) 55%, #fff 65% 100%) 0 0 / 200% 100%;
   -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -273,7 +267,6 @@ a.entry.demi:hover, a.entry.demi:active { --fill: #161013; }
     background: linear-gradient(90deg, transparent, rgb(255 250 230 / .2), transparent);
     animation: title-sweep 3.4s ease-in-out infinite;
   }
-  .entry.god .pos { animation: title-spin 2.4s linear infinite; }
   .entry.god .name, .hero.god h1 { animation: title-shimmer 3s linear infinite; }
   .chip.god { animation: title-shimmer 2.6s linear infinite; }
   .chip.demi { animation: title-shimmer 3.6s linear infinite; }
