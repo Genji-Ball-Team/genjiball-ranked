@@ -839,7 +839,7 @@ const recordList = [
   { key: "matchWins", label: "Most rounds won in a match", show: (r) => r.value, where: (r) => playedOn(r) },
   { key: "matchKills", label: "Most kills in a match", show: (r) => r.value, where: (r) => playedOn(r) },
   { key: "roundDeflects", label: "Most deflects in a round", show: (r) => r.value, where: (r) => `round ${r.round}, ${playedOn(r)}` },
-  { key: "fastestDeflect", label: "Fastest deflect", show: (r) => Math.round(r.value), where: (r) => `ball speed, round ${r.round}, ${playedOn(r)}` },
+  { key: "fastestDeflect", label: "Fastest deflect", show: (r) => Math.round(r.value), where: (r) => `ball speed in m/s, round ${r.round}, ${playedOn(r)}` },
   { key: "mostWins", label: "Most rounds won", show: (r) => r.value, where: () => "rated rounds, all time" },
   { key: "mostRounds", label: "Most rounds played", show: (r) => r.value, where: () => "rated rounds, all time" },
 ];
