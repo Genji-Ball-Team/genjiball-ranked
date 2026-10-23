@@ -233,7 +233,7 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 | `POST /api/admin/hosts/:id/region` | Body `{ "region": "na" }`, or `null` for none. The home region for the host's next uploads without `X-Region`; stored matches keep theirs |
 | `POST /api/admin/hosts/:id/trust` | Body `{ "trust": "trusted" \| "untrusted" }`. Applies to the host's next upload |
 | `POST /api/admin/hosts/:id/revoke` | The token stops working (`403 revoked` on upload). Final: make a new host token instead |
-| `GET /api/admin/matches?status=review&region=eu` | `{ matches }` with that status (`review` if left out; `accepted`, `rejected`, `void`), in that region (every region if left out), newest first, at most `adminListLimit`. Each has `region`, `reviewReasons`, `rejection`, `hostName`, `players`, `complete`, `rated` |
+| `GET /api/admin/matches?status=review&region=eu` | `{ matches }` with that status (`review` if left out; `accepted`, `rejected`, `void`), in that region (every region if left out), newest first, at most `adminListLimit`. Each has `region`, `reviewReasons`, `rejection`, `hostName`, `build` (the game build that wrote the log: `GBR`'s last field, `null` for logs from before it), `players`, `complete`, `rated` |
 | `GET /api/admin/matches/:id` | `{ match }` |
 | `POST /api/admin/matches/:id/accept` | `review` → `accepted`; also a match an admin rejected |
 | `POST /api/admin/matches/:id/reject` | `review` → `rejected`, `rejection.code` `admin`. Body `{ "reason": "..." }` optional |
@@ -314,7 +314,7 @@ For finding out why a log was parsed, judged or rated the way it was (#33). Code
       {
         "matchKey": "482913507226", "lineCount": 57, "region": "eu", "action": "insert", "status": "review",
         "rejection": null, "reviewReasons": ["duplicate_name"], "storedMatchId": null,
-        "format": 1, "gameVersion": "1.3.3R", "startLine": 2, "unranked": [],
+        "format": 1, "gameVersion": "1.3.3R", "build": "3fa9c07b", "startLine": 2, "unranked": [],
         "settings": { "map": "workshop-island-night", "preset": "Default", "feel": false, "addOns": [] },
         "complete": true, "startTime": 2.38, "endTime": 114, "endResult": "TIME",
         "players": [{ "id": 1, "name": "Sparrow", "joinTime": 2.38, "leaveTime": null }],

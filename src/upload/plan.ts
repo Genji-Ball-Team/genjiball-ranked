@@ -336,6 +336,7 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
       lineCount: match.lineCount,
       format: match.format,
       gameVersion: match.gameVersion,
+      build: match.build,
       // Format 0 is the legacy v1.3.2 log (#4).
       legacy: match.format === 0 ? 1 : 0,
       status: plan.status,

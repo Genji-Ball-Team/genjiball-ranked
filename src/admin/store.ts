@@ -30,6 +30,8 @@ export interface MatchRow extends MatchState {
   hostId: number;
   hostName: string;
   lineCount: number;
+  /** The game build that wrote the log (spec "Build id"); null for logs from before it. */
+  build: string | null;
   reviewReasons: string[];
   map: string | null;
   preset: string | null;
@@ -112,7 +114,7 @@ export async function setHostRegion(db: D1Database, hostId: number, region: stri
   await db.batch([db.prepare("UPDATE hosts SET region = ?2 WHERE id = ?1").bind(hostId, region), actionStatement(db, log)]);
 }
 
-const matchColumns = `m.id, m.region, m.match_key AS matchKey, m.host_id AS hostId, h.name AS hostName, m.line_count AS lineCount,
+const matchColumns = `m.id, m.region, m.match_key AS matchKey, m.host_id AS hostId, h.name AS hostName, m.line_count AS lineCount, m.build,
   m.status, m.rejection_code AS rejectionCode, m.rejection_message AS rejectionMessage, m.review_reasons AS reviewReasons,
   m.map, m.preset, m.played_at AS playedAt, m.complete, m.rated_at IS NOT NULL AS rated, m.tournament,
   (SELECT json_group_array(mp.name) FROM match_players mp WHERE mp.match_id = m.id) AS players`;
@@ -124,6 +126,7 @@ interface RawMatch {
   hostId: number;
   hostName: string;
   lineCount: number;
+  build: string | null;
   status: MatchStatus;
   rejectionCode: string | null;
   rejectionMessage: string | null;

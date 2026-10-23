@@ -144,6 +144,7 @@ describe("admin: review queue", () => {
     expect(matches).toHaveLength(1);
     expect(matches[0]).toMatchObject({
       matchKey: "000000000001",
+      build: null,
       hostName: "untrusted",
       status: "review",
       reviewReasons: ["untrusted_host"],
