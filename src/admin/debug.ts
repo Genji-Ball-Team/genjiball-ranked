@@ -146,6 +146,7 @@ function describe(plan: MatchPlan, region: string | null) {
     storedMatchId: plan.storedId,
     format: m.format,
     gameVersion: m.gameVersion,
+    build: m.build,
     tourney: m.tourney,
     lobbyId: plan.lobbyId,
     startLine: m.startLine,

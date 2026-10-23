@@ -31,6 +31,7 @@ describe("parseLog: the spec example", () => {
     expect(match).toMatchObject({
       format: 2,
       gameVersion: "1.3.3R",
+      build: "3fa9c07b",
       matchKey: "482913507226",
       startLine: 2,
       lineCount: 56,
@@ -343,6 +344,28 @@ describe("parseLog: players", () => {
   });
 });
 
+describe("parseLog: build id", () => {
+  const withBuild = (build: string) => parse(log(`GBR|1.00|2|1.3.3R|000000000001|${build}`, header[1]!)).matches[0]!;
+
+  it("reads the last field of GBR, as text", () => {
+    expect(withBuild("3fa9c07b").build).toBe("3fa9c07b");
+    expect(withBuild("00123456").build).toBe("00123456");
+    expect(parse(tourneyExample).matches[0]!.build).toBe("3fa9c07b");
+  });
+
+  it("is null when the log has none, or the field isn't a plain token", () => {
+    expect(withBuild("").build).toBeNull();
+    expect(withBuild("has space").build).toBeNull();
+    expect(withBuild("x".repeat(33)).build).toBeNull();
+    expect(parse(log("GBR|1.00|2|1.3.3R|000000000001", header[1]!)).matches[0]!.build).toBeNull();
+  });
+
+  it("ignores fields after it", () => {
+    const match = parse(log("GBR|1.00|2|1.3.3R|000000000001|3fa9c07b|something|new", header[1]!)).matches[0]!;
+    expect(match).toMatchObject({ build: "3fa9c07b", matchKey: "000000000001", problems: [] });
+  });
+});
+
 describe("parseLog: format 1", () => {
   it("reads the format 1 example as the format 2 one: a ranked match", () => {
     const v1 = parse(exampleV1).matches[0]!;
@@ -350,7 +373,9 @@ describe("parseLog: format 1", () => {
     expect(v1.format).toBe(1);
     expect(v2.format).toBe(2);
     expect(v1.tourney).toBeNull();
-    expect({ ...v1, format: 2 }).toEqual(v2);
+    // The format 1 example is older than the build field.
+    expect(v1.build).toBeNull();
+    expect({ ...v1, format: 2, build: v2.build }).toEqual(v2);
   });
 
   it("skips a TOURNEY line in a format 1 match, as the format 1 parser did", () => {

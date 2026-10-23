@@ -187,6 +187,7 @@ export function parseLegacyLog(text: string, options: LegacyOptions): ParsedMatc
   return {
     format: 0,
     gameVersion: options.gameVersion,
+    build: null,
     matchKey: "",
     startLine: kills[0]?.line ?? 1,
     lineCount,

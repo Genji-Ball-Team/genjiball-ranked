@@ -39,9 +39,9 @@ async function uploadOk(body: string, token = tokens.trusted, headers: Record<st
  * A 4-player match: Alpha wins round 1, Bravo round 2. `rounds` cuts it short, like an early copy.
  * With `host`, Alpha's `JOIN` marks them as the lobby host.
  */
-function matchLog({ key = "000000000001", rounds = 2, end = true, extra = [] as string[], host = false } = {}): string {
+function matchLog({ key = "000000000001", rounds = 2, end = true, extra = [] as string[], host = false, build = "" } = {}): string {
   const lines = [
-    `GBR|1.00|1|1.3.3R|${key}`,
+    `GBR|1.00|1|1.3.3R|${key}${build ? `|${build}` : ""}`,
     "MATCH_START|1.00|workshop-island-night|Default|0|",
     host ? "JOIN|1.00|1|Alpha|1" : "JOIN|1.00|1|Alpha",
     "JOIN|1.00|2|Bravo",
@@ -318,6 +318,17 @@ describe("upload: copies of a match", () => {
     expect(await count("match_players")).toBe(4);
     expect(await count("round_players")).toBe(8);
     expect(await count("uploads")).toBe(1);
+  });
+
+  it("stores the build id of the GBR line, and a longer copy updates it", async () => {
+    await uploadOk(matchLog({ key: "000000000002", rounds: 1, end: false }));
+    expect(await storedMatch("000000000002")).toMatchObject({ build: null });
+    await uploadOk(matchLog({ key: "000000000003", rounds: 1, end: false, build: "3fa9c07b" }));
+    expect(await storedMatch("000000000003")).toMatchObject({ build: "3fa9c07b" });
+    // The longer copy is the one the game wrote last: its build id is the match's.
+    await uploadOk(matchLog({ key: "000000000003", build: "4183a81d" }));
+    expect(await storedMatch("000000000003")).toMatchObject({ build: "4183a81d" });
+    expect(await count("matches")).toBe(2);
   });
 
   it("writes nothing for a copy that isn't longer", async () => {
