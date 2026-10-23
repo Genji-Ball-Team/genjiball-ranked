@@ -180,15 +180,25 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .pager a { color: var(--soft); }
 
 /* Titles (site.js, titleFx): God and Demigod keep their place on the leaderboard and stand out there
-   and on their profile instead. God is light: a white rim running round the row, a glowing place, a
-   shine, sparkles and motes. Demigod is dark red: a slower red rim turning the other way and a red
-   haze, then red mist on the profile. Without motion, the rims and glows stay and nothing moves. */
+   and on their profile instead. God is light: a white rim running round the row, a glowing place and
+   tier bar, a shine, sparkles and motes. Demigod is dark red: a slower red rim turning the other way,
+   a glowing red tier bar and a red haze, then red mist on the profile. Without motion, the rims and glows stay and nothing moves. */
 @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 .entry.god, .entry.demi, .hero.god, .hero.demi {
   isolation: isolate; overflow: hidden; border: 1.5px solid transparent; border-radius: 8px;
 }
 .entry.god > :not(.fx), .entry.demi > :not(.fx), .hero.god > :not(.fx), .hero.demi > :not(.fx) { position: relative; z-index: 1; }
-.entry.god::before, .entry.demi::before { display: none; }
+/* Their tier bar in the title's colours, inside the rim, glowing with a glint running down it so a
+   Demigod's red doesn't read as Champion's. */
+a.entry.god::before, a.entry.demi::before { z-index: 2; left: 2px; width: 4px; background-size: 100% 300%, 100% 100%; background-position: 0 0, 0 0; }
+a.entry.god::before {
+  background-image: linear-gradient(transparent 40%, #fff 50%, transparent 60%), linear-gradient(#fff6d8, #fff 50%, #f3e2b0);
+  box-shadow: 0 0 8px rgb(255 246 216 / .9), 0 0 18px rgb(255 240 200 / .5);
+}
+a.entry.demi::before {
+  background-image: linear-gradient(transparent 40%, #ffd6c8 50%, transparent 60%), linear-gradient(#e0523a, #b01818);
+  box-shadow: 0 0 8px rgb(224 82 58 / .75), 0 0 16px rgb(176 24 24 / .45);
+}
 /* After the phone layout's hidden columns, which would hide it too. */
 .entry.god > .fx, .entry.demi > .fx, .hero > .fx { display: block; position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 
@@ -273,12 +283,17 @@ a.entry.demi:hover, a.entry.demi:active { --fill: #161013; }
   .fx .mote { animation: title-mote var(--t) linear infinite; }
   .fx .spark { animation: title-twinkle var(--t) ease-in-out infinite; }
   a.entry.demi { animation: title-spin 7s linear infinite reverse; }
+  a.entry.god::before { animation: title-glint 2.2s ease-in-out infinite, title-glow-god 2.2s ease-in-out infinite; }
+  a.entry.demi::before { animation: title-glint 3.4s ease-in-out infinite, title-glow-demi 3.4s ease-in-out infinite; }
   .fx .haze { animation: title-drift 6s ease-in-out infinite alternate; }
   .hero.god { animation: title-spin 5s linear infinite; }
   .hero.demi { animation: title-spin 8s linear infinite reverse; }
   .fx .mist { animation: title-mist var(--t) ease-in infinite; }
   @keyframes title-spin { to { --spin: 360deg; } }
   @keyframes title-float { 50% { translate: 0 -3px; } }
+  @keyframes title-glint { 0% { background-position: 0 100%, 0 0; } 55%, 100% { background-position: 0 0, 0 0; } }
+  @keyframes title-glow-god { 30% { box-shadow: 0 0 12px #fff, 0 0 26px rgb(255 240 200 / .75); } }
+  @keyframes title-glow-demi { 30% { box-shadow: 0 0 12px rgb(255 120 90 / .9), 0 0 24px rgb(200 40 30 / .6); } }
   @keyframes title-sweep { 0% { transform: translateX(-120%) skewX(-20deg); } 55%, 100% { transform: translateX(420%) skewX(-20deg); } }
   @keyframes title-shimmer { to { background-position: -200% 0; } }
   @keyframes title-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
