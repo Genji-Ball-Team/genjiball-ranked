@@ -138,7 +138,9 @@ function matchFlags(m) {
 
 // Leaderboard
 
-function ladder(players, query = "") {
+// `titles` maps a player id to their title (God or Demigod, /api/titles): the row keeps its place and
+// stands out with the title's effect.
+function ladder(players, query = "", titles = new Map()) {
   let band;
   let floor = false;
   const html = players
@@ -150,47 +152,47 @@ function ladder(players, query = "") {
       }
       floor ||= p.rating <= 0;
       const pos = `<span class="pos num${p.rank <= 3 ? ` high${p.rank === 1 ? " first" : ""}` : ""}">${p.rank}</span>`;
-      return head + entry(p, query, pos, p.siteTier ? tierStyle(p.siteTier) : "");
+      return head + entry(p, query, pos, p.siteTier ? tierStyle(p.siteTier) : "", titles.get(p.id));
     })
     .join("");
   $("floor-note").hidden = !floor;
   return html;
 }
 
-function entry(p, query, pos, style) {
+function entry(p, query, pos, style, title) {
   const inactive = p.inactiveSince ? `Inactive since ${esc(date(p.inactiveSince))}` : "";
   const stats = `${p.rounds} rounds, ${winRate(p.wins, p.rounds)} won`;
-  return `<li><a class="entry${inactive ? " inactive" : ""}" href="${playerLink(p.id)}"${style ? ` style="${style}"` : ""}>
+  const look = titleLooks[title];
+  // The effect's layer goes last: the columns are counted from the first child.
+  return `<li><a class="entry${inactive ? " inactive" : ""}${look ? ` ${look}` : ""}" href="${playerLink(p.id)}"${style ? ` style="${style}"` : ""}>
         ${pos}
-        <span class="who"><b>${highlight(p.name, query)}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
+        <span class="who"><b><span class="name">${highlight(p.name, query)}</span>${look ? ` ${titleChip(title)}` : ""}</b>${inactive ? `<small>${inactive}</small>` : ""}<small class="stats">${stats}</small></span>
         <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
         <span class="num muted">${p.rounds}</span>
-        <span class="num muted">${winRate(p.wins, p.rounds)}</span></a></li>`;
+        <span class="num muted">${winRate(p.wins, p.rounds)}</span>${look ? `<span class="fx" aria-hidden="true">${titleFx(title, "row")}</span>` : ""}</a></li>`;
 }
 
-// Titles (/api/titles): God and Demigod, the 1v1 tourney's winners, listed above everyone in their
-// own bands with no place. God is white, Demigod dark red.
-const titleStyles = { God: "--tier:#fff;--on-tier:var(--bg)", Demigod: "--tier:#8b0000;--on-tier:#fff" };
-const titleStyle = (title) => titleStyles[title] ?? "--tier:var(--soft)";
+// Titles (/api/titles): God and Demigod, the 1v1 tourney's winners. They keep their real place on
+// the leaderboard; their row and profile stand out instead. God is light: a white rim running round
+// the row, a halo on the place, sparkles and motes. Demigod is dark red: a slower red rim turning the
+// other way, a red haze, and red mist on the profile.
+const titleLooks = { God: "god", Demigod: "demi" };
+const titleChip = (title) => `<span class="chip ${titleLooks[title]}">${esc(title)}</span>`;
+const titleSeals = { God: ["Reigning God", "1v1 champion"], Demigod: ["Demigod", "1v1 top 4"] };
 
-function titleBands(titled, query = "") {
-  let band;
-  return titled
-    .map((p) => {
-      let head = "";
-      if (p.title !== band) {
-        band = p.title;
-        head = `<li class="band"><span class="chip" style="${titleStyle(p.title)}">${esc(p.title)}</span></li>`;
-      }
-      return head + entry(p, query, '<span class="pos"></span>', titleStyle(p.title));
-    })
-    .join("");
-}
-
-// The rest of the board without the titled players, numbered from 1 as if they weren't on it.
-function withoutTitled(players, titled) {
-  const ids = new Set(titled.map((p) => p.id));
-  return players.filter((p) => !ids.has(p.id)).map((p) => ({ ...p, rank: p.rank - titled.filter((t) => t.rank < p.rank).length }));
+// The effect's randomly placed bits: `where` is "row" or "profile".
+function titleFx(title, where) {
+  const between = (a, b) => (a + Math.random() * (b - a)).toFixed(2);
+  const bits = (n, cls, style) => Array.from({ length: n }, () => `<i class="${cls}" style="${style()}"></i>`).join("");
+  if (title === "Demigod") {
+    if (where === "row") return '<i class="haze"></i>';
+    return bits(4, "mist", () => `left:${between(-5, 80)}%;--w:${between(150, 220)}px;--t:${between(6, 9)}s;--dx:${between(-30, 20)}px;animation-delay:${between(0, 4)}s`);
+  }
+  const motes = bits(where === "row" ? 8 : 16, "mote", () =>
+    `left:${between(2, 98)}%;bottom:${between(-5, 30)}%;--s:${between(2, 4)}px;--t:${between(2.5, 5)}s;--dx:${between(-14, 14)}px;--dy:${between(-90, -40)}px;animation-delay:${between(0, 4)}s`,
+  );
+  const sparks = where === "row" ? bits(6, "spark", () => `left:${between(3, 95)}%;top:${between(5, 80)}%;--t:${between(1.6, 3)}s;animation-delay:${between(0, 3)}s`) : "";
+  return motes + sparks;
 }
 
 // Every leaderboard page, fetched once, for finding a player who isn't on the current page. A
@@ -220,13 +222,13 @@ async function leaderboardPage() {
   $("region-name").innerHTML = regionName(site.region);
   let shown;
   // No titles when the site can't say: the board shows as it always did.
-  const titles = api(`titles?${inRegion()}`).then((t) => t.titles, () => []);
-  let titled = [];
+  const titles = api(`titles?${inRegion()}`).then((t) => new Map(t.titles.map((p) => [p.id, p.title])), () => new Map());
+  let titled = new Map();
   try {
     const d = await api(`leaderboard?${inRegion()}&page=${page}`);
     titled = await titles;
     shown = () => {
-      const html = (page === 1 ? titleBands(titled) : "") + ladder(withoutTitled(d.players, titled));
+      const html = ladder(d.players, "", titled);
       loaded(box, html || '<li class="empty">No one has enough rated rounds for the leaderboard yet.</li>');
       $("prev").hidden = page <= 1;
       $("next").hidden = !d.hasMore;
@@ -253,8 +255,7 @@ async function leaderboardPage() {
       const found = (await allPlayers()).filter((p) => p.name.toLowerCase().includes(query));
       if (!current()) return;
       $("prev").hidden = $("next").hidden = true;
-      const named = titled.filter((p) => p.name.toLowerCase().includes(query));
-      const html = titleBands(named, query) + ladder(withoutTitled(found, titled), query);
+      const html = ladder(found, query, titled);
       loaded(box, html || `<li class="empty">No one on the ${esc(short)} leaderboard is called “${esc(find.value.trim())}”.</li>`);
     } catch (error) {
       if (current()) showError(box, error, "leaderboard");
@@ -536,9 +537,22 @@ function rivalsSection(p, eliminated, eliminatedBy) {
   $("eliminated-by").innerHTML = list(eliminatedBy);
 }
 
+// A titled player's name, tier and figures in the title's frame, with the title's seal.
+function titleHero(title) {
+  const look = titleLooks[title];
+  if (!look) return;
+  const [name, what] = titleSeals[title];
+  $("hero").classList.add(look);
+  $("hero").insertAdjacentHTML("beforeend", `<span class="fx" aria-hidden="true">${titleFx(title, "profile")}</span>`);
+  $("tier").insertAdjacentHTML("afterbegin", `${titleChip(title)} `);
+  $("seal").innerHTML = `${esc(name)}<b>${esc(site.label(site.region))} ${esc(what)}</b>`;
+  $("seal").hidden = false;
+}
+
 async function playerPage() {
-  // The rating history is its own request: the page shows without it if it fails.
+  // The rating history and the titles are their own requests: the page shows without them if they fail.
   const history = api(`players/${encodeURIComponent(idParam())}/history?${inRegion()}`).catch(() => null);
+  const titles = api(`titles?${inRegion()}`).then((t) => t.titles, () => []);
   try {
     const { player: p, matches, mostEliminated, mostEliminatedBy } = await api(`players/${encodeURIComponent(idParam())}?${inRegion()}`);
     const r = p.rating;
@@ -546,6 +560,7 @@ async function playerPage() {
     title(`${p.name} (${site.short(site.region)})`);
     $("name").textContent = p.name;
     $("tier").innerHTML = r ? chip(r.siteTier) : "";
+    titleHero((await titles).find((t) => t.id === p.id)?.title);
     const others = p.aliases.filter((a) => a !== p.name);
     // A rating in another region is a separate one: a link to it, not a mix on this page.
     const elsewhere = p.regions

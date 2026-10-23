@@ -179,6 +179,121 @@ a.entry, .history a, .results a, .events a, .tabbar a { -webkit-tap-highlight-co
 .pager { display: flex; justify-content: space-between; margin-top: 1.5rem; }
 .pager a { color: var(--soft); }
 
+/* Titles (site.js, titleFx): God and Demigod keep their place on the leaderboard and stand out there
+   and on their profile instead. God is light: a white rim running round the row, a halo on its place,
+   a shine, sparkles and motes. Demigod is dark red: a slower red rim turning the other way and a red
+   haze, then red mist on the profile. Without motion, the rims and glows stay and nothing moves. */
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+.entry.god, .entry.demi, .hero.god, .hero.demi {
+  isolation: isolate; overflow: hidden; border: 1.5px solid transparent; border-radius: 8px;
+}
+.entry.god > :not(.fx), .entry.demi > :not(.fx), .hero.god > :not(.fx), .hero.demi > :not(.fx) { position: relative; z-index: 1; }
+.entry.god::before, .entry.demi::before { display: none; }
+/* After the phone layout's hidden columns, which would hide it too. */
+.entry.god > .fx, .entry.demi > .fx, .hero > .fx { display: block; position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+
+a.entry.god {
+  --fill: var(--panel); margin: .35rem 0;
+  background:
+    linear-gradient(90deg, rgb(255 246 216 / .14), rgb(243 207 107 / .04) 50%, transparent 85%) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box,
+    conic-gradient(from var(--spin), #2a2c33 0 55%, #fff 72%, var(--gold) 80%, #2a2c33 92% 100%) border-box;
+  box-shadow: 0 0 18px rgb(255 240 200 / .12);
+}
+a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
+.entry.god .pos {
+  display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border: 2px solid transparent; border-radius: 50%;
+  background: radial-gradient(rgb(255 246 216 / .16), var(--panel) 70%) padding-box,
+    conic-gradient(from var(--spin), transparent 0 20%, #fff 35%, var(--gold) 50%, transparent 65% 100%) border-box;
+  color: #fff; font-weight: 700; filter: drop-shadow(0 0 4px rgb(255 233 168 / .6));
+}
+.entry.god .rating { color: #fff; text-shadow: 0 0 12px rgb(255 236 170 / .8); }
+.entry.god .name, .hero.god h1 {
+  background: linear-gradient(110deg, #fff 0 35%, #ffe39a 45%, #fff 50%, var(--gold) 55%, #fff 65% 100%) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  filter: drop-shadow(0 0 8px rgb(255 240 200 / .5));
+}
+.chip.god {
+  color: #1b1505; box-shadow: 0 0 10px rgb(255 240 190 / .55), 0 0 22px rgb(243 207 107 / .25);
+  background: linear-gradient(110deg, #fff 0 40%, #ffe9a8 48%, #fff 56% 100%) 0 0 / 200% 100%;
+}
+.chip.demi {
+  color: #fff; box-shadow: 0 0 10px rgb(200 40 30 / .45);
+  background: linear-gradient(110deg, #7a0000 0 40%, #d0402a 48%, #7a0000 56% 100%) 0 0 / 200% 100%;
+}
+.who .chip.god, .who .chip.demi { margin-left: .35rem; }
+.fx .mote {
+  position: absolute; width: var(--s); height: var(--s); border-radius: 50%; opacity: 0;
+  background: #fff8e0; box-shadow: 0 0 6px 2px rgb(255 236 170 / .6);
+}
+.fx .spark {
+  position: absolute; width: 10px; height: 10px; opacity: 0; filter: drop-shadow(0 0 4px #ffe9a8);
+  background: radial-gradient(circle, #fff 0 18%, transparent 20%),
+    conic-gradient(transparent 0 40deg, #fff 45deg, transparent 50deg 130deg, #fff 135deg, transparent 140deg 220deg, #fff 225deg, transparent 230deg 310deg, #fff 315deg, transparent 320deg);
+  mask: radial-gradient(circle, #000 0 30%, transparent 70%);
+}
+
+a.entry.demi {
+  --fill: #100c0e; margin: .25rem 0;
+  background:
+    linear-gradient(90deg, rgb(176 24 24 / .12), transparent 70%) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box,
+    conic-gradient(from var(--spin), #2a1a1c 0 35%, #b01818 45%, #e0523a 50%, #2a1a1c 60% 85%, #5a0000 92%, #2a1a1c 100%) border-box;
+}
+a.entry.demi:hover, a.entry.demi:active { --fill: #161013; }
+.fx .haze { position: absolute; inset: -50% -20%; background: radial-gradient(40% 60% at 50% 50%, rgb(176 24 24 / .18), transparent 70%); }
+
+/* The profile: name, tier and figures in the title's frame, with its seal on the right. */
+.hero.god, .hero.demi { position: relative; padding: 1.75rem 1.25rem 1.25rem; }
+.hero.god {
+  background: radial-gradient(80% 140% at 50% 120%, rgb(255 246 216 / .14), transparent 60%) padding-box,
+    linear-gradient(#0d1016, #0d1016) padding-box,
+    conic-gradient(from var(--spin), #2a2c33 0 50%, #fff 68%, var(--gold) 78%, #2a2c33 92% 100%) border-box;
+  box-shadow: 0 0 24px rgb(255 240 200 / .1);
+}
+.hero.demi {
+  background: radial-gradient(90% 120% at 50% 130%, rgb(176 24 24 / .22), transparent 60%) padding-box,
+    linear-gradient(#0d0b0e, #0d0b0e) padding-box,
+    conic-gradient(from var(--spin), #2a1a1c 0 40%, #b01818 50%, #ffb4a0 55%, #b01818 60%, #2a1a1c 70% 100%) border-box;
+  box-shadow: 0 0 22px rgb(176 24 24 / .15);
+}
+.fx .mist {
+  position: absolute; bottom: -30%; width: var(--w); height: var(--w); border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, rgb(200 40 30 / .28), transparent 65%); filter: blur(10px);
+}
+.seal { margin: 0 0 0 auto; text-align: right; font-size: .75rem; text-transform: uppercase; letter-spacing: .18em; }
+.seal b { display: block; color: var(--fg); font-size: .95rem; letter-spacing: .02em; text-transform: none; }
+.hero.god .seal { color: var(--gold); }
+.hero.demi .seal { color: #e0523a; }
+
+@media (prefers-reduced-motion: no-preference) {
+  a.entry.god { animation: title-float 4s ease-in-out infinite, title-spin 4s linear infinite; }
+  .entry.god::after {
+    content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 25%; z-index: 0;
+    background: linear-gradient(90deg, transparent, rgb(255 250 230 / .2), transparent);
+    animation: title-sweep 3.4s ease-in-out infinite;
+  }
+  .entry.god .pos { animation: title-spin 2.4s linear infinite; }
+  .entry.god .name, .hero.god h1 { animation: title-shimmer 3s linear infinite; }
+  .chip.god { animation: title-shimmer 2.6s linear infinite; }
+  .chip.demi { animation: title-shimmer 3.6s linear infinite; }
+  .fx .mote { animation: title-mote var(--t) linear infinite; }
+  .fx .spark { animation: title-twinkle var(--t) ease-in-out infinite; }
+  a.entry.demi { animation: title-spin 7s linear infinite reverse; }
+  .fx .haze { animation: title-drift 6s ease-in-out infinite alternate; }
+  .hero.god { animation: title-spin 5s linear infinite; }
+  .hero.demi { animation: title-spin 8s linear infinite reverse; }
+  .fx .mist { animation: title-mist var(--t) ease-in infinite; }
+  @keyframes title-spin { to { --spin: 360deg; } }
+  @keyframes title-float { 50% { translate: 0 -3px; } }
+  @keyframes title-sweep { 0% { transform: translateX(-120%) skewX(-20deg); } 55%, 100% { transform: translateX(420%) skewX(-20deg); } }
+  @keyframes title-shimmer { to { background-position: -200% 0; } }
+  @keyframes title-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
+  @keyframes title-twinkle { 0%, 100% { opacity: 0; scale: .2; rotate: 0deg; } 50% { opacity: 1; scale: 1; rotate: 45deg; } }
+  @keyframes title-drift { from { transform: translateX(-30%); } to { transform: translateX(30%); } }
+  @keyframes title-mist { 0% { transform: translate(0, 20%) scale(1); opacity: 0; } 30% { opacity: .8; } 100% { transform: translate(var(--dx), -60%) scale(1.6); opacity: 0; } }
+}
+
 /* Loading: placeholder rows in the shape of what's coming. */
 .skeleton { height: 3.25rem; margin: .35rem 0; border-radius: 4px; background: var(--panel); }
 @media (prefers-reduced-motion: no-preference) {

@@ -181,7 +181,7 @@ async function leaderboard(db: D1Database, config: SiteConfig, region: Region, p
 
 /**
  * The region's God and Demigod (`titles` in the config, src/site/titles.ts), with their rating and
- * real place on the leaderboard: the page lists them above everyone and numbers the rest without them.
+ * real place on the leaderboard, where the page gives their row the title's effect.
  */
 async function titled(db: D1Database, config: SiteConfig, region: Region, bot: Fetcher | undefined, now: Date) {
   const entries = (await fetchTitles(bot)).filter((e) => e.region === region.id);

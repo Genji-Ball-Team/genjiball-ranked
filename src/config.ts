@@ -275,8 +275,8 @@ export const defaults = {
   /**
    * Titles: God and Demigod, won in the 1v1 tourney held every two months and given by the Discord
    * staff as a role per region. The Discord bot keeps who has them (its `GET /titles`, through the
-   * `BOT` service binding); `/api/titles` and the leaderboard page show them above everyone else, in
-   * this order, at most `max` of each per region. A player keeps their tier: a title isn't one.
+   * `BOT` service binding); `/api/titles` lists them in this order, at most `max` of each per region,
+   * and the site gives their leaderboard row and profile the title's effect. A player keeps their tier: a title isn't one.
    */
   titles: [
     { label: "God", max: 1 },
