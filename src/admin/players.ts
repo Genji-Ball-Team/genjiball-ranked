@@ -12,6 +12,7 @@ import {
   pairRowsToRederive,
   publicMerge,
   sharedRound,
+  writeAlt,
   writeMerge,
   writeName,
   writeUndo,
@@ -23,7 +24,7 @@ import { isStale } from "./store";
 
 /**
  * `/api/admin/players*` and `/api/admin/merges*` (#8): find players, merge two names that are one
- * player (a name change), undo a merge, and set a display name. Merges fix name changes; they don't
+ * player (a name change), undo a merge, set a display name, and mark an alt account. Merges fix name changes; they don't
  * tell who is behind an account. Returns null for a path that isn't one of these.
  */
 export async function handlePlayerAdmin(ctx: Context, request: Request, path: string[], id: number | null): Promise<Response | null> {
@@ -34,6 +35,7 @@ export async function handlePlayerAdmin(ctx: Context, request: Request, path: st
     if (path.length === 2) return method === "GET" ? await detail(ctx, id) : notAllowed("GET");
     if (path.length === 3 && path[2] === "merge") return method === "POST" ? await merge(ctx, id, await body(request)) : notAllowed("POST");
     if (path.length === 3 && path[2] === "name") return method === "POST" ? await rename(ctx, id, await body(request)) : notAllowed("POST");
+    if (path.length === 3 && path[2] === "alt") return method === "POST" ? await markAlt(ctx, id, await body(request)) : notAllowed("POST");
   }
   if (path[0] === "merges") {
     if (path.length === 1) return method === "GET" ? Response.json({ merges: await listMerges(ctx.db, null, ctx.config.adminListLimit) }) : notAllowed("GET");
@@ -184,6 +186,21 @@ async function rename(ctx: Context, playerId: number, data: Record<string, unkno
     throw error;
   }
   ctx.log.info("admin: player name", { admin: ctx.admin.id, player: playerId, from: player.name, to: name });
+  return Response.json({ player: (await findPlayers(ctx.db, [playerId])).get(playerId) });
+}
+
+/**
+ * `POST /api/admin/players/:id/alt` with `{ "alt": true }`: an alt account. It's rated as normal and
+ * its profile and matches stay public, but it isn't on the leaderboard and has no place there.
+ * `{ "alt": false }` puts it back. Nothing is recomputed.
+ */
+async function markAlt(ctx: Context, playerId: number, data: Record<string, unknown>): Promise<Response> {
+  if (typeof data.alt !== "boolean") throw new BadRequest("alt must be true or false");
+  const player = (await findPlayers(ctx.db, [playerId])).get(playerId);
+  if (!player) return fail(404, "not_found", "No such player");
+  if (player.mergedInto !== null) return fail(409, "conflict", `The player was merged into player ${player.mergedInto}. Mark that one`);
+  await writeAlt(ctx.db, playerId, data.alt, { adminId: ctx.admin.id, detail: { player: playerId, name: player.name, alt: data.alt }, at: isoSeconds(ctx.now) });
+  ctx.log.info("admin: player alt", { admin: ctx.admin.id, player: playerId, alt: data.alt });
   return Response.json({ player: (await findPlayers(ctx.db, [playerId])).get(playerId) });
 }
 

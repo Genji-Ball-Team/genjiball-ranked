@@ -559,6 +559,8 @@ async function playerPage() {
     const here = regionName(site.region);
     title(`${p.name} (${site.short(site.region)})`);
     $("name").textContent = p.name;
+    // An alt account: rated, but not on the leaderboard.
+    $("alt").hidden = !p.alt;
     $("tier").innerHTML = r ? chip(r.siteTier) : "";
     const crown = (await titles).find((t) => t.id === p.id)?.title;
     titleHero(crown);
@@ -570,7 +572,8 @@ async function playerPage() {
       .join(" and ");
     $("about").innerHTML = [
       r?.inactiveSince && `Inactive since ${esc(date(r.inactiveSince))}: still on the leaderboard, but no rank tag in game.`,
-      r && !r.rank && `Not on the ${here} leaderboard yet: it takes a few more rated rounds.`,
+      p.alt && "Alt account: rated as normal, but not on the leaderboard.",
+      r && !r.rank && !p.alt && `Not on the ${here} leaderboard yet: it takes a few more rated rounds.`,
       !r && `No rated rounds in ${here}${elsewhere ? "" : " yet"}.`,
       elsewhere && `${r ? "Also rated" : "Rated"} in ${elsewhere}.`,
       others.length && `Also played as ${others.map(esc).join(", ")}.`,

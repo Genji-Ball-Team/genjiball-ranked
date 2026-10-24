@@ -446,6 +446,20 @@ describe("players: search for admins", () => {
   });
 });
 
+describe("players: alt accounts", () => {
+  it("marks a player an alt and back, logged, and refuses a merged or unknown player", async () => {
+    const { alpha, alfa } = await nameChange();
+    expect(await adminOk(`players/${alpha}/alt`, { alt: true })).toMatchObject({ player: { id: alpha, alt: true } });
+    expect(await rows(`SELECT alt FROM players WHERE id = ${alpha}`)).toEqual([{ alt: 1 }]);
+    expect(await rows("SELECT action FROM admin_actions WHERE action = 'player_alt'")).toHaveLength(1);
+    expect(await adminOk(`players/${alpha}/alt`, { alt: false })).toMatchObject({ player: { id: alpha, alt: false } });
+    expect((await admin(`players/${alpha}/alt`, { alt: 1 })).status).toBe(400);
+    expect((await admin("players/999999/alt", { alt: true })).status).toBe(404);
+    await adminOk(`players/${alfa}/merge`, { into: alpha });
+    expect((await admin(`players/${alfa}/alt`, { alt: true })).status).toBe(409);
+  });
+});
+
 describe("players: display name", () => {
   it("keeps the newest-seen alias and rank tag when an older alias is uploaded late", async () => {
     const { alpha, alfa } = await nameChange();

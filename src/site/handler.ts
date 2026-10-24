@@ -268,12 +268,14 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
     listRatedRegions(db, found.id, regionIds(config.regions)),
     listRivals(db, region.id, found.id, config.playerRivalsLimit),
   ]);
-  const ranked = rating !== null && rating.rounds >= config.minRankedRounds;
+  // An alt is rated, but has no place on the leaderboard.
+  const ranked = rating !== null && rating.rounds >= config.minRankedRounds && !found.alt;
   return {
     region: region.id,
     player: {
       id: found.id,
       name: found.name,
+      alt: found.alt,
       aliases: found.aliases,
       regions: regionIds(config.regions).filter((r) => rated.includes(r)),
       rating: rating && {

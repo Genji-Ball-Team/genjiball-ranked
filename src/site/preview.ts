@@ -54,11 +54,12 @@ async function rated(db: D1Database, config: PreviewConfig, region: Region, id: 
   const player = await findCanonicalPlayer(db, id);
   if (!player) return null;
   const rating = await findRating(db, region.id, player.id);
-  if (!rating) return { name: player.name, rating: null, rank: null, line: "" };
+  if (!rating) return { name: player.name, alt: player.alt, rating: null, rank: null, line: "" };
   const { siteTier } = standing(rating, config, now);
-  const ranked = rating.rounds >= config.minRankedRounds;
+  const ranked = rating.rounds >= config.minRankedRounds && !player.alt;
   return {
     name: player.name,
+    alt: player.alt,
     rating,
     rank: ranked ? await rankOf(db, region.id, rating, config.minRankedRounds) : null,
     line: [siteTier?.label, rating.display > 0 ? String(rating.display) : null].filter(Boolean).join(" · "),
@@ -74,7 +75,7 @@ async function playerPreview(db: D1Database, config: PreviewConfig, region: Regi
   return {
     title: `${p.name}${p.line ? ` · ${p.line}` : ""}`,
     description: [
-      p.rank ? `#${p.rank} on the ${region.label} leaderboard.` : `Not on the ${region.label} leaderboard yet.`,
+      p.rank ? `#${p.rank} on the ${region.label} leaderboard.` : p.alt ? "Alt account." : `Not on the ${region.label} leaderboard yet.`,
       `${r.rounds} rated ${r.rounds === 1 ? "round" : "rounds"}, ${won}% won.`,
     ].join(" "),
   };
