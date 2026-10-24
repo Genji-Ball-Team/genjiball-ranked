@@ -275,7 +275,7 @@ export const defaults = {
    * in game: `/api/rank-tags` leaves it out, so the game's tiers stay as they are.
    */
   tiers: [
-    { label: "Rookie", color: [126, 224, 200], threshold: 1100, siteOnly: true },
+    { label: "Rookie", color: [126, 224, 200], threshold: 1000, siteOnly: true },
     { label: "Apprentice", color: [205, 127, 50], threshold: 1300 },
     { label: "Master", color: [255, 215, 0], threshold: 1600 },
     { label: "Grandmaster", color: [255, 140, 0], threshold: 1900 },

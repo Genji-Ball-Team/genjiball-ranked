@@ -351,7 +351,7 @@ describe("tierFor", () => {
 
   it("has seven tiers, lowest first, each higher than the last", () => {
     expect(tiers.map((t) => [t.label, t.threshold])).toEqual([
-      ["Rookie", 1100],
+      ["Rookie", 1000],
       ["Apprentice", 1300],
       ["Master", 1600],
       ["Grandmaster", 1900],
@@ -363,7 +363,9 @@ describe("tierFor", () => {
 
   it("is null below the first tier", () => {
     expect(tierFor(tiers[0]!.threshold - 1, tiers)).toBeNull();
-    expect(tierFor(config.displayCenter, tiers)).toBeNull();
+    // A new player starts under Rookie (ratingNewPlayerStart); one who started at displayCenter is a Rookie.
+    expect(tierFor(config.ratingNewPlayerStart, tiers)).toBeNull();
+    expect(tierFor(config.displayCenter, tiers)?.label).toBe("Rookie");
   });
 
   it("is the highest tier reached, from its threshold on", () => {
