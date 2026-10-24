@@ -46,7 +46,7 @@ describe("rankTags", () => {
   });
 
   it("leaves out the site-only Rookie tier: the game's tiers and tags don't change", () => {
-    const tags = rankTags([player("Kenzo", 1300), player("Rook", 1299), player("Rookie2", 1100)], defaults, now);
+    const tags = rankTags([player("Kenzo", 1300), player("Rook", 1299), player("Rookie2", 1000)], defaults, now);
     expect(tags.tiers.map((t) => t.label)).toEqual(["Apprentice", "Master", "Grandmaster", "Ascendant", "Champion", "Sovereign"]);
     expect(tags.tiers.flatMap((t) => t.names)).toEqual(["Kenzo"]);
   });
