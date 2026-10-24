@@ -213,6 +213,53 @@ describe("rateMatch", () => {
   });
 });
 
+describe("new players", () => {
+  const before = "2026-10-01T20:00:00Z";
+  const after = "2026-11-01T20:00:00Z";
+  const lowerMu = config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale;
+
+  it("start at ratingMu before ratingNewPlayerStartFrom and at ratingNewPlayerStart from it on", () => {
+    expect(newRating(config).mu).toBe(config.ratingMu);
+    expect(newRating(config, before).mu).toBe(config.ratingMu);
+    expect(newRating(config, config.ratingNewPlayerStartFrom).mu).toBeCloseTo(lowerMu, 10);
+    expect(newRating(config, after).mu).toBeCloseTo(lowerMu, 10);
+    expect(newRating(config, after).sigma).toBe(config.ratingSigma);
+  });
+
+  it("show under the center but above the floor at the lower start", () => {
+    const shown = displayRating(newRating(config, after), config);
+    expect(shown).toBeLessThan(config.displayCenter);
+    expect(shown).toBeGreaterThan(config.displayFloor);
+  });
+
+  it("start lower in a match played from the switch on, while a player already rated keeps their rating", () => {
+    const off = { ...config, ratingNewPlayerStart: config.displayCenter };
+    const play = (cfg: typeof config) => {
+      const ratings: Ratings = new Map();
+      rateMatch(ratings, match(1, [[1, 2]], before), cfg);
+      const veteran = { ...ratings.get(2)! };
+      rateMatch(ratings, match(2, [[3, 2]], after), cfg);
+      return { veteran, ratings };
+    };
+    const on = play(config), was = play(off);
+    expect(on.veteran).toEqual(was.veteran);
+    // Player 3 is new and wins: from the lower start, so they end under where they would have.
+    expect(on.ratings.get(3)!.mu).toBeGreaterThan(lowerMu);
+    expect(on.ratings.get(3)!.mu).toBeLessThan(was.ratings.get(3)!.mu);
+    // Player 2 lost to a weaker-looking player, so lost more.
+    expect(on.ratings.get(2)!.mu).toBeLessThan(was.ratings.get(2)!.mu);
+  });
+
+  it("leave a recompute of the matches before the switch exactly as it was without it", () => {
+    const old = [match(1, [[1, 2, 3], [3, 2, 1]], before), match(2, [[2, 3, 4]], "2026-10-02T20:00:00Z")];
+    const off = { ...config, ratingNewPlayerStart: config.displayCenter };
+    expect(recompute(old, config)).toEqual(recompute(old, off));
+    const withNew = recompute([...old, match(3, [[5, 1]], after)], config);
+    expect(withNew.ratings.get(5)!.mu).toBeLessThan(config.ratingMu);
+    expect(withNew.history.filter((entry) => entry.matchId !== 3)).toEqual(recompute(old, config).history);
+  });
+});
+
 describe("recompute", () => {
   const matches = [
     match(1, [[1, 2, 3, 4], [2, 1, 4, 3]]),
