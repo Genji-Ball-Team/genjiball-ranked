@@ -123,7 +123,7 @@ export const defaults = {
    */
   ratingNewPlayerStart: 800,
   /** ISO 8601: the moment `ratingNewPlayerStart` took effect (the deploy). Set it once, never move it. */
-  ratingNewPlayerStartFrom: "2026-10-24T13:00:00Z",
+  ratingNewPlayerStartFrom: "2026-10-24T13:30:00Z",
   /**
    * Damping: one round moves mu about 1/N as far as a full rated game would (sigma isn't damped).
    * Higher is a steadier leaderboard but a slower one to learn: a player keeps climbing toward their
