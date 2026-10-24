@@ -17,6 +17,8 @@ export type RatingConfig = Pick<
   | "ratingSigma"
   | "ratingBeta"
   | "ratingTau"
+  | "ratingNewPlayerStart"
+  | "ratingNewPlayerStartFrom"
   | "ratingRoundsPerMatch"
   | "displayCenter"
   | "displayScale"
@@ -76,22 +78,29 @@ export interface HistoryEntry {
 
 export type Ratings = Map<number, PlayerRating>;
 
-export function newRating(config: RatingConfig): PlayerRating {
-  return { mu: config.ratingMu, sigma: config.ratingSigma, rounds: 0, wins: 0, streak: 0, bestStreak: 0, lastPlayedAt: null };
+/**
+ * A player's rating before their first rated round. One first rated in a match played from
+ * `ratingNewPlayerStartFrom` on (`playedAt`) starts at `ratingNewPlayerStart`; before it, and with
+ * no `playedAt`, at `ratingMu`.
+ */
+export function newRating(config: RatingConfig, playedAt?: string): PlayerRating {
+  const lower = playedAt !== undefined && Date.parse(playedAt) >= Date.parse(config.ratingNewPlayerStartFrom);
+  const mu = lower ? config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale : config.ratingMu;
+  return { mu, sigma: config.ratingSigma, rounds: 0, wins: 0, streak: 0, bestStreak: 0, lastPlayedAt: null };
 }
 
 /**
  * Rates one round in place. `order` is the finishing order, winner first. A round with fewer than
  * two players, or a player listed twice, changes nothing and returns false.
  */
-export function rateRound(ratings: Ratings, order: readonly number[], config: RatingConfig): boolean {
+export function rateRound(ratings: Ratings, order: readonly number[], config: RatingConfig, playedAt?: string): boolean {
   if (order.length < 2 || new Set(order).size !== order.length) return false;
 
   const n = config.ratingRoundsPerMatch;
   // Tau is spread over the rounds of a match, like the update itself.
   const tauSq = config.ratingTau ** 2 / n;
   const before = order.map((id) => {
-    const current = ratings.get(id) ?? newRating(config);
+    const current = ratings.get(id) ?? newRating(config, playedAt);
     return { ...current, sigma: Math.sqrt(current.sigma ** 2 + tauSq) };
   });
 
@@ -132,13 +141,13 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
 export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingConfig): HistoryEntry[] {
   const started = new Map<number, PlayerRating>();
   for (const order of match.rounds) {
-    for (const id of order) if (!started.has(id)) started.set(id, { ...(ratings.get(id) ?? newRating(config)) });
+    for (const id of order) if (!started.has(id)) started.set(id, { ...(ratings.get(id) ?? newRating(config, match.playedAt)) });
   }
 
   const played = new Set<number>();
   const rated: number[][] = [];
   for (const order of match.rounds) {
-    if (!rateRound(ratings, order, config)) continue;
+    if (!rateRound(ratings, order, config, match.playedAt)) continue;
     order.forEach((id) => played.add(id));
     rated.push(order);
   }

@@ -115,6 +115,16 @@ export const defaults = {
   /** Uncertainty added per match's worth of rounds, so ratings can still move after many games. */
   ratingTau: 25 / 100,
   /**
+   * Where a player new to the board starts, in display points on the straight scale (800 is
+   * 200/`displayScale` mu under `ratingMu`; the display eases it to about 914). Starting under the
+   * players already there stops regulars gaining from beating newcomers (docs/rating.md, "New
+   * players"). Only players first rated in a match played from `ratingNewPlayerStartFrom` on start
+   * here; everyone before starts at `ratingMu`, so a recompute leaves the board as it was.
+   */
+  ratingNewPlayerStart: 800,
+  /** ISO 8601: the moment `ratingNewPlayerStart` took effect (the deploy). Set it once, never move it. */
+  ratingNewPlayerStartFrom: "2026-10-24T13:00:00Z",
+  /**
    * Damping: one round moves mu about 1/N as far as a full rated game would (sigma isn't damped).
    * Higher is a steadier leaderboard but a slower one to learn: a player keeps climbing toward their
    * real level for longer. 1 rates every round as a full game. On the v1.3.2 logs, 4 predicts rounds

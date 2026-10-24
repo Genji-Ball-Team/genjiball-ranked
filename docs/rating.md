@@ -29,9 +29,15 @@ Sigma takes each round's full update. It used to be damped too, and then it neve
 
 After a match, nobody's display rating is more than `ratingMatchMaxChange` (150) points from where they started it, either way: someone who would move further ends exactly that far, at the mu that shows it (the display curve inverted). It's a safety net for a long lobby against much weaker (or much stronger) players, and for a newcomer's lucky first match now that they show on the leaderboard after 3 rounds. On the v1.3.2 logs it changes prediction by less than 0.01. Tournaments have their own cap (below).
 
+## New players
+
+A player new to the board starts at `ratingNewPlayerStart` (800) on the straight display scale: 200/`displayScale` mu under `ratingMu`, which the display eases to about 914. Everyone used to start at 1000, the middle of the board, so a newcomer was rated as an average player while most played well under that, and regulars kept gaining from beating them. On the EU matches of 2026-10-05 to 2026-10-23, starting newcomers at 800 from 2026-10-14 on cut regulars' gain per match with a newcomer from +5.7 to +0.9 display points (other matches about 0), predicted rounds better (log-likelihood +0.03 on the last 20 %) and put no one under 50 rounds in the top 10. Lower starts (750) took farming to about 0 but were no better at predicting.
+
+It only applies to players first rated in a match played from `ratingNewPlayerStartFrom` (the deploy, 2026-10-24) on. Everyone rated before keeps starting at `ratingMu`, so a recompute gives the board it had, and the switch needed none. OpenSkill only cares about the gaps between ratings: starting everyone lower from the first match would change nothing but the numbers shown.
+
 ## Recompute
 
-Ratings are always rebuildable from scratch: `recompute` rates the matches that count (accepted, not void, legacy included) in play order (`played_at`, then id), starting everyone at `ratingMu` ± `ratingSigma`. The same matches always give the same ratings. Rating a new match as it arrives (`rateMatch`) gives exactly what a recompute would, as long as it's the newest match. A void or a late upload of an older match needs a recompute.
+Ratings are always rebuildable from scratch: `recompute` rates the matches that count (accepted, not void, legacy included) in play order (`played_at`, then id), starting everyone at `ratingMu` ± `ratingSigma` (or `ratingNewPlayerStart`, above). The same matches always give the same ratings. Rating a new match as it arrives (`rateMatch`) gives exactly what a recompute would, as long as it's the newest match. A void or a late upload of an older match needs a recompute.
 
 ## Ratings in the database
 
@@ -79,7 +85,7 @@ x ≥ 0:  display = displayCenter + x
 x < 0:  display = displayFloor + (displayCenter − displayFloor) · e^(x / (displayCenter − displayFloor))
 ```
 
-rounded. A new player shows `displayCenter` (1000). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. Sigma doesn't count: a conservative rating, mu − z·sigma (z = 3 in the first version), drifts up as sigma shrinks, so players climbed by playing more, not by getting better. Someone who stops playing keeps their number.
+rounded. A player who started at `ratingMu` began at `displayCenter` (1000); a new player now starts lower (above). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. Sigma doesn't count: a conservative rating, mu − z·sigma (z = 3 in the first version), drifts up as sigma shrinks, so players climbed by playing more, not by getting better. Someone who stops playing keeps their number.
 
 The tiers are Rookie 1100 (site and Discord only: no rank tag in game, light mint green), Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Champion 2500 and Sovereign 2800 (dark purple; it was God, now a title for the 1v1 tourney's winner, [api.md](api.md#titles-and-tiers-get-apititlesregioneu-get-apitiersplayers12)). A player shows on the leaderboard, and gets a tier, from `minRankedRounds` (3) rated rounds: someone who drops into one lobby sees themselves there. The per-match cap keeps a lucky first match from putting them high. The labels and colours are those of GenjiBall-CE `src/features/rank-tags.opy`, plus Apprentice (bronze), which that file needs a sixth list for.
 
