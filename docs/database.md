@@ -6,7 +6,7 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 
 | Table | One row per | Notes |
 |---|---|---|
-| `players` | player account | `name` is the alias seen most recently, unless an admin set it (`name_fixed`). `merged_into`: the player an admin merged this one into ([below](#merging-players)); a merged player keeps their row but has no aliases or ratings |
+| `players` | player account | `name` is the alias seen most recently, unless an admin set it (`name_fixed`). `merged_into`: the player an admin merged this one into ([below](#merging-players)); a merged player keeps their row but has no aliases or ratings. `alt`: an admin marked them an alt account: rated as normal, but left off the leaderboard and its places (partial index `players_alt`) |
 | `aliases` | name seen for a player | A name (ignoring case) belongs to one player. Admins merge players (#8). A name an admin gave that no log has shown yet has empty seen times |
 | `player_merges` | merge of two players | `from_id` merged into `into_id`, the ids of the aliases it moved (JSON), who and when; `undone_at` once undone |
 | `hosts` | host | Only the SHA-256 of the token. `trust`: `trusted`, `untrusted` or `revoked`. `region`: home region, where uploads without `X-Region` go (`NULL`: none). `uploads_hour_start`, `uploads_hour_count`: the rate limit's hour of uploads and the files stored in it, written with `last_upload_at` (a replaced file's row is deleted, so `uploads` can't be counted) |

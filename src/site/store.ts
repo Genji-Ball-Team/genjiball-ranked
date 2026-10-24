@@ -11,6 +11,9 @@ import type { FormRound, StoredHistoryRow } from "./history";
 
 const publicStatuses = "('accepted', 'void')";
 
+/** Alt accounts (`players.alt`): rated, but off the leaderboard and not counted in its places (index `players_alt`). */
+const notAlt = (idSql: string) => `${idSql} NOT IN (SELECT id FROM players WHERE alt = 1)`;
+
 /** The tourney lobby a match was played in (#31). */
 export interface TourneyRef {
   id: number;
@@ -38,12 +41,12 @@ export interface RatingRow {
 
 const ratingColumns = `r.player_id AS playerId, p.name, r.display, r.rounds, r.wins, r.last_played_at AS lastPlayedAt`;
 
-/** A leaderboard page: players with at least `minRounds` rated rounds, best first (index `ratings_board_display`). */
+/** A leaderboard page: players with at least `minRounds` rated rounds, best first, alts left out (index `ratings_board_display`). */
 export async function listLeaderboard(db: D1Database, board: string, minRounds: number, limit: number, offset: number): Promise<RatingRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
-       WHERE r.board = ?1 AND r.rounds >= ?2 ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
+       WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0 ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
     )
     .bind(board, minRounds, limit, offset)
     .all<RatingRow>();
@@ -117,27 +120,27 @@ export async function listRatingsOf(db: D1Database, ids: readonly number[]): Pro
   return results;
 }
 
-/** These players' ratings on one board with their place on its leaderboard, as `rankOf` counts it. Those not on it are left out. */
+/** These players' ratings on one board with their place on its leaderboard, as `rankOf` counts it. Those not on it (alts too) are left out. */
 export async function listRanked(db: D1Database, board: string, ids: readonly number[], minRounds: number): Promise<(RatingRow & { rank: number })[]> {
   const { results } = await db
     .prepare(
       `SELECT ${ratingColumns},
          (SELECT COUNT(*) + 1 FROM ratings o WHERE o.board = ?1 AND o.rounds >= ?3
-           AND (o.display > r.display OR (o.display = r.display AND o.player_id < r.player_id))) AS rank
+           AND (o.display > r.display OR (o.display = r.display AND o.player_id < r.player_id)) AND ${notAlt("o.player_id")}) AS rank
        FROM ratings r JOIN players p ON p.id = r.player_id
-       WHERE r.board = ?1 AND r.rounds >= ?3 AND r.player_id IN (SELECT value FROM json_each(?2))`,
+       WHERE r.board = ?1 AND r.rounds >= ?3 AND p.alt = 0 AND r.player_id IN (SELECT value FROM json_each(?2))`,
     )
     .bind(board, JSON.stringify(ids), minRounds)
     .all<RatingRow & { rank: number }>();
   return results;
 }
 
-/** The player's place on the leaderboard, in the order `listLeaderboard` uses. */
+/** The player's place on the leaderboard, in the order `listLeaderboard` uses: alts don't count. Not for an alt, which has none. */
 export async function rankOf(db: D1Database, board: string, rating: RatingRow, minRounds: number): Promise<number> {
   const row = await db
     .prepare(
       `SELECT COUNT(*) + 1 AS rank FROM ratings
-       WHERE board = ?1 AND rounds >= ?2 AND (display > ?3 OR (display = ?3 AND player_id < ?4))`,
+       WHERE board = ?1 AND rounds >= ?2 AND (display > ?3 OR (display = ?3 AND player_id < ?4)) AND ${notAlt("player_id")}`,
     )
     .bind(board, minRounds, rating.display, rating.playerId)
     .first<{ rank: number }>();
@@ -163,6 +166,8 @@ export interface PlayerRow {
   aliases: string[];
   /** The player an admin merged this one into (#8), or null. */
   mergedInto: number | null;
+  /** An admin marked them an alt account: no place on the leaderboard. */
+  alt: boolean;
 }
 
 /**
@@ -177,13 +182,13 @@ export async function findCanonicalPlayer(db: D1Database, id: number): Promise<P
          UNION
          SELECT p.id, p.merged_into FROM players p JOIN chain c ON p.id = c.merged_into
        )
-       SELECT p.id, p.name, p.merged_into AS mergedInto,
+       SELECT p.id, p.name, p.merged_into AS mergedInto, p.alt,
          (SELECT json_group_array(name) FROM (SELECT a.name FROM aliases a WHERE a.player_id = p.id ORDER BY a.last_seen_at DESC)) AS aliases
        FROM players p WHERE p.id = (SELECT id FROM chain WHERE merged_into IS NULL)`,
     )
     .bind(id)
-    .first<{ id: number; name: string; mergedInto: number | null; aliases: string }>();
-  return row && { ...row, aliases: JSON.parse(row.aliases) as string[] };
+    .first<{ id: number; name: string; mergedInto: number | null; alt: number; aliases: string }>();
+  return row && { ...row, alt: row.alt === 1, aliases: JSON.parse(row.aliases) as string[] };
 }
 
 export interface PlayerSearchRow {

@@ -999,13 +999,20 @@
         location.hash = `#/players/${res.into}`;
       }
     }, "danger");
-    view.append(head([crumb("#/players", "Players"), h("h1", {}, p.name, " ", h("small", { class: "muted id" }, `#${p.id}`))],
+    const alt = btn(p.alt ? "Not an alt" : "Mark as alt", async () => {
+      const ok = p.alt
+        ? await confirmAction(`${p.name} isn't an alt?`, `${p.name} goes back on the leaderboard with a place, like anyone.`, "Not an alt")
+        : await confirmAction(`Mark ${p.name} as an alt?`, "They're rated as normal and their profile and matches stay public, with an \"alt\" tag. They aren't on the leaderboard (nor the in-game top 10 or the Discord bot's) and have no place there. Nothing is recomputed.", "Mark as alt");
+      if (ok) await run("Alt", async () => (await post(`players/${p.id}/alt`, { alt: !p.alt })).player.alt ? `${p.name} is an alt.` : `${p.name} isn't an alt.`);
+    });
+    view.append(head([crumb("#/players", "Players"), h("h1", {}, p.name, " ", h("small", { class: "muted id" }, `#${p.id}`), p.alt && chip("Alt", "plain"))],
       h("a", { class: "button", href: `/player?id=${p.id}`, target: "_blank" }, "Public page ↗"),
-      !p.mergedInto && rename, !p.mergedInto && merge));
+      !p.mergedInto && rename, !p.mergedInto && alt, !p.mergedInto && merge));
     if (p.mergedInto) view.append(h("p", { class: "callout" }, "Merged into ", h("a", { href: `#/players/${p.mergedInto}` }, `player #${p.mergedInto}`), ". Undo the merge below to split them again."));
     view.append(h("dl", { class: "fact-grid" },
       fact("Matches", p.matches),
       fact("Name", p.nameFixed ? "Set by an admin" : "From the logs"),
+      fact("Leaderboard", p.alt ? "Hidden: an alt" : "Listed"),
       fact("First seen", time(p.createdAt))));
 
     view.append(section("Ratings"));

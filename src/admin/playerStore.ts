@@ -80,6 +80,8 @@ export interface AdminPlayer {
   nameFixed: boolean;
   /** The player this one was merged into, or null. */
   mergedInto: number | null;
+  /** An alt account: rated, but off the leaderboard. */
+  alt: boolean;
   createdAt: string;
   /** Newest seen first. */
   aliases: AliasRow[];
@@ -108,7 +110,7 @@ const latestAlias = (idSql: string) =>
 export async function findPlayers(db: D1Database, ids: readonly number[]): Promise<Map<number, AdminPlayer>> {
   const { results } = await db
     .prepare(
-      `SELECT p.id, p.name, p.name_fixed AS nameFixed, p.merged_into AS mergedInto, p.created_at AS createdAt,
+      `SELECT p.id, p.name, p.name_fixed AS nameFixed, p.merged_into AS mergedInto, p.alt, p.created_at AS createdAt,
          (SELECT json_group_array(json_object('id', id, 'name', name, 'firstSeenAt', first_seen_at, 'lastSeenAt', last_seen_at))
           FROM (SELECT * FROM aliases a WHERE a.player_id = p.id ORDER BY a.last_seen_at DESC, a.id DESC)) AS aliases,
          (SELECT json_group_array(json_object('region', board, 'rating', display, 'rounds', rounds, 'wins', wins,
@@ -117,13 +119,14 @@ export async function findPlayers(db: D1Database, ids: readonly number[]): Promi
        FROM players p WHERE p.id IN (SELECT value FROM json_each(?1))`,
     )
     .bind(JSON.stringify(ids))
-    .all<Omit<AdminPlayer, "nameFixed" | "aliases" | "ratings"> & { nameFixed: number; aliases: string; ratings: string }>();
+    .all<Omit<AdminPlayer, "nameFixed" | "alt" | "aliases" | "ratings"> & { nameFixed: number; alt: number; aliases: string; ratings: string }>();
   return new Map(
     results.map((row) => [
       row.id,
       {
         ...row,
         nameFixed: row.nameFixed === 1,
+        alt: row.alt === 1,
         aliases: JSON.parse(row.aliases) as AliasRow[],
         ratings: JSON.parse(row.ratings) as PlayerRatingRow[],
       },
@@ -434,6 +437,14 @@ export async function writeName(
           .bind(playerId),
       ];
   await db.batch([...statements, mergeActionStatement(db, log.adminId, "player_name", log.detail, log.at, "NULL")]);
+}
+
+/** Marks a player an alt account, or not, with its `admin_actions` row. Only a player not merged into another. */
+export async function writeAlt(db: D1Database, playerId: number, alt: boolean, log: { adminId: number; detail: Record<string, unknown>; at: string }): Promise<void> {
+  await db.batch([
+    db.prepare("UPDATE players SET alt = ?2 WHERE id = ?1 AND merged_into IS NULL").bind(playerId, alt ? 1 : 0),
+    mergeActionStatement(db, log.adminId, "player_alt", log.detail, log.at, "NULL"),
+  ]);
 }
 
 /**

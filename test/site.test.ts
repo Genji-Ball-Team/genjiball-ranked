@@ -137,6 +137,20 @@ describe("leaderboard", () => {
     expect((await page("nonsense")).page).toBe(1);
   });
 
+  it("leaves out alt accounts, and doesn't count them in the places", async () => {
+    await playMatches(matchesToRank);
+    const before = (await get<Board>("leaderboard")).players;
+    const [first, second] = before;
+    await db().prepare("UPDATE players SET alt = 1 WHERE id = ?").bind(first!.id).run();
+    const board = (await get<Board>("leaderboard")).players;
+    expect(board.map((p) => p.id)).toEqual(before.slice(1).map((p) => p.id));
+    expect(board.map((p) => p.rank)).toEqual([1, 2, 3]);
+    // Still rated: the alt's rating is untouched, and the others' places move up one.
+    expect((await db().prepare("SELECT display FROM ratings WHERE player_id = ?").bind(first!.id).first<{ display: number }>())!.display).toBe(first!.rating);
+    const { player } = await get<{ player: { rating: { rank: number | null } } }>(`players/${second!.id}`);
+    expect(player.rating.rank).toBe(1);
+  });
+
   it("only answers GET", async () => {
     const res = await SELF.fetch("https://example.com/api/leaderboard", { method: "POST" });
     expect(res.status).toBe(405);
@@ -164,6 +178,16 @@ describe("player", () => {
     expect(matches.at(-1)!.ratingBefore).toBeNull();
     expect(matches[0]!.ratingBefore).toBe(matches[1]!.ratingAfter);
     expect(matches[0]!.ratingAfter).toBe(player.rating.rating);
+  });
+
+  it("marks an alt account, rated but with no rank", async () => {
+    await playMatches(matchesToRank);
+    const alpha = await playerId("Alpha");
+    type Alt = { player: { alt: boolean; rating: { rank: number | null; rounds: number } } };
+    expect((await get<Alt>(`players/${alpha}`)).player.alt).toBe(false);
+    await db().prepare("UPDATE players SET alt = 1 WHERE id = ?").bind(alpha).run();
+    const { player } = await get<Alt>(`players/${alpha}`);
+    expect(player).toMatchObject({ alt: true, rating: { rank: null, rounds: 2 * matchesToRank } });
   });
 
   it("has no rank below minRankedRounds", async () => {
