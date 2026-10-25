@@ -81,10 +81,10 @@
 }
 
 /* A screenshot at full size over the page. */
-.lightbox { max-width: 96vw; max-height: 96vh; padding: 0; border: 0; background: none; cursor: zoom-out; }
-.lightbox::backdrop { background: var(--scrim); }
-.lightbox img { display: block; max-width: 96vw; max-height: 96vh; object-fit: contain; }
-.lightbox button {
+.screenshot-box { max-width: 96vw; max-height: 96vh; padding: 0; border: 0; background: none; cursor: zoom-out; }
+.screenshot-box::backdrop { background: var(--scrim); }
+.screenshot-box img { display: block; max-width: 96vw; max-height: 96vh; object-fit: contain; }
+.screenshot-box button {
   position: absolute; inset: 8px 8px auto auto; display: grid; place-items: center; inline-size: 40px; block-size: 40px;
   padding: 0; border: 0; border-radius: var(--r); background: var(--raised); color: var(--fg); cursor: pointer;
 }

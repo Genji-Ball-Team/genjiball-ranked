@@ -106,7 +106,7 @@ let lightbox: HTMLDialogElement | undefined;
 function enlarge(src: string, alt: string): void {
   if (!lightbox) {
     const box = document.createElement("dialog");
-    box.className = "lightbox";
+    box.className = "screenshot-box";
     render(box, html`<img alt=""><button type="button" aria-label="Close"><gb-icon name="close"></gb-icon></button>`);
     box.addEventListener("click", () => box.close());
     document.body.append(box);
