@@ -101,6 +101,24 @@ export interface PlayerMatches {
   hasMore: boolean;
 }
 
+/** A player in a match of `GET /api/recent`, in place order. */
+export interface RecentPlayer {
+  id: number;
+  name: string;
+  place: number;
+  roundWins: number;
+  kills: number;
+  ratingBefore: number | null;
+  ratingAfter: number | null;
+}
+
+/** `GET /api/recent`: the region's newest matches. */
+export interface RecentMatches {
+  region: string;
+  matches: (Omit<PlayerMatch, "ratingBefore" | "ratingAfter" | "place" | "roundWins"> & { players: RecentPlayer[] })[];
+  hasMore: boolean;
+}
+
 /** Who a player eliminates most, or is eliminated by most. */
 export interface Rival {
   id: number;

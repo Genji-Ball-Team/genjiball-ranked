@@ -326,6 +326,80 @@ export async function listMatchTotals(db: D1Database, matchIds: number[]): Promi
   return results;
 }
 
+/** A match in the recent matches list. */
+export interface RecentMatchRow {
+  id: number;
+  playedAt: string;
+  map: string | null;
+  legacy: boolean;
+  void: boolean;
+  tournament: boolean;
+  tourney: TourneyRef | null;
+  players: RecentPlayerRow[];
+}
+
+/** A player in a recent match: their totals, their log ids added up, and the rating it gave them. */
+export interface RecentPlayerRow {
+  id: number;
+  name: string;
+  roundWins: number;
+  kills: number;
+  ratingAfter: number | null;
+  ratingBefore: number | null;
+}
+
+/**
+ * The region's newest public matches by play time, older than match `before` when given, with their
+ * players. Each status is walked down index `matches_region_status_played` and stops at the limit,
+ * so a page reads about `limit` match rows, not the region's every match.
+ */
+export async function listRecentMatches(db: D1Database, board: string, limit: number, before: number | null): Promise<RecentMatchRow[]> {
+  const older = before === null ? "" : "AND (played_at, id) < (SELECT played_at, id FROM matches WHERE id = ?3)";
+  const newest = (status: string) =>
+    `SELECT * FROM (SELECT id, played_at FROM matches WHERE region = ?1 AND status = '${status}' ${older} ORDER BY played_at DESC, id DESC LIMIT ?2)`;
+  const page = `SELECT id FROM (${newest("accepted")} UNION ALL ${newest("void")}) ORDER BY played_at DESC, id DESC LIMIT ?2`;
+  const params = before === null ? [board, limit] : [board, limit, before];
+  const [matches, players] = await db.batch([
+    db
+      .prepare(
+        `WITH page AS MATERIALIZED (${page})
+         SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void, m.tournament, ${tourneyRef}
+         FROM page CROSS JOIN matches m ON m.id = page.id ORDER BY m.played_at DESC, m.id DESC`,
+      )
+      .bind(...params),
+    // A player who rejoined has two log ids: one row, their totals added up, with the name they last joined as.
+    db
+      .prepare(
+        `WITH page AS MATERIALIZED (${page})
+         SELECT mp.match_id AS matchId, mp.player_id AS id, mp.name, max(mp.log_id) AS logId,
+           SUM(mp.round_wins) AS roundWins, SUM(mp.kills) AS kills,
+           (SELECT h.display FROM rating_history h
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND h.played_at = m.played_at AND h.match_id = m.id) AS ratingAfter,
+           (SELECT h.display FROM rating_history h
+            WHERE h.board = m.region AND h.player_id = mp.player_id AND (h.played_at, h.match_id) < (m.played_at, m.id)
+            ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
+         FROM page CROSS JOIN match_players mp ON mp.match_id = page.id CROSS JOIN matches m ON m.id = mp.match_id
+         GROUP BY mp.match_id, mp.player_id`,
+      )
+      .bind(...params),
+  ]);
+  type RawMatch = Omit<RecentMatchRow, "players" | "tourney" | "legacy" | "void" | "tournament"> & { tourney: string | null } & Record<"legacy" | "void" | "tournament", number>;
+  const byMatch = new Map<number, RecentPlayerRow[]>();
+  for (const p of players!.results as (RecentPlayerRow & { matchId: number })[]) {
+    const list = byMatch.get(p.matchId) ?? [];
+    list.push({ id: p.id, name: p.name, roundWins: p.roundWins, kills: p.kills, ratingAfter: p.ratingAfter, ratingBefore: p.ratingAfter === null ? null : p.ratingBefore });
+    byMatch.set(p.matchId, list);
+  }
+  return (matches!.results as RawMatch[]).map((m) => ({
+    ...m,
+    legacy: m.legacy === 1,
+    void: m.void === 1,
+    tournament: m.tournament === 1,
+    tourney: parseTourney(m.tourney),
+    players: byMatch.get(m.id) ?? [],
+  }));
+}
+
 export interface MatchRow {
   id: number;
   region: string;

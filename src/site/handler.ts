@@ -32,6 +32,7 @@ import {
   listRanked,
   listRatedRegions,
   listRatingsOf,
+  listRecentMatches,
   listRivals,
   listTagCandidates,
   rankOf,
@@ -50,7 +51,7 @@ import {
  * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
  * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, their
  * round stats for compare (#16), `/api/players/:id/stats`, and
- * the records page (#19), `/api/records`.
+ * the records page (#19), `/api/records`, and the recent matches, `/api/recent`.
  *
  * Regions (#47): the leaderboard, a player's rating, matches, rivals and history, head-to-head, the
  * records, the rank tags, the Tourneys page and the live lobbies show one region's, `?region=`, the
@@ -68,6 +69,7 @@ export type SiteConfig = RankTagsConfig &
     | "tiersMaxPlayers"
     | "matchFeedLimit"
     | "playerRecentMatches"
+    | "recentMatchesPageSize"
     | "playerRivalsLimit"
     | "playerSearchLimit"
     | "playerSearchMinLength"
@@ -93,7 +95,7 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head"].includes(route ?? "");
+  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head", "recent"].includes(route ?? "");
   const asked = regional ? regionParam(url, config) : null;
   if (asked instanceof Response) return asked;
   const region = asked!;
@@ -129,6 +131,11 @@ export async function handleSite(
     },
     lobbies: async () => cached(await lobbies(db, config, region, now), config.lobbiesCacheSeconds),
     records: async () => Response.json(await records(db, config, region, now)),
+    recent: async () => {
+      const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
+      if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a match id");
+      return Response.json(await recent(db, config, region, before));
+    },
     "head-to-head": async () => {
       const a = positiveId(url.searchParams.get("a"));
       const b = positiveId(url.searchParams.get("b"));
@@ -321,10 +328,29 @@ async function playerMatches(db: D1Database, config: SiteConfig, region: Region,
   const matches = page.map((m) => {
     const inMatch = totals.filter((t) => t.matchId === m.id);
     const mine = inMatch.find((t) => t.playerId === playerId);
-    const place = mine && 1 + inMatch.filter((o) => o.roundWins > mine.roundWins || (o.roundWins === mine.roundWins && o.kills > mine.kills)).length;
-    return { ...m, place: place ?? null, roundWins: mine?.roundWins ?? 0 };
+    return { ...m, place: mine ? placeIn(inMatch, mine) : null, roundWins: mine?.roundWins ?? 0 };
   });
   return { matches, hasMore: rows.length > size };
+}
+
+type Totals = { roundWins: number; kills: number };
+
+/** A player's place in a match, as on the match page: most rounds won, ties broken by kills, the same wins and kills sharing a place. */
+function placeIn(everyone: readonly Totals[], mine: Totals): number {
+  return 1 + everyone.filter((o) => o.roundWins > mine.roundWins || (o.roundWins === mine.roundWins && o.kills > mine.kills)).length;
+}
+
+/** A page of the region's newest matches, older than match `before` when given, each with its players in place order. */
+async function recent(db: D1Database, config: SiteConfig, region: Region, before: number | null) {
+  const size = config.recentMatchesPageSize;
+  const rows = await listRecentMatches(db, region.id, size + 1, before);
+  const matches = rows.slice(0, size).map((m) => ({
+    ...m,
+    players: m.players
+      .map((p) => ({ ...p, place: placeIn(m.players, p) }))
+      .sort((a, b) => a.place - b.place || a.name.localeCompare(b.name)),
+  }));
+  return { region: region.id, matches, hasMore: rows.length > size };
 }
 
 /**

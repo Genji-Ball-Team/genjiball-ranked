@@ -260,6 +260,14 @@ h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(-
 .history .change { display: flex; justify-content: end; align-items: baseline; gap: 6px; font-size: 1.1rem; font-weight: 600; font-stretch: var(--title-width); }
 .history .change span, .history .change gb-delta { font-size: 0.9rem; font-weight: 400; }
 gb-chip.void { color: var(--down); }
+/* The matches page: when, map, who won, and the reader's own place (or how many played). */
+.feed a { grid-template-columns: 9rem minmax(0, 0.7fr) minmax(0, 1.3fr) 8rem; }
+.feed .podium { display: flex; flex-direction: column; min-width: 0; }
+.feed .podium b { font-weight: 600; overflow-wrap: anywhere; }
+.feed .podium small { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+.feed .side { display: flex; justify-content: end; align-items: baseline; gap: 8px; white-space: nowrap; }
+.feed .side b { font-weight: 600; color: var(--soft); }
+.feed .side b.won { color: var(--fg); font-weight: 700; }
 
 /* A titled profile: the hero in the title's frame, its rim turning, its seal on the right. */
 .seal { margin: 0 0 0 auto; text-align: end; font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase; }
@@ -370,6 +378,10 @@ gb-chip.void { color: var(--down); }
   .history .place { grid-column: 1; font-size: 0.85rem; }
   .history .place b { min-width: 0; }
   .history .change { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+  .feed a { grid-template-columns: minmax(0, 1fr) auto; }
+  .feed .when, .feed .map, .feed .podium { grid-column: 1; }
+  .feed .map { order: 1; }
+  .feed .side { grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: 0.85rem; }
   .seal { flex-basis: 100%; margin: 0; text-align: start; }
 }
 

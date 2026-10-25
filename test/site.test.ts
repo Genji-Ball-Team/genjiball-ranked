@@ -340,6 +340,48 @@ describe("player search", () => {
   });
 });
 
+describe("recent matches", () => {
+  type Recent = {
+    region: string;
+    hasMore: boolean;
+    matches: { id: number; void: boolean; players: { id: number; name: string; place: number; roundWins: number; ratingBefore: number | null; ratingAfter: number | null }[] }[];
+  };
+
+  it("lists the region's public matches, newest first, with each player's place as on the match page", async () => {
+    await playMatches(3);
+    const ids = [await matchId("000000000003"), await matchId("000000000002"), await matchId("000000000001")];
+    await db().prepare("UPDATE matches SET status = 'void' WHERE id = ?").bind(ids[1]).run();
+    await db().prepare("UPDATE matches SET status = 'review' WHERE id = ?").bind(ids[2]).run();
+    const body = await get<Recent>("recent?region=eu");
+    expect(body).toMatchObject({ region: "eu", hasMore: false });
+    expect(body.matches.map((m) => [m.id, m.void])).toEqual([
+      [ids[0], false],
+      [ids[1], true],
+    ]);
+
+    const { match } = await get<{ match: { players: { id: number; place: number; roundWins: number }[] } }>(`matches/${ids[0]}`);
+    const shown = body.matches[0]!.players;
+    expect(shown.map((p) => p.place)).toEqual([...shown.map((p) => p.place)].sort((a, b) => a - b));
+    expect(shown).toHaveLength(match.players.length);
+    for (const p of shown) expect(p).toMatchObject({ place: match.players.find((o) => o.id === p.id)!.place, roundWins: match.players.find((o) => o.id === p.id)!.roundWins });
+    expect(shown.find((p) => p.name === "Alpha")!.ratingAfter).toEqual(expect.any(Number));
+    expect((await get<Recent>("recent?region=na")).matches).toEqual([]);
+  });
+
+  it("pages with before", async () => {
+    await playMatches(3);
+    const config = { ...defaults, recentMatchesPageSize: 2 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Recent;
+    const first = await read("recent");
+    expect(first.matches).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+    const rest = await read(`recent?before=${first.matches[1]!.id}`);
+    expect(rest).toMatchObject({ hasMore: false });
+    expect(rest.matches.map((m) => m.id)).toEqual([await matchId("000000000001")]);
+    expect((await handleSite(new Request("https://example.com/api/recent?before=x"), db(), config))!.status).toBe(400);
+  });
+});
+
 describe("match", () => {
   type MatchBody = {
     match: {

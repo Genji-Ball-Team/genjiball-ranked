@@ -325,6 +325,8 @@ export const defaults = {
   leaderboardChangeDays: 7,
   /** Matches on a player page, newest first. */
   playerRecentMatches: 20,
+  /** Matches a page of the recent matches (`/api/recent`), newest first. */
+  recentMatchesPageSize: 20,
   /**
    * Most names in the rank tags (`/api/rank-tags`), the best ones. Each costs Workshop elements;
    * GenjiBall-CE docs/rank-tags.md asks for under about 500.

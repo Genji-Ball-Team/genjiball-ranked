@@ -17,7 +17,7 @@ import { site } from "./lib/site";
 import type { FoundPlayers } from "./lib/types";
 
 /** The pages whose region goes in the URL, so a shared link opens the same view. */
-const pinned = ["leaderboard", "player", "compare", "live", "records", "tourneys"];
+const pinned = ["leaderboard", "player", "compare", "matches", "live", "records", "tourneys"];
 
 // The region switch next to the wordmark: links to this page in each region, once the regions are
 // known (straight away after a first visit).

@@ -30,6 +30,7 @@ export const publicReadRoutes: readonly string[] = [
   "lobbies",
   "head-to-head",
   "records",
+  "recent",
   "rank-tags",
   "screenshots",
 ];
