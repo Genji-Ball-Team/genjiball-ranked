@@ -387,6 +387,7 @@ On a public path:
 | `Access-Control-Expose-Headers` | `ETag`, so a script can read it |
 | `Cache-Control` | A route's own when it sets one (rank tags: `rankTagsCacheSeconds`, live lobbies: `lobbiesCacheSeconds`, screenshots: `screenshotCacheSeconds`, `/api/health`: `no-store`); else `public, max-age=publicCacheSeconds` (60 s). An error (4xx, 5xx) is always `no-store`: a match in review is a `404` until an admin accepts it |
 | `ETag` | Every JSON `200` gets a weak ETag (`W/"…"`, from a hash of the body); screenshots have R2's. Send it back as `If-None-Match` and an unchanged answer is a `304` with no body. That saves the download, not the server's work: the answer is still computed |
+| Shared cache | A `GET` goes through Cloudflare's cache in the visitor's data centre (`publicEdgeCache`): the first one of a URL is computed, and every `GET` of it until its `Cache-Control` lifetime ends gets that copy, with no database read. So a new upload or an admin's change can take up to that lifetime to show. The copy's `Date` is when it was made, so a browser counts the time it was kept here against its own `max-age`. Only a `public` `200` is kept |
 
 **Public writes.** A `POST` anyone may send without a token: only the [tourney sign-up](#sign-up-for-a-tourney-post-apitourneysidsignups), listed in `publicWrites` (`src/public.ts`). It's for the site's own pages: no CORS headers (the preflight above allows only reads), `403 cross_origin` when the request's `Origin` is another site's, and every answer is `Cache-Control: no-store`.
 

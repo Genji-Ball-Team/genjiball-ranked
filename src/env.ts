@@ -7,6 +7,7 @@ export interface Env {
   LOG_LEVEL?: string;
   TEST_SERVER?: string;
   RATING_MATCHES_PER_RUN?: string;
+  PUBLIC_EDGE_CACHE?: string;
   /** Secret: the Discord bot's token for `/api/bot/*` (`wrangler secret put BOT_TOKEN`). Unset: those routes refuse everyone. */
   BOT_TOKEN?: string;
   /** Service binding to the Discord bot's Worker, for who has a title (`src/site/titles.ts`). Unset: no titles. */

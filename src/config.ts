@@ -353,6 +353,12 @@ export const defaults = {
    * default for every public GET route that doesn't set its own (`src/public.ts`).
    */
   publicCacheSeconds: 60,
+  /**
+   * Public reads also go through Cloudflare's cache in each data centre (`src/public.ts`): visitors
+   * asking for the same URL within its `Cache-Control` lifetime share one answer, and one set of D1
+   * reads. `PUBLIC_EDGE_CACHE = "false"` turns it off (the tests do, so each sees its own data).
+   */
+  publicEdgeCache: true,
 
   /**
    * Link previews: a link to a player, match or compare page posted in Discord, X and the like shows
@@ -525,6 +531,7 @@ export function loadConfig(env: Partial<Env>): Config {
     config.logLevel = logLevel as LogLevel;
   }
   if (env.TEST_SERVER !== undefined) config.testServer = env.TEST_SERVER.trim().toLowerCase() === "true";
+  if (env.PUBLIC_EDGE_CACHE !== undefined) config.publicEdgeCache = env.PUBLIC_EDGE_CACHE.trim().toLowerCase() !== "false";
   const matchesPerRun = Number(env.RATING_MATCHES_PER_RUN);
   if (Number.isInteger(matchesPerRun) && matchesPerRun > 0) config.ratingMatchesPerRun = matchesPerRun;
   return config;

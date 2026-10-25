@@ -1,5 +1,6 @@
-# Response headers for the files in public/ (Cloudflare Workers static assets). The rest keep the
-# default: the browser checks back each time and gets a 304 when nothing changed.
+# Response headers for the files in public/ (Cloudflare Workers static assets), copied to
+# public/_headers by scripts/build-site.mjs, which adds each page's module preloads after these. The
+# rest keep the default: the browser checks back each time and gets a 304 when nothing changed.
 
 # The pages' shared chunks (scripts/build-site.mjs): their names have a hash of their contents, so a
 # changed chunk is a new file. Kept for a year without asking again.

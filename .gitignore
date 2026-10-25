@@ -10,3 +10,4 @@ Thumbs.db
 
 # The website build (scripts/build-site.mjs), made by wrangler before dev and deploy.
 public/build/
+public/_headers

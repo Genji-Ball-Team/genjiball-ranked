@@ -1,8 +1,10 @@
-import { env, SELF } from "cloudflare:test";
+import { createExecutionContext, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { sha256 } from "../src/bytes";
+import worker from "../src/index";
 import { isPrivate, isPublicRead, privateRoutes, publicReadRoutes } from "../src/public";
+import { countingDb } from "./helpers";
 
 /** CORS and caching for the public read routes (#10, src/public.ts). */
 
@@ -160,5 +162,65 @@ describe("public API: CORS and caching", () => {
     expect(isPrivate("/api/upload")).toBe(true);
     expect(isPrivate("/api/hosts")).toBe(false);
     expect(isPrivate("/api/leaderboard")).toBe(false);
+  });
+});
+
+/** Public reads through Cloudflare's cache (`publicEdgeCache`, src/public.ts). Off for the other tests. */
+describe("public API: edge cache", () => {
+  // Each test asks for URLs of its own: the cache outlives a test.
+  let n = 0;
+  const unique = (path: string) => `https://example.com/api/${path}${path.includes("?") ? "&" : "?"}edge=${++n}-${Date.now()}`;
+
+  async function read(url: string, headers: Record<string, string> = {}) {
+    const counted = countingDb(env.DB);
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(new Request(url, { headers }), { ...env, DB: counted.db, PUBLIC_EDGE_CACHE: "true" }, ctx);
+    await waitOnExecutionContext(ctx);
+    return { res, queries: counted.queries() };
+  }
+
+  it("answers a second GET of a URL from the cache, with no D1 read, and a 304 from it", async () => {
+    const url = unique("leaderboard?region=eu");
+    const first = await read(url);
+    expect(first.res.status).toBe(200);
+    expect(first.queries).toBeGreaterThan(0);
+    const etag = first.res.headers.get("ETag")!;
+    const body = await first.res.json();
+    // The time it was made, so a browser counts the time it was kept here.
+    const made = first.res.headers.get("Date");
+    expect(made).toBeTruthy();
+
+    const second = await read(url, origin);
+    expect(second.queries).toBe(0);
+    expect(second.res.status).toBe(200);
+    expect(second.res.headers.get("ETag")).toBe(etag);
+    expect(second.res.headers.get("Date")).toBe(made);
+    expect(second.res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(await second.res.json()).toEqual(body);
+
+    const unchanged = await read(url, { "If-None-Match": etag });
+    expect(unchanged.queries).toBe(0);
+    expect(unchanged.res.status).toBe(304);
+  });
+
+  it("never keeps an error or a no-store answer", async () => {
+    const missing = unique("players/987654?region=eu");
+    expect((await read(missing)).res.status).toBe(404);
+    const again = await read(missing);
+    expect(again.res.status).toBe(404);
+    expect(again.queries).toBeGreaterThan(0);
+
+    const health = unique("health");
+    await read(health);
+    expect((await read(health)).queries).toBe(1);
+  });
+
+  it("leaves a HEAD to the Worker", async () => {
+    const url = unique("server");
+    await read(url);
+    const counted = countingDb(env.DB);
+    const ctx = createExecutionContext();
+    const res = await worker.fetch(new Request(url, { method: "HEAD" }), { ...env, DB: counted.db, PUBLIC_EDGE_CACHE: "true" }, ctx);
+    expect(res.status).toBe(200);
   });
 });
