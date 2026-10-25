@@ -33,7 +33,11 @@
       <h1>Leaderboard</h1>
       <gb-search class="find" data-players label="Find a player" hide-label placeholder="Find a player" shortcut="/" min-length="2" delay="250"></gb-search>
     </div>
-    <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span>Rounds</span><span>Win rate</span></div>
+    <div class="board-tools">
+      <gb-segmented id="who" label="Players"><a id="who-all" href="?">Everyone</a><a id="who-active" href="?active=1">Active</a></gb-segmented>
+      <gb-button id="jump" variant="ghost" hidden>Jump to me</gb-button>
+    </div>
+    <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span id="change-days">7 days</span><span>Rounds</span><span>Win rate</span><span>Last played</span></div>
     <ol id="list" class="ladder" aria-busy="true" aria-label="Leaderboard" data-loading>
       <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
     </ol>

@@ -321,6 +321,8 @@ export const defaults = {
   inactiveAfterDays: 30,
   /** Players per leaderboard page. */
   leaderboardPageSize: 50,
+  /** Days back the leaderboard's rating change counts from: each row's rating now against its rating then. */
+  leaderboardChangeDays: 7,
   /** Matches on a player page, newest first. */
   playerRecentMatches: 20,
   /**

@@ -62,6 +62,7 @@ export type SiteConfig = RankTagsConfig &
   Pick<
     Config,
     | "leaderboardPageSize"
+    | "leaderboardChangeDays"
     | "titles"
     | "tiersMaxPlayers"
     | "matchFeedLimit"
@@ -97,7 +98,7 @@ export async function handleSite(
   const region = asked!;
   const id = positiveId(path[1]);
   const reads: Record<string, () => Promise<Response>> = {
-    leaderboard: async () => Response.json(await leaderboard(db, config, region, url.searchParams.get("page"), now)),
+    leaderboard: async () => Response.json(await leaderboard(db, config, region, url, now)),
     titles: async () => Response.json(await titled(db, config, region, bot, now)),
     tiers: async () => {
       const ids = playerIds(url.searchParams.get("players"), config.tiersMaxPlayers);
@@ -164,18 +165,27 @@ function regionParam(url: URL, config: SiteConfig): Region | Response {
   return region ?? fail(400, "bad_request", notARegion(config.regions, "region"));
 }
 
-async function leaderboard(db: D1Database, config: SiteConfig, region: Region, pageParam: string | null, now: Date) {
-  const page = pageNumber(pageParam) ?? 1;
+async function leaderboard(db: D1Database, config: SiteConfig, region: Region, url: URL, now: Date) {
+  const page = pageNumber(url.searchParams.get("page")) ?? 1;
+  const active = url.searchParams.get("active") === "1";
   const size = config.leaderboardPageSize;
   const offset = (page - 1) * size;
+  const changeSince = isoSeconds(new Date(now.getTime() - config.leaderboardChangeDays * dayMs));
+  const activeSince = active ? isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * dayMs)) : null;
   // One more than a page, to know if there's a next one.
-  const rows = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset);
+  const rows = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset, changeSince, activeSince);
   return {
     region: region.id,
     page,
     pageSize: size,
+    active,
+    changeDays: config.leaderboardChangeDays,
     hasMore: rows.length > size,
-    players: rows.slice(0, size).map((row, i) => ({ rank: offset + i + 1, ...ratingView(row, config, now) })),
+    players: rows.slice(0, size).map((row, i) => ({
+      rank: offset + i + 1,
+      ...ratingView(row, config, now),
+      change: row.displayBefore === null ? null : Math.round(row.display - row.displayBefore),
+    })),
   };
 }
 

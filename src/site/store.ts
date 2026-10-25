@@ -41,15 +41,36 @@ export interface RatingRow {
 
 const ratingColumns = `r.player_id AS playerId, p.name, r.display, r.rounds, r.wins, r.last_played_at AS lastPlayedAt`;
 
-/** A leaderboard page: players with at least `minRounds` rated rounds, best first, alts left out (index `ratings_board_display`). */
-export async function listLeaderboard(db: D1Database, board: string, minRounds: number, limit: number, offset: number): Promise<RatingRow[]> {
+/** A leaderboard row, with the display rating the player had before `changeSince` (null when they had none yet). */
+export interface LeaderboardRow extends RatingRow {
+  displayBefore: number | null;
+}
+
+/**
+ * A leaderboard page: players with at least `minRounds` rated rounds, best first, alts left out (index
+ * `ratings_board_display`). With `activeSince`, only those who played a rated round since then, and the
+ * places count only them. `displayBefore` is one seek per row in `rating_history`'s key.
+ */
+export async function listLeaderboard(
+  db: D1Database,
+  board: string,
+  minRounds: number,
+  limit: number,
+  offset: number,
+  changeSince: string,
+  activeSince: string | null,
+): Promise<LeaderboardRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
-       WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0 ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
+      `SELECT ${ratingColumns},
+         (SELECT h.display FROM rating_history h WHERE h.board = r.board AND h.player_id = r.player_id AND h.played_at < ?5
+          ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS displayBefore
+       FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0 AND (?6 IS NULL OR r.last_played_at >= ?6)
+       ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
     )
-    .bind(board, minRounds, limit, offset)
-    .all<RatingRow>();
+    .bind(board, minRounds, limit, offset, changeSince, activeSince)
+    .all<LeaderboardRow>();
   return results;
 }
 

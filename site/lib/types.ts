@@ -40,8 +40,13 @@ export interface Leaderboard {
   region: string;
   page: number;
   pageSize: number;
+  /** Only the active players, ranked among themselves (`?active=1`). */
+  active: boolean;
+  /** Days back `change` counts from. */
+  changeDays: number;
   hasMore: boolean;
-  players: LeaderboardPlayer[];
+  /** `change`: rating now minus a week ago, null when they had none then. */
+  players: (LeaderboardPlayer & { change: number | null })[];
 }
 
 /** God or Demigod (`GET /api/titles`). */

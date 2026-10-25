@@ -64,7 +64,7 @@ main { flex: 1; padding-block: 32px 48px; }
    its tier scrolls by. */
 .headline h1 { font-size: var(--display-size); font-stretch: var(--display-width); }
 .cols, .entry {
-  display: grid; grid-template-columns: 3rem minmax(0, 1fr) 5.5rem 5.5rem 4.5rem; gap: 16px; align-items: center;
+  display: grid; grid-template-columns: 3rem minmax(0, 1fr) 5.5rem 4.5rem 4.5rem 4.5rem 7rem; gap: 16px; align-items: center;
 }
 .cols {
   margin-block-start: 24px; padding: 0 12px 4px 16px; color: var(--muted);
@@ -113,6 +113,16 @@ a.entry:hover::before { width: 4px; }
 .entry .rating.floor { color: var(--muted); font-weight: 400; }
 .entry.inactive .who b, .entry.inactive .rating { color: var(--muted); }
 .entry.inactive::before { opacity: 0.45; }
+.entry .played { font-size: 0.85rem; white-space: nowrap; }
+/* "This is me": a raised row with a label, so it shows without taking a colour. */
+a.entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
+.you {
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted);
+  font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+#me { scroll-margin-block: 96px; }
+.board-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.me-button { margin-inline-start: auto; }
 .pager { margin-block-start: 24px; }
 /* gb-search draws its shortcut hint even without a shortcut: hide the empty one (fix in genjiball-ui). */
 gb-search kbd:empty { display: none; }
@@ -335,6 +345,7 @@ gb-chip.void { color: var(--down); }
   .headline h1 { font-size: 2rem; }
   .entry { padding-block: 12px; }
   .cols, .entry { grid-template-columns: 2.25rem minmax(0, 1fr) 4.5rem; gap: 12px; }
+  .who .stats gb-delta { font-size: inherit; }
   .cols > :nth-child(n + 4), .entry > :nth-child(n + 4) { display: none; }
   .who .stats { display: block; }
   /* Three figures a row, so K/D doesn't wrap alone. */

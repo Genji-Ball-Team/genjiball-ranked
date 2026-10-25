@@ -1,5 +1,6 @@
 // A player's page (player.html): their rating, rank and tier in this region, how far the next tier
 // is, their rating over time and form, their rivals and their recent matches.
+import "@genji-ball-team/ui/button.js";
 import "@genji-ball-team/ui/chip.js";
 import "@genji-ball-team/ui/delta.js";
 import "@genji-ball-team/ui/empty.js";
@@ -9,6 +10,7 @@ import { api, idParam, inRegion, matchLink, NotFound, playerLink } from "../lib/
 import { count, date, killDeath, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
+import { me, setMe } from "../lib/me";
 import { site } from "../lib/site";
 import type { History, PlayerMatch, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
 import { attach, type PlayerCard } from "../share";
@@ -16,6 +18,24 @@ import { start } from "../shell";
 import { titleChip, titleFx, titleLooks, titleSeals } from "../titles";
 
 const siteName = "Genji Ball Ranked";
+
+/** "This is me": remembers this player for the leaderboard, which highlights their row. Pressed again, forgets them. */
+function meButton(box: HTMLElement, id: number): void {
+  const button = document.createElement("gb-button");
+  button.className = "me-button";
+  button.setAttribute("variant", "ghost");
+  const show = () => {
+    const mine = me() === id;
+    button.setAttribute("aria-pressed", String(mine));
+    button.textContent = mine ? "✓ This is me" : "This is me";
+  };
+  button.addEventListener("click", () => {
+    setMe(me() === id ? null : id);
+    show();
+  });
+  show();
+  box.append(button);
+}
 
 /** The share card: the profile now, with the rating history once it's loaded. */
 function shareCard(p: PlayerPage["player"], crown: TitleName | undefined, h: History | null): PlayerCard {
@@ -214,6 +234,7 @@ async function playerPage(): Promise<void> {
     const crown = (await titles).find((t) => t.id === p.id)?.title;
     if (crown) titleHero(crown);
     const headline = byId("headline");
+    if (!p.alt) meButton(headline, p.id);
     attach(headline, shareCard(p, crown, null));
     const h = await historyAnswer;
     if (h) {

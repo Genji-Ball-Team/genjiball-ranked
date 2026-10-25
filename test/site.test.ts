@@ -110,6 +110,32 @@ describe("leaderboard", () => {
     expect(board.players.find((p) => p.id === alpha)!.inactiveSince).toBe("2020-01-01T00:00:00Z");
   });
 
+  it("with ?active=1, leaves out inactive players and counts only the active ones in the places", async () => {
+    await playMatches(matchesToRank);
+    const before = (await get<Board>("leaderboard")).players;
+    const top = before[0]!;
+    await db().prepare("UPDATE ratings SET last_played_at = '2020-01-01T00:00:00Z' WHERE player_id = ?").bind(top.id).run();
+    const board = await get<Board & { active: boolean }>("leaderboard?active=1");
+    expect(board.active).toBe(true);
+    expect(board.players.map((p) => p.id)).toEqual(before.slice(1).map((p) => p.id));
+    expect(board.players.map((p) => p.rank)).toEqual([1, 2, 3]);
+    expect((await get<Board & { active: boolean }>("leaderboard")).active).toBe(false);
+  });
+
+  it("gives each row its rating change over leaderboardChangeDays, null for a player who had no rating before", async () => {
+    await playMatches(matchesToRank);
+    type Changed = { id: number; rating: number; change: number | null };
+    // Every match is from the last day: no one had a rating a week ago.
+    expect((await get<{ players: Changed[] }>("leaderboard")).players.every((p) => p.change === null)).toBe(true);
+    const alpha = await playerId("Alpha");
+    await db()
+      .prepare("INSERT INTO rating_history (board, player_id, match_id, mu, sigma, display, played_at) VALUES ('eu', ?1, ?2, 25, 8, 900, '2020-01-01T00:00:00Z')")
+      .bind(alpha, await matchId("000000000001"))
+      .run();
+    const row = (await get<{ players: Changed[] }>("leaderboard")).players.find((p) => p.id === alpha)!;
+    expect(row.change).toBe(Math.round(row.rating - 900));
+  });
+
   it("gives Rookie as the site tier only: the game's tier, which the host tool colours the top 10 by, stays null", async () => {
     await playMatches(matchesToRank);
     const [alpha, bravo] = [await playerId("Alpha"), await playerId("Bravo")];
