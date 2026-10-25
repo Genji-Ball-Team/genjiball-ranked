@@ -1,0 +1,101 @@
+/* The tourneys list and a tourney's page (pages/tourneys.ts, tourney.ts). Gold is only for a winner
+   and the cup beside them; everything else is grey, green only where a link is. */
+
+/* Scoped to the two pages: these class names are common, and every page shares one stylesheet. */
+.tourneys {
+  /* The list: a date block, the tourney with what it is, and what's on the right. */
+  .events { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .events[data-loading] { display: grid; gap: 6px; padding-block-start: 6px; border: 0; }
+  .events gb-skeleton { min-block-size: 72px; }
+  .events a {
+    display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) auto; gap: 8px 20px; align-items: center;
+    padding: 14px 8px; border-bottom: 1px solid var(--line); color: var(--fg); text-decoration: none;
+  }
+  .events a:hover, .events a:active { background: var(--panel); }
+  .events > li > gb-empty { border-bottom: 1px solid var(--line); }
+  #upcoming-section h2 { margin-block-start: 32px; }
+  .day { display: flex; flex-direction: column; line-height: 1.15; }
+  .day b { margin-block: 2px; font-size: 2rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1; }
+  .day small { color: var(--muted); font-size: 0.8rem; }
+  .what { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .what > b { font-size: var(--title-size); font-weight: var(--title-weight); font-stretch: var(--title-width); overflow-wrap: anywhere; }
+  .what small { color: var(--soft); font-size: 0.85rem; }
+  .what small.muted { color: var(--muted); }
+  .winner { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; }
+  .winner b { color: var(--gold); font-weight: var(--title-weight); font-stretch: var(--title-width); }
+  .winner small { color: var(--muted); }
+  .cup { color: var(--gold); align-self: center; }
+  .side { display: flex; align-items: center; justify-content: end; gap: 12px; }
+  .soon { color: var(--soft); font-size: 0.9rem; white-space: nowrap; }
+  .thumbs { display: flex; gap: 6px; }
+  .thumbs img { inline-size: 4.5rem; block-size: 2.75rem; object-fit: cover; border-radius: var(--r-chip); border: 1px solid var(--border); background: var(--panel); }
+  gb-chip.cancelled { color: var(--down); }
+  gb-chip.unverified { --chip: var(--muted); }
+
+  #facts { list-style: none; padding: 0; }
+
+  /* A tourney: sign-ups in a panel, the count against the places, a box for a name, the names as pills. */
+  .signup-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; max-width: 26rem; }
+  .signup-count b { font-size: 2rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1; }
+  .signup-count gb-chip { align-self: center; }
+  .signup-count .track { flex-basis: 100%; margin-block-start: 8px; --tier: var(--soft); }
+  .signup-form { display: flex; align-items: start; gap: 8px; max-width: 26rem; margin-block-start: 16px; }
+  .signup-form gb-field { flex: 1; min-width: 0; }
+  .signup-form gb-button { margin-block-start: 22px; }
+  .signups { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0 0; padding: 0; }
+  .signups:empty { display: none; }
+  .signups li {
+    padding: 4px 10px; border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--raised);
+    font-weight: var(--title-weight); font-stretch: var(--title-width);
+  }
+  .signups li.over { border-style: dashed; background: none; color: var(--soft); }
+  .signups li.cut { flex-basis: 100%; padding: 8px 0 0; border: 0; background: none; color: var(--muted); font-size: 0.8rem; font-weight: 400; font-stretch: normal; }
+
+  /* A lobby: its winner, the standings and the host's screenshot beside them. */
+  .lobby { margin-block-start: 40px; }
+  .lobby-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-block-end: 12px; }
+  .lobby-head h2 { margin: 0; }
+  .podium { display: flex; align-items: center; gap: 14px; margin: 0 0 16px; }
+  .podium .cup { inline-size: 2.25rem; block-size: 2.25rem; }
+  .podium span { display: flex; flex-direction: column; line-height: 1.25; }
+  .podium small { color: var(--muted); font-size: 0.85rem; }
+  .podium b { color: var(--gold); font-size: 1.75rem; font-weight: 700; font-stretch: var(--display-width); }
+  .podium b a { color: inherit; text-decoration: none; }
+  .podium b a:hover { text-decoration: underline; }
+  .lobby-body { display: grid; grid-template-columns: minmax(0, 1fr) 18rem; gap: 32px; align-items: start; }
+  .lobby-body:not(:has(.proof)) { grid-template-columns: minmax(0, 1fr); }
+  .lobby-body .note { margin-block-start: 12px; }
+  .lobby gb-table .name { inline-size: 100%; max-inline-size: 14rem; overflow: hidden; text-overflow: ellipsis; }
+  .lobby gb-table td.name a { color: var(--fg); font-weight: var(--title-weight); font-stretch: var(--title-width); text-decoration: none; }
+  .lobby gb-table td.name a:hover { text-decoration: underline; }
+  .lobby gb-table tr.first > :first-child { color: var(--gold); font-weight: 700; }
+  .lobby gb-table .out { white-space: nowrap; }
+  .lobby gb-table .out gb-delta { margin-inline-start: 6px; font-size: 0.85rem; }
+  .proof { margin: 0; }
+  .proof .zoom { display: block; inline-size: 100%; padding: 0; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); cursor: zoom-in; overflow: hidden; }
+  .proof .zoom:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+  .proof img { display: block; inline-size: 100%; block-size: auto; }
+  .proof figcaption { margin-block-start: 8px; color: var(--muted); font-size: 0.8rem; }
+  #lobbies[data-loading] { display: grid; gap: 12px; }
+  #lobbies gb-skeleton { min-block-size: 120px; }
+}
+
+/* A screenshot at full size over the page. */
+.lightbox { max-width: 96vw; max-height: 96vh; padding: 0; border: 0; background: none; cursor: zoom-out; }
+.lightbox::backdrop { background: var(--scrim); }
+.lightbox img { display: block; max-width: 96vw; max-height: 96vh; object-fit: contain; }
+.lightbox button {
+  position: absolute; inset: 8px 8px auto auto; display: grid; place-items: center; inline-size: 40px; block-size: 40px;
+  padding: 0; border: 0; border-radius: var(--r); background: var(--raised); color: var(--fg); cursor: pointer;
+}
+
+.tourneys {
+  @media (max-width: 640px) {
+    .events a { grid-template-columns: 5.25rem minmax(0, 1fr); gap: 8px 16px; align-items: start; }
+    .events .day { grid-row: span 2; }
+    .events .side { grid-column: 2; justify-content: start; }
+    .lobby-body { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    .podium b { font-size: 1.45rem; }
+    .lobby gb-table .name { max-inline-size: 9rem; }
+  }
+}
