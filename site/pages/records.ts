@@ -96,10 +96,11 @@ function activityBars(perDay: ActivityDay[]): Bar[] {
 
 function activity(a: Records["activity"]): void {
   byId("activity-section").hidden = false;
+  byId("activity-title").textContent = `The last ${a.days} days`;
   const stat = (label: string, value: string) => html`<gb-stat label="${label}">${value}</gb-stat>`;
   render(
     byId("activity-figures"),
-    html`${stat("Matches", num(a.matches))}${stat("Rated rounds", num(a.rounds))}${stat("Players", num(a.players))}${stat("Over", count(a.days, "day"))}`,
+    html`${stat("Matches", num(a.matches))}${stat("Rated rounds", num(a.rounds))}${stat("Players", num(a.players))}`,
   );
   byId<GbBarChart>("activity").bars = activityBars(a.perDay);
 }
@@ -119,7 +120,7 @@ async function recordsPage(): Promise<void> {
   const box = byId("records");
   try {
     const d = await api<Records>(`records?${inRegion()}`);
-    byId("updated").textContent = d.updatedAt ? `Updated ${dateTime(d.updatedAt)}, about every hour.` : "";
+    byId("updated").textContent = d.updatedAt ? `Updated ${dateTime(d.updatedAt)}` : "";
     loaded(box, recordRows(d));
     if (d.activity.perDay.length) activity(d.activity);
     if (d.topHosts.length) topHosts(d.topHosts);

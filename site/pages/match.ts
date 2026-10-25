@@ -15,19 +15,27 @@ import { start } from "../shell";
 
 const siteName = "Genji Ball Ranked";
 
-/** Why a round needs a note: replayed, stopped, or not rated. */
-function roundNote(r: Round): string {
-  if (r.result === "NONE") return `Round ${r.number}: everyone died, so it was replayed.`;
-  if (r.result === "ABORT") return `Round ${r.number}: stopped before anyone won.`;
-  if (r.broken) return `Round ${r.number} isn't rated: ${[r.broken].flat().join(", ")}.`;
-  if (!r.rated) return `Round ${r.number} isn't rated.`;
-  return "";
+const list = (rounds: Round[]) => rounds.map((r) => r.number).join(", ");
+
+// Short notes under the grid: replayed and stopped rounds, and why a round isn't rated. Stopped rounds
+// have no column, so they're only named here.
+function roundNotes(all: Round[]): string[] {
+  const replayed = all.filter((r) => r.result === "NONE");
+  const stopped = all.filter((r) => r.result === "ABORT");
+  const unrated = all.filter((r) => r.result === "WIN" && !r.rated && !r.broken);
+  return [
+    replayed.length && `Replayed after everyone died: ${list(replayed)}.`,
+    stopped.length && `Stopped before anyone won: ${list(stopped)}.`,
+    unrated.length && `Not rated: ${list(unrated)}.`,
+    ...all.filter((r) => r.result === "WIN" && r.broken).map((r) => `Round ${r.number} isn't rated: ${[r.broken].flat().join(", ")}.`),
+  ].filter((n): n is string => Boolean(n));
 }
 
 /** The rating after the match, and what it changed by. */
 function change(p: MatchPlayer): Html {
   if (p.ratingAfter === null) return html`<span class="muted">Not rated</span>`;
-  if (p.ratingBefore === null) return html`${rating(p.ratingAfter)} <span class="muted">first</span>`;
+  if (p.ratingBefore === null)
+    return html`${rating(p.ratingAfter)} <gb-chip title="Their first rated match">New</gb-chip>`;
   const d = p.ratingAfter - p.ratingBefore;
   return html`${rating(p.ratingAfter)}${d !== 0 && html` <gb-delta value="${d}"></gb-delta>`}`;
 }
@@ -35,8 +43,8 @@ function change(p: MatchPlayer): Html {
 const winners = (players: MatchPlayer[]) => players.filter((p) => p.place === 1 && p.roundWins > 0);
 
 // The recap: the winner, then everyone's overall place and stats. A legacy log has no deflects, so
-// those columns are left out rather than shown as zeros.
-function summary(m: Match, players: MatchPlayer[]): Html {
+// those columns are left out rather than shown as zeros. Players who never played a round are only named.
+function summary(m: Match, players: MatchPlayer[], idle: MatchPlayer[]): Html {
   const won = winners(players);
   const first = won[0];
   const podium =
@@ -63,7 +71,7 @@ function summary(m: Match, players: MatchPlayer[]): Html {
       ${deflects && html`${th("Deflects", "Balls they deflected")}${th("Touches", "Deflects, plus times a ball someone sent eliminated them", true)}`}
       ${th("Streak", "Most rounds won in a row", true)}${th("Rating", "Rating after the match, and the change")}</tr></thead>
     <tbody>${rows}</tbody></table></gb-table>
-    ${m.legacy && html`<p class="note">An older game version: its log has no deflects.</p>`}`;
+    ${idle.length > 0 && html`<p class="note">Also in the lobby, no rounds played: ${idle.map((p, i) => html`${i ? ", " : ""}<a href="${playerLink(p.id)}">${p.name}</a>`)}.</p>`}`;
 }
 
 // A round's kills and deflects for a cell's tooltip, after a ", ". A legacy log has no deflects.
@@ -85,14 +93,14 @@ function cell(r: Round, p: MatchPlayer, place: Placement | undefined): Html {
   return html`<td class="r${unrated}"${tip && html` title="${tip.slice(2)}"`}>${place.position ?? "–"}${sr}</td>`;
 }
 
-function rounds(m: Match, players: MatchPlayer[]): Html {
-  const places = m.rounds.map((r) => new Map(r.placements.map((p) => [p.playerId, p])));
-  const head = m.rounds.map(
+function rounds(shown: Round[], players: MatchPlayer[]): Html {
+  const places = shown.map((r) => new Map(r.placements.map((p) => [p.playerId, p])));
+  const head = shown.map(
     (r) => html`<th class="r${r.rated ? "" : " unrated"}" scope="col"${!r.rated && raw(' title="Not rated"')}>${r.number}</th>`,
   );
   const rows = players.map(
     (p) =>
-      html`<tr><th scope="row" class="name"><a href="${playerLink(p.id)}">${p.name}</a></th>${m.rounds.map((r, i) =>
+      html`<tr><th scope="row" class="name"><a href="${playerLink(p.id)}">${p.name}</a></th>${shown.map((r, i) =>
         cell(r, p, places[i]?.get(p.id)),
       )}</tr>`,
   );
@@ -134,7 +142,7 @@ async function matchPage(): Promise<void> {
     byId("name").textContent = `Match ${m.id}`;
     render(
       byId("flags"),
-      html`<gb-chip data-region-short="${m.region}">${site.short(m.region)}</gb-chip>${matchFlags(m)}${
+      html`${matchFlags(m)}${
         !m.complete && html`<gb-chip title="The log ends before the match did">Unfinished</gb-chip>`
       }`,
     );
@@ -148,22 +156,21 @@ async function matchPage(): Promise<void> {
     ];
     render(byId("facts"), html`${facts.map((f) => f && html`<li>${f}</li>`)}`);
 
-    // Overall place first, as the API ranks them; the same place by rating.
-    const players = [...m.players].sort((a, b) => a.place - b.place || (b.ratingAfter ?? -1) - (a.ratingAfter ?? -1));
-    loaded(byId("summary"), m.rounds.length ? summary(m, players) : html`<gb-empty>No rounds in this match.</gb-empty>`);
+    // Overall place first, as the API ranks them; the same place by rating. Anyone without a place in
+    // any round only joined the lobby.
+    const sorted = [...m.players].sort((a, b) => a.place - b.place || (b.ratingAfter ?? -1) - (a.ratingAfter ?? -1));
+    const inRound = new Set(m.rounds.flatMap((r) => r.placements.map((p) => p.playerId)));
+    const players = sorted.filter((p) => inRound.has(p.id));
+    const idle = sorted.filter((p) => !inRound.has(p.id));
+    loaded(byId("summary"), m.rounds.length ? summary(m, players, idle) : html`<gb-empty>No rounds in this match.</gb-empty>`);
     attach(byId("headline"), shareCard(m, players));
-    if (!m.rounds.length) {
+    const shown = m.rounds.filter((r) => r.result !== "ABORT");
+    if (!shown.length) {
       byId("rounds-section").hidden = true;
       return;
     }
-    loaded(byId("result"), rounds(m, players));
-    const notes = m.rounds.map(roundNote).filter(Boolean);
-    render(
-      byId("notes"),
-      html`Each round's column has where the player finished, L if they left, or AFK for a host who was away. Hover a place for that round's kills and deflects.${notes.map(
-        (n) => html`<br>${n}`,
-      )}`,
-    );
+    loaded(byId("result"), rounds(shown, players));
+    render(byId("notes"), html`${roundNotes(m.rounds).map((n, i) => html`${i ? raw("<br>") : ""}${n}`)}`);
   } catch (error) {
     byId("name").textContent = error instanceof NotFound ? "Match not found" : "Match";
     byId("rounds-section").hidden = true;

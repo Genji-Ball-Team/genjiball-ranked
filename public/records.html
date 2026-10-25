@@ -22,19 +22,19 @@
   </header>
   <main>
     <div class="headline">
-      <h1>Records <gb-chip data-region-short>EU</gb-chip></h1>
+      <h1>Records</h1>
     </div>
-    <p class="lede">The bests of every accepted match in <span data-region-label>this region</span>. <span id="updated"></span></p>
+    <p id="updated" class="lede"></p>
     <ol id="records" class="records" aria-busy="true" aria-label="Records" data-loading>
       <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
     </ol>
     <section id="activity-section" hidden>
-      <h2>Activity</h2>
+      <h2 id="activity-title">Activity</h2>
       <div id="activity-figures" class="activity-figures"></div>
       <gb-panel class="activity-chart" label="Rated rounds a day" level="3"><gb-bar-chart id="activity" label="Rated rounds a day" height="140"></gb-bar-chart></gb-panel>
     </section>
     <section id="hosts-section" hidden>
-      <h2>Top hosts</h2>
+      <h2>Top hosts of all time</h2>
       <ol id="hosts" class="hosts"></ol>
     </section>
   </main>

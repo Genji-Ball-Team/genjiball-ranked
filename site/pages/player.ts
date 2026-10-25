@@ -110,7 +110,7 @@ function rivals(p: PlayerPage["player"], eliminated: Rival[], eliminatedBy: Riva
       ? html`${rivals.map(
           (o) => html`<li><a href="${playerLink(o.id)}">${o.name}</a>
             <span class="num">${count(o.kills, "time")}</span>
-            <small>${o.rounds > 0 && html`in ${count(o.rounds, "round")} together`}</small>
+            <small class="num"${o.rounds > 0 && html` title="Rated rounds they both played"`}>${o.rounds > 0 && html`in ${count(o.rounds, "round")}`}</small>
             <a class="vs" href="${compareLink([p.id, o.id])}" aria-label="Compare ${p.name} and ${o.name}">Compare</a></li>`,
         )}`
       : html`<li class="muted">No one yet.</li>`;
@@ -121,21 +121,21 @@ function rivals(p: PlayerPage["player"], eliminated: Rival[], eliminatedBy: Riva
 /** The rating after a match, and what it changed by. */
 function change(m: PlayerMatch): Html {
   if (m.ratingAfter === null) return html`<span class="muted">Not rated</span>`;
-  if (m.ratingBefore === null) return html`${rating(m.ratingAfter)}<span class="muted">first</span>`;
+  if (m.ratingBefore === null) return html`${rating(m.ratingAfter)}<gb-chip title="Their first rated match">New</gb-chip>`;
   const d = m.ratingAfter - m.ratingBefore;
   return html`${rating(m.ratingAfter)}${d !== 0 && html`<gb-delta value="${d}"></gb-delta>`}`;
 }
 
-function matchRow(m: PlayerMatch): Html {
+// Legacy is only worth a chip when it sets a match apart from the others in the list.
+function matchRow(m: PlayerMatch, mixed: boolean): Html {
   const d = new Date(m.playedAt);
   const thisYear = d.getFullYear() === new Date().getFullYear();
   const day = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: thisYear ? undefined : "numeric" });
   const time = d.toLocaleTimeString(undefined, { timeStyle: "short" });
   return html`<li><a href="${matchLink(m.id)}">
     <span class="when">${day}<small>${time}</small></span>
-    <span class="map">${mapName(m.map)} ${matchFlags(m)}</span>
-    <span class="change num">${change(m)}</span>
-    <span class="id num">#${m.id}</span></a></li>`;
+    <span class="map">${mapName(m.map)} ${matchFlags({ ...m, legacy: m.legacy && mixed })}</span>
+    <span class="change num">${change(m)}</span></a></li>`;
 }
 
 // Recent form: the last rated rounds, oldest first so they read like the chart, each its place.
@@ -174,7 +174,7 @@ function history(h: History, r: PlayerRating | null): void {
       ? html`${fact(`Last ${f.rounds} rated rounds`, `${f.wins} won`)}${fact("Average place", f.averagePosition.toFixed(1))}${fact(
           "Win streak",
           num(h.streak),
-        )}${fact("Best", num(h.bestStreak))}`
+        )}${fact("Best streak", num(h.bestStreak))}`
       : html``,
   );
   render(byId("form"), formList(f));
@@ -208,7 +208,7 @@ async function playerPage(): Promise<void> {
     loaded(
       byId("matches"),
       matches.length
-        ? html`${matches.map(matchRow)}`
+        ? html`${matches.map((m) => matchRow(m, matches.some((o) => o.legacy !== m.legacy)))}`
         : html`<li><gb-empty>No matches in ${site.label(site.region)} yet.</gb-empty></li>`,
     );
     const crown = (await titles).find((t) => t.id === p.id)?.title;
@@ -222,6 +222,7 @@ async function playerPage(): Promise<void> {
     }
   } catch (error) {
     byId("name").textContent = error instanceof NotFound ? "Player not found" : "Player";
+    render(byId("stats"), html``);
     showError(byId("matches"), error, "player");
   }
 }

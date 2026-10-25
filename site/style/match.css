@@ -34,7 +34,10 @@
 .rounds .r.unrated { color: color-mix(in oklab, var(--muted) 55%, transparent); background-image: repeating-linear-gradient(135deg, transparent 0 4px, #ffffff06 4px 8px); }
 .rounds thead th.r.unrated { text-decoration: line-through; }
 
-/* A phone keeps the place, name, wins, kills, deflects and rating; touches and streak go. */
+/* A phone keeps the place, name, wins, kills, deflects and rating; touches, streak and the New chip
+   go, so the rating fits without scrolling. */
 @media (max-width: 640px) {
-  .standings .extra { display: none; }
+  .standings .extra, .standings .change gb-chip { display: none; }
+  .standings .name { inline-size: auto; }
+  .standings :is(th, td) { padding-inline: 6px; }
 }

@@ -12,6 +12,7 @@
 .lobbies small { display: block; color: var(--muted); font-size: 0.8rem; }
 .lobbies .figure { flex: none; min-width: 4rem; text-align: end; }
 .lobbies .figure b { display: block; font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1.2; }
+.lobbies:has(gb-empty) + .note { text-align: center; }
 @media (max-width: 40rem) {
   .lobbies li { flex-wrap: wrap; gap: 8px 12px; }
   .lobbies .what { flex-basis: calc(100% - 24px); }

@@ -147,9 +147,11 @@ function compareTable(players: Compared[]): Html {
       <button type="button" class="remove" data-id="${p.id}" aria-label="Remove ${p.name}">×</button></span>
       ${tierChip(p.rating?.siteTier)}</th>`,
   );
+  // A row no one has a value for (deflects for legacy-only players) is left out.
   const body = rows.map((row) => {
     const values = players.map((p) => row.value(p));
     const known = values.filter((v): v is number => v !== null);
+    if (!known.length) return html``;
     const best = row.better && known.length > 1 ? (row.better > 0 ? Math.max(...known) : Math.min(...known)) : null;
     const cells = values.map(
       (v, i) =>
@@ -159,8 +161,7 @@ function compareTable(players: Compared[]): Html {
     );
     return html`<tr><th scope="row"${row.tip && html` title="${row.tip}"`}>${row.label}</th>${cells}</tr>`;
   });
-  return html`<div class="scroll"><table class="versus"><thead><tr><td></td>${head}</tr></thead><tbody>${body}</tbody></table></div>
-    <p class="note">Stats are over rated rounds in ${site.label(site.region)}, void matches left out. The best of each row is bright.</p>`;
+  return html`<div class="scroll"><table class="versus"><thead><tr><td></td>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 /** One tug-of-war bar: each side's count, and a bar split by their share. */
@@ -300,9 +301,7 @@ async function comparePage(): Promise<void> {
     loaded(
       table,
       players.length
-        ? html`${missing.length > 0 && html`<p class="note">${count(missing.length, "player")} in the link no longer ${plural(missing.length, "exists", "exist")}.</p>`}${compareTable(players)}${
-            players.length === 1 && html`<p class="note">Add another player to compare them with.</p>`
-          }`
+        ? html`${missing.length > 0 && html`<p class="note">${count(missing.length, "player")} in the link no longer ${plural(missing.length, "exists", "exist")}.</p>`}${compareTable(players)}`
         : html`<gb-empty>${count(missing.length, "player")} in the link no longer ${plural(missing.length, "exists", "exist")}. Add another.</gb-empty>`,
     );
     const [first, second] = players;
