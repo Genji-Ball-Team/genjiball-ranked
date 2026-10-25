@@ -134,3 +134,59 @@ export interface History {
     results: { matchId: number; round: number; position: number; players: number }[];
   };
 }
+
+/** A player's whole match on `GET /api/matches/{id}`: `place` is their overall place, 1 the winner. */
+export interface MatchPlayer {
+  id: number;
+  name: string;
+  rounds: number;
+  wins: number;
+  roundWins: number;
+  kills: number;
+  deflects: number;
+  touches: number;
+  longestStreak: number;
+  ratingBefore: number | null;
+  ratingAfter: number | null;
+  place: number;
+}
+
+/** Where a player finished one round: no position if they left or were away. */
+export interface Placement {
+  playerId: number;
+  name: string;
+  position: number | null;
+  left: boolean;
+  afk: boolean;
+  kills: number;
+  deflects: number;
+  touches: number;
+}
+
+export interface Round {
+  number: number;
+  /** `NONE`: everyone died, replayed. `ABORT`: stopped before anyone won. */
+  result: "WIN" | "NONE" | "ABORT";
+  rated: boolean;
+  /** Why a round isn't rated, when the log broke. */
+  broken: string | string[] | null;
+  winner: number | null;
+  placements: Placement[];
+}
+
+/** `GET /api/matches/{id}`. */
+export interface Match {
+  id: number;
+  region: string;
+  playedAt: string;
+  map: string | null;
+  preset: string | null;
+  gameVersion: string;
+  legacy: boolean;
+  void: boolean;
+  complete: boolean;
+  tournament: boolean;
+  tourney: { id: number; name: string; lobby: string } | null;
+  players: MatchPlayer[];
+  rounds: Round[];
+}

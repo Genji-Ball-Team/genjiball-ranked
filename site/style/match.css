@@ -1,0 +1,40 @@
+/* Match: its chips beside the heading, the facts in a line, the winner, the standings, then the rounds
+   grid. Both tables sit straight on the page; the rounds grid keeps the names in place as it scrolls. */
+.flags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-inline-end: auto; }
+.match-facts { list-style: none; padding: 0; }
+.match-facts a { color: var(--fg); text-decoration-color: var(--green); text-underline-offset: 3px; }
+.recap { margin-block-start: 28px; }
+.recap[data-loading] { display: grid; gap: 6px; }
+.recap gb-skeleton { min-block-size: 40px; }
+.recap gb-table { --gb-table-bg: var(--bg); }
+.recap .name a { color: var(--fg); font-size: 1rem; font-weight: 600; font-stretch: var(--title-width); text-decoration: none; }
+.recap .name a:hover { text-decoration: underline; }
+#result { margin-block-start: 0; }
+
+/* The winner: earned, so the cup and the name are gold. */
+.recap .podium { display: flex; align-items: center; gap: 14px; margin-block-end: 20px; }
+.recap .podium gb-icon { inline-size: 36px; block-size: 36px; color: var(--gold); }
+.recap .podium div { display: flex; flex-direction: column; gap: 2px; }
+.recap .podium .label { color: var(--muted); }
+.recap .podium b { color: var(--gold);  font-size: var(--heading-size); font-weight: var(--heading-weight); font-stretch: var(--heading-width); line-height: 1.15; }
+.recap .podium b a { color: inherit; text-decoration: none; }
+.recap .podium b a:hover { text-decoration: underline; }
+.recap .podium small { color: var(--muted); font-size: var(--body-size); }
+
+.standings .name { inline-size: 100%; }
+.standings tr.first > td:first-child { color: var(--gold); font-weight: 700; }
+.standings .change gb-delta { margin-inline-start: 4px; font-size: 0.85rem; }
+
+/* A column a round: the place, a filled square for the winner, faint for left or away, hatched when
+   the round isn't rated. */
+.rounds .r { min-inline-size: 2rem; padding-inline: 4px; text-align: center; color: var(--muted); }
+.rounds td.r.won { color: var(--bg); font-weight: 700; }
+.rounds td.r.won span { display: inline-block; min-inline-size: 1.5rem; border-radius: var(--r-chip); background: var(--up); }
+.rounds td.r.left { color: color-mix(in oklab, var(--muted) 55%, transparent); }
+.rounds .r.unrated { color: color-mix(in oklab, var(--muted) 55%, transparent); background-image: repeating-linear-gradient(135deg, transparent 0 4px, #ffffff06 4px 8px); }
+.rounds thead th.r.unrated { text-decoration: line-through; }
+
+/* A phone keeps the place, name, wins, kills, deflects and rating; touches and streak go. */
+@media (max-width: 640px) {
+  .standings .extra { display: none; }
+}

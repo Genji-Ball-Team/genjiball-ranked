@@ -24,5 +24,5 @@ export function showError(box: HTMLElement, error: unknown, what: string): void 
     error instanceof NotFound
       ? html`There's no ${what} with this link. Find players on the <a href="/">leaderboard</a>.`
       : html`The ${what} didn't load. Reload the page to try again.`;
-  loaded(box, box.tagName === "OL" || box.tagName === "UL" ? html`<li class="empty">${line}</li>` : html`<gb-empty>${line}</gb-empty>`);
+  loaded(box, box.tagName === "OL" || box.tagName === "UL" ? html`<li class="empty">${line}</li>` : html`<gb-empty><span>${line}</span></gb-empty>`);
 }

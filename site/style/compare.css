@@ -1,0 +1,36 @@
+/* Compare (pages/compare.ts): the players as columns, the best of each row bright, then the head to
+   head and the chart. Players are told apart by name, not colour. */
+.picker { max-width: 20rem; margin-block: 20px 24px; }
+.compare { margin-block-end: 8px; }
+.compare gb-skeleton { margin-block-end: 6px; }
+.compare .scroll { overflow-x: auto; }
+.versus { width: 100%; border-collapse: collapse; }
+.versus th, .versus td { padding: 10px 16px 10px 0; border-bottom: 1px solid var(--line); text-align: start; vertical-align: top; }
+.versus thead th { padding-block: 0 12px; }
+.versus thead th, .versus tbody td { min-width: 8.5rem; }
+.versus tbody th {
+  color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase; white-space: nowrap;
+}
+.versus .who { display: flex; align-items: center; gap: 6px; margin-block-end: 6px; font-size: var(--heading-size); font-weight: var(--heading-weight); font-stretch: var(--heading-width); }
+.versus .who a { color: var(--fg); text-decoration: none; overflow-wrap: anywhere; }
+.versus .who a:hover { text-decoration: underline; text-decoration-color: var(--green); text-underline-offset: 3px; }
+.versus td { color: var(--soft); font-size: 1.2rem; font-stretch: var(--title-width); }
+.versus td.best { color: var(--fg); font-weight: 700; }
+.remove {
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-chip);
+  background: none; color: var(--muted); font: inherit; line-height: 1; cursor: pointer;
+}
+.remove:hover, .remove:focus-visible { background: var(--raised); color: var(--fg); }
+/* Head to head: two counts either side of their label, and a bar split by their share. The first
+   player's side is the bright one. */
+.h2h { max-width: 40rem; }
+.tug { margin-block-start: 20px; }
+.tug p { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 6px; color: var(--muted); }
+.tug b { color: var(--fg); font-size: 1.4rem; font-stretch: var(--display-width); }
+.split { height: 6px; border-radius: 3px; background: var(--muted); overflow: hidden; }
+.split span { display: block; height: 100%; background: var(--fg); }
+@media (max-width: 640px) {
+  .versus thead th, .versus tbody td { min-width: 6.5rem; }
+  .picker { max-width: none; }
+}

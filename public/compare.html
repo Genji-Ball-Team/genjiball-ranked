@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="theme-color" content="#090b10">
+  <meta name="theme-color" content="#0f1314">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Compare – Genji Ball Ranked</title>
   <meta name="description" content="Ranked Genji Ball players side by side: ratings, stats, rating history and head to head.">
@@ -15,24 +15,29 @@
   <meta property="og:image" content="https://genjiball.us/og.png">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/region.js"></script>
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/build/site.css">
+  <script src="/build/head.js"></script>
+  <script type="module" src="/build/compare.js"></script>
 </head>
-<body data-page="compare">
-  <header class="top">
-    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
-    <nav><a href="/">Leaderboard</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
   </header>
   <main>
-    <div class="headline"><h1 id="heading">Compare</h1></div>
-    <p class="lede">Up to three players side by side in <span id="region-name">this region</span>. The link to this page keeps them, to share.</p>
+    <div id="headline" class="headline">
+      <h1><span id="heading">Compare</span> <gb-chip data-region-short>EU</gb-chip></h1>
+    </div>
+    <p class="lede">Up to three players side by side in <span data-region-label>this region</span>. The link to this page keeps them, to share.</p>
     <div class="picker">
-      <label class="find"><input id="add" type="search" placeholder="Add a player" aria-label="Add a player" autocomplete="off" aria-controls="suggest"></label>
-      <ol id="suggest" class="suggest" hidden></ol>
+      <gb-search id="add" label="Add a player" hide-label placeholder="Add a player" min-length="2" delay="250"></gb-search>
     </div>
     <div id="table" class="compare" aria-live="polite" aria-busy="true" data-loading>
-      <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+      <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
     </div>
     <section id="h2h-section" hidden>
       <h2>Head to head</h2>
@@ -40,16 +45,12 @@
     </section>
     <section id="graph-section" hidden>
       <h2>Rating over time</h2>
-      <p id="key" class="key"></p>
-      <div id="graph" class="graph"></div>
+      <gb-compare-chart id="graph" class="graph" axis="time"></gb-compare-chart>
     </section>
   </main>
   <footer class="foot">
     <span>Genji Ball · an Overwatch Workshop game mode</span>
     <nav class="foot-links" aria-label="Genji Ball elsewhere"><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
   </footer>
-  <script src="/banner.js"></script>
-  <script src="/share.js"></script>
-  <script src="/site.js"></script>
 </body>
 </html>

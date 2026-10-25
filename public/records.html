@@ -2,30 +2,36 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="theme-color" content="#090b10">
+  <meta name="theme-color" content="#0f1314">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Records – Genji Ball Ranked</title>
   <meta name="description" content="Genji Ball's ranked records, how much is played, and the hosts who host the most.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/region.js"></script>
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/build/site.css">
+  <script src="/build/head.js"></script>
+  <script type="module" src="/build/records.js"></script>
 </head>
-<body data-page="records">
-  <header class="top">
-    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
-    <nav><a href="/">Leaderboard</a><a href="/live">Live</a><a href="/records" aria-current="page">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></nav>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/live">Live</a><a href="/records" aria-current="page">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
   </header>
   <main>
-    <h1 id="heading">Records</h1>
-    <p class="lede">The bests of every accepted match in <span id="region-name">this region</span>. <span id="updated"></span></p>
-    <ol id="records" class="records" aria-busy="true" data-loading>
-      <li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li>
+    <div class="headline">
+      <h1>Records <gb-chip data-region-short>EU</gb-chip></h1>
+    </div>
+    <p class="lede">The bests of every accepted match in <span data-region-label>this region</span>. <span id="updated"></span></p>
+    <ol id="records" class="records" aria-busy="true" aria-label="Records" data-loading>
+      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
     </ol>
     <section id="activity-section" hidden>
       <h2>Activity</h2>
-      <dl id="activity-figures" class="figures"></dl>
-      <div id="activity" class="bars"></div>
+      <div id="activity-figures" class="activity-figures"></div>
+      <gb-panel class="activity-chart" label="Rated rounds a day" level="3"><gb-bar-chart id="activity" label="Rated rounds a day" height="140"></gb-bar-chart></gb-panel>
     </section>
     <section id="hosts-section" hidden>
       <h2>Top hosts</h2>
@@ -36,7 +42,5 @@
     <span>Genji Ball · an Overwatch Workshop game mode</span>
     <nav class="foot-links" aria-label="Genji Ball elsewhere"><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
   </footer>
-  <script src="/banner.js"></script>
-  <script src="/site.js"></script>
 </body>
 </html>

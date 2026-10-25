@@ -335,7 +335,7 @@ describe("pages", () => {
   it.each([
     ["/", "src=\"/build/leaderboard.js\""],
     ["/player?id=1", "src=\"/build/player.js\""],
-    ["/match?id=1", "data-page=\"match\""],
+    ["/match?id=1", "src=\"/build/match.js\""],
   ])("serves %s", async (path, marker) => {
     const res = await SELF.fetch(`https://example.com${path}`);
     expect(res.status).toBe(200);
