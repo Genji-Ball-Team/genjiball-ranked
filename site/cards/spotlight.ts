@@ -109,7 +109,7 @@ function podium(ctx: CanvasRenderingContext2D, d: MatchCard, cx: number, floor: 
     const delta = rowDelta(p);
     if (delta) text(ctx, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}`, x + stepW / 2, y - size * 0.5, { size: size * 0.75, weight: 700, narrow: true, align: "center", color: delta > 0 ? c.up : c.down });
     text(ctx, p.name, x + stepW / 2, y - size * (delta ? 1.5 : 0.5), { size, weight: 800, narrow: true, align: "center", max: stepW + gap, shrink: 0.6, fill: first ? [c.fg, prize === c.gold ? c.gold : c["god-cream"]] : undefined });
-    if (first && rank === 0) cup(ctx, x + stepW / 2 - size * 0.6, y - size * (delta ? 3.1 : 2.1), size * 1.2, prize);
+    if (first && rank === 0) cup(ctx, x + stepW / 2 - size * 0.6, y - size * (delta ? 3.8 : 2.8), size * 1.2, prize);
   });
 }
 
