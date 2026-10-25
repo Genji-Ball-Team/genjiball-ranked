@@ -9,7 +9,8 @@ html {
   scrollbar-gutter: stable;
   scrollbar-color: var(--border) transparent;
 }
-body { display: flex; flex-direction: column; }
+/* The brand's green strip along the top, the same in every region (NA's used to be gold). */
+body { display: flex; flex-direction: column; border-top: 3px solid var(--green); }
 [hidden] { display: none !important; }
 ::selection { background: color-mix(in oklab, var(--green) 35%, transparent); }
 /* Read by screen readers, not shown. */
