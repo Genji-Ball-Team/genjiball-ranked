@@ -11,6 +11,7 @@ import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readSt
 import { noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
+import { displayRating } from "../rating/engine";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { fetchTitles, pickTitles } from "./titles";
@@ -51,7 +52,7 @@ import {
  * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
  * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, their
  * round stats for compare (#16), `/api/players/:id/stats`, and
- * the records page (#19), `/api/records`, and the recent matches, `/api/recent`.
+ * the records page (#19), `/api/records`, the recent matches, `/api/recent`, and how ranked works, `/api/rules`.
  *
  * Regions (#47): the leaderboard, a player's rating, matches, rivals and history, head-to-head, the
  * records, the rank tags, the Tourneys page and the live lobbies show one region's, `?region=`, the
@@ -81,6 +82,16 @@ export type SiteConfig = RankTagsConfig &
     | "regions"
     | "lobbyTtlSeconds"
     | "lobbiesCacheSeconds"
+    | "ratingMu"
+    | "ratingNewPlayerStart"
+    | "ratingMatchMaxChange"
+    | "displayCenter"
+    | "displayScale"
+    | "displayFloor"
+    | "tournamentWinnerBonus"
+    | "tournamentMaxGain"
+    | "tournamentMaxLoss"
+    | "tournamentMaxLossBands"
   >;
 
 /** Answers a site route, or returns null when the path isn't one. */
@@ -113,6 +124,7 @@ export async function handleSite(
       const ratingsUpdating = regionIds(config.regions).filter((id) => stale.includes(id));
       return Response.json({ testServer: config.testServer, regions: config.regions, ratingsUpdating });
     },
+    rules: async () => Response.json(rules(config)),
     "rank-tags": async () => cached(await tags(db, config, region, now), config.rankTagsCacheSeconds),
     players: async () => {
       const search = (url.searchParams.get("search") ?? "").trim();
@@ -611,6 +623,28 @@ async function screenshot(db: D1Database, proofs: R2Bucket | undefined, key: str
       ETag: object.httpEtag,
     },
   });
+}
+
+/**
+ * How ranked works, for its page: the tiers, the titles and the numbers it explains, straight from
+ * the config so the page never says something the server doesn't do.
+ */
+function rules(config: SiteConfig) {
+  return {
+    tiers: config.tiers.map((tier) => ({ label: tier.label, color: tier.color, threshold: tier.threshold, siteOnly: tier.siteOnly === true })),
+    titles: config.titles,
+    minRankedRounds: config.minRankedRounds,
+    inactiveAfterDays: config.inactiveAfterDays,
+    // What a new player's starting rating shows as (the display curve eases it up from below the center).
+    newPlayerRating: displayRating({ mu: config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale }, config),
+    matchMaxChange: config.ratingMatchMaxChange,
+    floor: config.displayFloor,
+    tournament: {
+      maxGain: config.tournamentMaxGain,
+      winnerBonus: config.tournamentWinnerBonus,
+      maxLoss: [...config.tournamentMaxLossBands, { below: null, maxLoss: config.tournamentMaxLoss }],
+    },
+  };
 }
 
 /** An answer kept for its own lifetime. Without one, src/public.ts gives `publicCacheSeconds`. */

@@ -226,3 +226,15 @@ export interface Match {
   players: MatchPlayer[];
   rounds: Round[];
 }
+
+/** `GET /api/rules`: how ranked works, from the server's config. */
+export interface Rules {
+  tiers: (Tier & { siteOnly: boolean })[];
+  titles: { label: string; max: number }[];
+  minRankedRounds: number;
+  inactiveAfterDays: number;
+  newPlayerRating: number;
+  matchMaxChange: number;
+  floor: number;
+  tournament: { maxGain: number; winnerBonus: number; maxLoss: { below: number | null; maxLoss: number }[] };
+}

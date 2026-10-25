@@ -1,0 +1,25 @@
+/* How ranked works (pages/ranked.ts): the tier ladder, top first, the numbers as tiles and the rules
+   as a term list. */
+.rules > section:first-child h2 { margin-block-start: 16px; }
+.rules > gb-skeleton { min-block-size: 320px; }
+.ladder { display: grid; gap: 6px; max-width: 36rem; margin: 0; padding: 0; list-style: none; }
+.ladder li {
+  display: grid; grid-template-columns: 9rem 5rem minmax(0, 1fr); gap: 12px; align-items: center;
+  padding: 10px 16px; border-radius: var(--r); background: var(--panel);
+}
+.ladder li > .muted:nth-child(2) { grid-column: 2 / -1; }
+.ladder gb-chip { justify-self: start; }
+.ladder .num { font-weight: 600; text-align: end; }
+.ladder .muted { font-size: var(--body-size); }
+.rule-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 8px; }
+.rules-list { display: grid; grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); gap: 14px 24px; max-width: 52rem; margin: 24px 0 0; }
+.rules-list dt { font-weight: 600; }
+.rules-list dd { margin: 0; color: var(--soft); text-wrap: pretty; }
+.rules .lede { margin-block-end: 16px; }
+
+@media (max-width: 40rem) {
+  .ladder li { grid-template-columns: minmax(0, 1fr) auto; }
+  .ladder li > .muted { grid-column: 1 / -1; }
+  .rules-list { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .rules-list dd { margin-block-end: 12px; }
+}

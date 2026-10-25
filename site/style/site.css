@@ -9,6 +9,7 @@
 @import "./compare.css";
 @import "./match.css";
 @import "./lost.css";
+@import "./ranked.css";
 @import "./admin.css";
 
 html {

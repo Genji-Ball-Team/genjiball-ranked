@@ -340,6 +340,15 @@ describe("player search", () => {
   });
 });
 
+describe("how ranked works", () => {
+  it("answers the tiers and numbers from the config", async () => {
+    const body = await get<{ tiers: { label: string; threshold: number; siteOnly: boolean }[]; minRankedRounds: number; tournament: { maxLoss: { below: number | null }[] } }>("rules");
+    expect(body.tiers.map((t) => [t.label, t.threshold, t.siteOnly])).toEqual(defaults.tiers.map((t) => [t.label, t.threshold, t.siteOnly === true]));
+    expect(body.minRankedRounds).toBe(defaults.minRankedRounds);
+    expect(body.tournament.maxLoss.at(-1)!.below).toBeNull();
+  });
+});
+
 describe("recent matches", () => {
   type Recent = {
     region: string;
