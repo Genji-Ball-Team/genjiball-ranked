@@ -334,7 +334,7 @@ describe("match", () => {
 describe("pages", () => {
   it.each([
     ["/", "src=\"/build/leaderboard.js\""],
-    ["/player?id=1", "data-page=\"player\""],
+    ["/player?id=1", "src=\"/build/player.js\""],
     ["/match?id=1", "data-page=\"match\""],
   ])("serves %s", async (path, marker) => {
     const res = await SELF.fetch(`https://example.com${path}`);

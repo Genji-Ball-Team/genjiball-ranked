@@ -1,0 +1,189 @@
+// A player's page (player.html): their rating, rank and tier in this region, how far the next tier
+// is, their rating over time and form, their rivals and their recent matches.
+import "@genji-ball-team/ui/chip.js";
+import "@genji-ball-team/ui/delta.js";
+import "@genji-ball-team/ui/empty.js";
+import "@genji-ball-team/ui/rating-chart.js";
+import type { GbRatingChart, TierLine } from "@genji-ball-team/ui/rating-chart.js";
+import { api, idParam, inRegion, matchLink, NotFound, playerLink } from "../lib/api";
+import { count, date, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
+import { byId, html, Html, raw, render } from "../lib/html";
+import { loaded, showError } from "../lib/load";
+import { site } from "../lib/site";
+import type { History, PlayerMatch, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
+import { start } from "../shell";
+import { titleChip, titleFx, titleLooks, titleSeals } from "../titles";
+
+const compareLink = (ids: number[]): string => `/compare?ids=${ids.join(",")}&${inRegion()}`;
+
+/** How far a ranked player is from the next tier: a bar from their tier's start to the next one's. */
+function progress(r: PlayerRating, next: Tier): Html {
+  const from = r.siteTier?.threshold ?? 0;
+  const share = Math.min(1, Math.max(0, (r.rating - from) / (next.threshold - from)));
+  return html`<div class="track"${tierName(r.siteTier) && html` data-tier="${tierName(r.siteTier)}"`}><span style="width:${(share * 100).toFixed(1)}%"></span></div>
+    <p><span class="num">${num(next.threshold - r.rating)}</span> to ${tierChip(next)}</p>`;
+}
+
+const fact = (label: string, value: Html | string | number): Html => html`<span>${label} <b class="num">${value}</b></span>`;
+
+function figures(r: PlayerRating): Html {
+  const figure = (label: string, value: string) => html`<div><dt>${label}</dt><dd class="num">${value}</dd></div>`;
+  return html`${figure("Rating", rating(r.rating))}${figure("Rank", r.rank ? num(r.rank) : "–")}${figure(
+    "Rated rounds",
+    num(r.rounds),
+  )}${figure("Rounds won", winRate(r.wins, r.rounds))}`;
+}
+
+/** One line about the player: inactive, an alt, not on the board yet, rated elsewhere, other names. */
+function about(p: PlayerPage["player"]): Html {
+  const r = p.rating;
+  const here = site.label(site.region);
+  const others = p.aliases.filter((a) => a !== p.name);
+  // A rating in another region is a separate one: a link to it, not a mix on this page.
+  const elsewhere = p.regions
+    .filter((id) => id !== site.region)
+    .map((id, i) => html`${i ? " and " : ""}<a href="${playerLink(p.id, id)}">${site.label(id)}</a>`);
+  const lines = [
+    r?.inactiveSince && html`Inactive since ${date(r.inactiveSince)}: still on the leaderboard, but no rank tag in game.`,
+    p.alt && html`Alt account: rated as normal, but not on the leaderboard.`,
+    r && !r.rank && !p.alt && html`Not on the ${here} leaderboard yet: it takes a few more rated rounds.`,
+    !r && html`No rated rounds in ${here}${elsewhere.length ? "" : " yet"}.`,
+    elsewhere.length > 0 && html`${r ? "Also rated" : "Rated"} in ${elsewhere}.`,
+    others.length > 0 && html`Also played as ${others.join(", ")}.`,
+  ].filter((line): line is Html => line instanceof Html);
+  return html`${lines.map((line, i) => html`${i ? " " : ""}${line}`)}`;
+}
+
+/** A titled player's name, tier and figures in the title's frame, with the title's seal. */
+function titleHero(crown: TitleName): void {
+  const [name, what] = titleSeals[crown];
+  const hero = byId("hero");
+  hero.classList.add(titleLooks[crown]);
+  hero.insertAdjacentHTML("beforeend", `<span class="fx" aria-hidden="true">${titleFx(crown, "profile")}</span>`);
+  byId("tier").insertAdjacentHTML("afterbegin", `${titleChip(crown).value} `);
+  const seal = byId("seal");
+  render(seal, html`${name}<b>${site.label(site.region)} ${what}</b>`);
+  seal.hidden = false;
+}
+
+// Head-to-head: who they eliminate most and who eliminates them most, each with a link to compare.
+function rivals(p: PlayerPage["player"], eliminated: Rival[], eliminatedBy: Rival[]): void {
+  if (!eliminated.length && !eliminatedBy.length) return;
+  byId("rivals-section").hidden = false;
+  const list = (rivals: Rival[]) =>
+    rivals.length
+      ? html`${rivals.map(
+          (o) => html`<li><a href="${playerLink(o.id)}">${o.name}</a>
+            <span class="num">${count(o.kills, "time")}</span>
+            <small>${o.rounds > 0 && html`in ${count(o.rounds, "round")} together`}</small>
+            <a class="vs" href="${compareLink([p.id, o.id])}" aria-label="Compare ${p.name} and ${o.name}">Compare</a></li>`,
+        )}`
+      : html`<li class="muted">No one yet.</li>`;
+  render(byId("eliminated"), list(eliminated));
+  render(byId("eliminated-by"), list(eliminatedBy));
+}
+
+/** The rating after a match, and what it changed by. */
+function change(m: PlayerMatch): Html {
+  if (m.ratingAfter === null) return html`<span class="muted">Not rated</span>`;
+  if (m.ratingBefore === null) return html`${rating(m.ratingAfter)}<span class="muted">first</span>`;
+  const d = m.ratingAfter - m.ratingBefore;
+  return html`${rating(m.ratingAfter)}${d !== 0 && html`<gb-delta value="${d}"></gb-delta>`}`;
+}
+
+function matchRow(m: PlayerMatch): Html {
+  const d = new Date(m.playedAt);
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  const day = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: thisYear ? undefined : "numeric" });
+  const time = d.toLocaleTimeString(undefined, { timeStyle: "short" });
+  return html`<li><a href="${matchLink(m.id)}">
+    <span class="when">${day}<small>${time}</small></span>
+    <span class="map">${mapName(m.map)} ${matchFlags(m)}</span>
+    <span class="change num">${change(m)}</span>
+    <span class="id num">#${m.id}</span></a></li>`;
+}
+
+// Recent form: the last rated rounds, oldest first so they read like the chart, each its place.
+function formList(form: History["form"]): Html {
+  return html`${[...form.results].reverse().map((f, i) => {
+    const won = f.position === 1;
+    const what = `${won ? "Won" : `${ordinal(f.position)} of ${f.players}`}, round ${f.round} of match #${f.matchId}`;
+    return html`<li style="--i:${i}"><a${won && raw(' class="won"')} href="${matchLink(f.matchId)}" title="${what}"><span class="num" aria-hidden="true">${f.position}</span><span class="sr">${what}</span></a></li>`;
+  })}`;
+}
+
+function history(h: History, r: PlayerRating | null): void {
+  if (!h.points.length) return;
+  byId("history").hidden = false;
+  render(
+    byId("history-facts"),
+    html`${h.peak && fact("Peak", html`${rating(h.peak.rating)}<small> on ${date(h.peak.playedAt)}</small>`)}${fact(
+      "Rated matches",
+      num(h.matches),
+    )}${h.points.length < h.matches && html`<span class="muted">${num(h.points.length)} of them shown</span>`}`,
+  );
+  const chart = byId<GbRatingChart>("graph");
+  chart.tiers = [r?.siteTier, r?.nextTier].flatMap((t): TierLine[] => {
+    const tier = tierName(t);
+    return t && tier ? [{ tier, label: t.label, threshold: t.threshold }] : [];
+  });
+  chart.points = h.points.map((p) => ({
+    rating: p.rating,
+    label: `Match #${p.matchId}${p.matchId === h.peak?.matchId ? " · Peak" : ""}`,
+    href: matchLink(p.matchId),
+  }));
+  const f = h.form;
+  render(
+    byId("form-facts"),
+    f.rounds
+      ? html`${fact(`Last ${f.rounds} rated rounds`, `${f.wins} won`)}${fact("Average place", f.averagePosition.toFixed(1))}${fact(
+          "Win streak",
+          num(h.streak),
+        )}${fact("Best", num(h.bestStreak))}`
+      : html``,
+  );
+  render(byId("form"), formList(f));
+}
+
+async function playerPage(): Promise<void> {
+  const id = encodeURIComponent(idParam());
+  // The rating history and the titles are their own requests: the page shows without them if they fail.
+  const historyAnswer = api<History>(`players/${id}/history?${inRegion()}`).catch(() => null);
+  const titles = api<Titles>(`titles?${inRegion()}`).then(
+    (t) => t.titles,
+    () => [],
+  );
+  try {
+    const { player: p, matches, mostEliminated, mostEliminatedBy } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
+    const r = p.rating;
+    title(`${p.name} (${site.short(site.region)})`);
+    byId("name").textContent = p.name;
+    // An alt account: rated, but not on the leaderboard.
+    byId("alt").hidden = !p.alt;
+    render(byId("tier"), html`${r && tierChip(r.siteTier)}`);
+    render(byId("about"), about(p));
+    render(byId("stats"), r ? figures(r) : html``);
+    const next = byId("next-tier");
+    if (r?.rank && r.nextTier) render(next, progress(r, r.nextTier));
+    else next.hidden = true;
+    rivals(p, mostEliminated, mostEliminatedBy);
+    const compare = byId<HTMLAnchorElement>("compare-link");
+    compare.href = compareLink([p.id]);
+    compare.hidden = false;
+    loaded(
+      byId("matches"),
+      matches.length
+        ? html`${matches.map(matchRow)}`
+        : html`<li><gb-empty>No matches in ${site.label(site.region)} yet.</gb-empty></li>`,
+    );
+    const crown = (await titles).find((t) => t.id === p.id)?.title;
+    if (crown) titleHero(crown);
+    const h = await historyAnswer;
+    if (h) history(h, r);
+  } catch (error) {
+    byId("name").textContent = error instanceof NotFound ? "Player not found" : "Player";
+    showError(byId("matches"), error, "player");
+  }
+}
+
+start("player", playerPage);

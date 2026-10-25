@@ -85,6 +85,6 @@ describe("link previews", () => {
     const p = await page(`/player?id=${await playerId("Alpha")}&region=eu`, browser);
     expect(p.title).toBe("Player – Genji Ball Ranked");
     expect(p.url).toBe("https://genjiball.us/player");
-    expect(p.html).toContain('<script src="/share.js"></script>');
+    expect(p.html).toContain('<script type="module" src="/build/player.js"></script>');
   });
 });

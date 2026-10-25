@@ -67,3 +67,70 @@ export interface FoundPlayers {
   region: string;
   players: FoundPlayer[];
 }
+
+/** A player's rating in one region (`GET /api/players/{id}`): a leaderboard row, `rank` null off it. */
+export interface PlayerRating extends Omit<LeaderboardPlayer, "rank"> {
+  rank: number | null;
+  nextTier: Tier | null;
+}
+
+/** A match on a player's page. */
+export interface PlayerMatch {
+  id: number;
+  playedAt: string;
+  map: string | null;
+  legacy: boolean;
+  void: boolean;
+  tournament: boolean;
+  ratingBefore: number | null;
+  ratingAfter: number | null;
+}
+
+/** Who a player eliminates most, or is eliminated by most. */
+export interface Rival {
+  id: number;
+  name: string;
+  kills: number;
+  rounds: number;
+}
+
+/** `GET /api/players/{id}`. */
+export interface PlayerPage {
+  region: string;
+  player: {
+    id: number;
+    name: string;
+    alt: boolean;
+    aliases: string[];
+    regions: string[];
+    rating: PlayerRating | null;
+  };
+  matches: PlayerMatch[];
+  mostEliminated: Rival[];
+  mostEliminatedBy: Rival[];
+}
+
+/** A point of `GET /api/players/{id}/history`: the rating after a match. */
+export interface HistoryPoint {
+  matchId: number;
+  playedAt: string;
+  rating: number;
+}
+
+/** `GET /api/players/{id}/history`. */
+export interface History {
+  region: string;
+  player: { id: number; name: string };
+  matches: number;
+  points: HistoryPoint[];
+  peak: HistoryPoint | null;
+  streak: number;
+  bestStreak: number;
+  form: {
+    rounds: number;
+    wins: number;
+    averagePosition: number;
+    /** Newest first. */
+    results: { matchId: number; round: number; position: number; players: number }[];
+  };
+}

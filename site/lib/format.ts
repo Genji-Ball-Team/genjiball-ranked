@@ -64,3 +64,19 @@ export function highlight(name: string, query: string): Html {
   const end = at + query.length;
   return html`${name.slice(0, at)}<mark>${name.slice(at, end)}</mark>${name.slice(end)}`;
 }
+
+/** "1st", "2nd", "3rd", "4th": a place in a round. */
+export function ordinal(n: number): string {
+  const ends: Partial<Record<Intl.LDMLPluralRule, string>> = { one: "st", two: "nd", few: "rd" };
+  return `${n}${ends[new Intl.PluralRules("en", { type: "ordinal" }).select(n)] ?? "th"}`;
+}
+
+const mapNames: Record<string, string> = { "workshop-island-night": "Workshop Island Night", other: "Another map" };
+export const mapName = (map: string | null): string => (map ? (mapNames[map] ?? map) : "");
+
+/** A match's grey chips: a tourney match, a void one, one from an older game version. */
+export function matchFlags(m: { tournament: boolean; void: boolean; legacy: boolean }): Html {
+  return html`${m.tournament && html`<gb-chip title="A tourney match: counts more on the leaderboard">Tourney</gb-chip>`}${
+    m.void && html`<gb-chip class="void" title="Doesn't count for ratings">Void</gb-chip>`
+  }${m.legacy && html`<gb-chip title="Played on an older game version">Legacy</gb-chip>`}`;
+}

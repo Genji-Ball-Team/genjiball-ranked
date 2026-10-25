@@ -174,6 +174,100 @@ a.entry.demi:hover, a.entry.demi:active { --fill: color-mix(in oklab, var(--demi
   .entry::before { transition: width 0.15s; }
 }
 
+/* Player: name, chips and seal, a line about them, their figures, then sections down the page. */
+.hero .headline { justify-content: start; gap: 8px 12px; margin-block-end: 0; }
+.tier:empty { display: none; }
+.lede { max-width: 38rem; margin-block: 8px 0; color: var(--soft); text-wrap: pretty; }
+.lede:empty { display: none; }
+.lede a, .note a { color: var(--fg); text-decoration-color: var(--green); text-underline-offset: 3px; }
+h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(--heading-weight); font-stretch: var(--heading-width); }
+.label, .figures dt, .rivals h3 {
+  color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.figures { display: flex; flex-wrap: wrap; gap: 16px 0; margin-block: 28px 0; }
+.figures:empty { display: none; }
+.figures div { padding-inline: 28px; border-inline-start: 1px solid var(--line); }
+.figures div:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.figures dd { margin: 0; font-size: 2rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1.2; }
+/* How far the next tier is: the bar in this tier's colour. */
+.next-tier { max-width: 26rem; margin-block-start: 24px; }
+.track { height: 4px; border-radius: 2px; background: var(--raised); overflow: hidden; }
+.track span { display: block; height: 100%; border-radius: 2px; background: var(--tier, var(--muted)); }
+.next-tier p { display: flex; align-items: center; gap: 6px; margin-block: 8px 0; color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; color: var(--soft); }
+.facts b { color: var(--fg); font-stretch: var(--title-width); }
+.facts small { color: var(--muted); font-weight: 400; }
+.graph { margin-block-start: 16px; }
+/* Form: a square a round, its place in it. A win is the only filled one. */
+.form { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0 0; padding: 0; }
+.form a {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-chip); text-decoration: none;
+  background: var(--panel); color: var(--soft); font-stretch: var(--title-width);
+}
+.form a:hover { background: var(--raised); color: var(--fg); }
+.form a.won { background: var(--up); color: var(--bg); font-weight: 700; }
+/* Rivals: two short lists side by side. */
+.rivals { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 40px; }
+.rivals h3 { margin: 0 0 4px; }
+.rivals ol, .history { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.rivals li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.rivals li > a:first-child { color: var(--fg); font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width); text-decoration: none; overflow-wrap: anywhere; }
+.rivals li > a:first-child:hover { text-decoration: underline; }
+.rivals small { grid-column: 1; grid-row: 2; color: var(--muted); font-size: 0.8rem; }
+.rivals .vs { grid-row: 1 / 3; grid-column: 3; align-self: center; color: var(--muted); font-size: 0.85rem; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.rivals .vs:hover { color: var(--green); }
+/* Recent matches: when, map, the rating after and its change, the match's number. */
+.history[data-loading] { display: grid; gap: 6px; padding-block-start: 6px; border: 0; }
+.history gb-skeleton { min-block-size: 44px; }
+.history a {
+  display: grid; grid-template-columns: 9rem minmax(0, 1fr) 7rem 3.5rem; gap: 16px; align-items: baseline;
+  padding: 11px 8px; border-bottom: 1px solid var(--line); color: var(--fg); text-decoration: none;
+}
+.history a:hover, .history a:active { background: var(--panel); }
+.history .when small { margin-inline-start: 6px; color: var(--muted); }
+.history .map { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--soft); overflow-wrap: anywhere; }
+.history .change { display: flex; justify-content: end; align-items: baseline; gap: 6px; font-size: 1.1rem; font-weight: 600; font-stretch: var(--title-width); }
+.history .change span, .history .change gb-delta { font-size: 0.9rem; font-weight: 400; }
+.history .id { text-align: end; color: var(--muted); font-size: 0.85rem; }
+gb-chip.void { color: var(--down); }
+
+/* A titled profile: the hero in the title's frame, its rim turning, its seal on the right. */
+.seal { margin: 0 0 0 auto; text-align: end; font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase; }
+.seal b { display: block; color: var(--fg); font-size: 0.95rem; letter-spacing: 0.02em; text-transform: none; }
+.hero.god .seal { color: var(--god); }
+.hero.demi .seal { color: var(--demi-hi); }
+.hero.god, .hero.demi { position: relative; isolation: isolate; overflow: hidden; padding: 28px 20px 20px; border: 1.5px solid transparent; border-radius: var(--r); }
+.hero > :not(.fx) { position: relative; z-index: 1; }
+.hero.god {
+  background: radial-gradient(80% 140% at 50% 120%, color-mix(in oklab, var(--god-cream) 14%, transparent), transparent 60%) padding-box,
+    linear-gradient(var(--panel), var(--panel)) padding-box,
+    conic-gradient(from var(--spin), var(--line) 0 50%, var(--god) 68%, var(--god-rim) 78%, var(--line) 92% 100%) border-box;
+  box-shadow: 0 0 24px color-mix(in oklab, var(--god-cream) 10%, transparent);
+}
+.hero.god h1 {
+  background: linear-gradient(110deg, var(--god) 0 35%, var(--god-rim) 45%, var(--god) 50%, var(--god-cream) 55%, var(--god) 65% 100%) 0 0 / 200% 100%;
+  background-clip: text; color: transparent;
+}
+.hero.demi {
+  background: radial-gradient(90% 120% at 50% 130%, color-mix(in oklab, var(--demi) 22%, transparent), transparent 60%) padding-box,
+    linear-gradient(color-mix(in oklab, var(--demi-dark) 17%, var(--bg)), color-mix(in oklab, var(--demi-dark) 17%, var(--bg))) padding-box,
+    conic-gradient(from var(--spin), var(--demi-dark) 0 40%, var(--demi) 50%, var(--demi-hi) 55%, var(--demi) 60%, var(--demi-dark) 70% 100%) border-box;
+  box-shadow: 0 0 22px color-mix(in oklab, var(--demi) 15%, transparent);
+}
+.hero .fx { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.fx .mist {
+  position: absolute; bottom: -30%; width: var(--w); height: var(--w); border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, color-mix(in oklab, var(--demi) 28%, transparent), transparent 65%); filter: blur(10px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero.god { animation: title-spin 5s linear infinite; }
+  .hero.demi { animation: title-spin 8s linear infinite reverse; }
+  .hero.god h1 { animation: title-shimmer 3s linear infinite; }
+  .fx .mist { animation: title-mist var(--t) ease-in infinite; }
+  @keyframes title-mist { 0% { transform: translate(0, 20%) scale(1); opacity: 0; } 30% { opacity: 0.8; } 100% { transform: translate(var(--dx), -60%) scale(1.6); opacity: 0; } }
+}
+
 /* Footer: one quiet line. */
 .foot {
   display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
@@ -231,6 +325,15 @@ a.entry.demi:hover, a.entry.demi:active { --fill: color-mix(in oklab, var(--demi
   .cols, .entry { grid-template-columns: 2.25rem minmax(0, 1fr) 4.5rem; gap: 12px; }
   .cols > :nth-child(n + 4), .entry > :nth-child(n + 4) { display: none; }
   .who .stats { display: block; }
+  .figures div { padding-inline: 16px; }
+  .figures dd { font-size: 1.6rem; }
+  .rivals { grid-template-columns: 1fr; }
+  .history a { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
+  .history .when { grid-column: 1; }
+  .history .map { grid-column: 1; font-size: 0.85rem; }
+  .history .change { grid-column: 2; grid-row: 1 / 3; align-self: center; }
+  .history .id { display: none; }
+  .seal { flex-basis: 100%; margin: 0; text-align: start; }
 }
 
 /* Motion, played once: a list that's just loaded rises in, the search sheet slides up and back down.
