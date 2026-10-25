@@ -108,6 +108,8 @@ export interface PlayerPage {
   matches: PlayerMatch[];
   mostEliminated: Rival[];
   mostEliminatedBy: Rival[];
+  /** Kills of theirs on other players and deaths by another player's kill, in the region's accepted matches. */
+  eliminations: { kills: number; deaths: number };
 }
 
 /** A point of `GET /api/players/{id}/history`: the rating after a match. */

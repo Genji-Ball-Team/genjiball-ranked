@@ -17,6 +17,10 @@ export const rating = (r: number | null | undefined): string => (r && r > 0 ? nu
 export const winRate = (wins: number, rounds: number): string =>
   rounds ? `${Math.round((100 * wins) / rounds)}%` : "–";
 
+/** Kills a death, two decimals: the kills themselves with no death, "–" with neither. */
+export const killDeath = (kills: number, deaths: number): string =>
+  deaths ? (kills / deaths).toFixed(2) : kills ? kills.toFixed(2) : "–";
+
 export const date = (iso: string): string =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 

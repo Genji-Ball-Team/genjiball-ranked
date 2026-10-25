@@ -6,7 +6,7 @@ import "@genji-ball-team/ui/empty.js";
 import "@genji-ball-team/ui/rating-chart.js";
 import type { GbRatingChart, TierLine } from "@genji-ball-team/ui/rating-chart.js";
 import { api, idParam, inRegion, matchLink, NotFound, playerLink } from "../lib/api";
-import { count, date, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
+import { count, date, killDeath, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { site } from "../lib/site";
@@ -56,12 +56,17 @@ function progress(r: PlayerRating, next: Tier): Html {
 
 const fact = (label: string, value: Html | string | number): Html => html`<span>${label} <b class="num">${value}</b></span>`;
 
-function figures(r: PlayerRating): Html {
-  const figure = (label: string, value: string) => html`<div><dt>${label}</dt><dd class="num">${value}</dd></div>`;
+function figures(r: PlayerRating, e: PlayerPage["eliminations"]): Html {
+  const figure = (label: string, value: string, tip?: string) =>
+    html`<div${tip && html` title="${tip}"`}><dt>${label}</dt><dd class="num">${value}</dd></div>`;
   return html`${figure("Rating", rating(r.rating))}${figure("Rank", r.rank ? num(r.rank) : "–")}${figure(
     "Rated rounds",
     num(r.rounds),
-  )}${figure("Rounds won", winRate(r.wins, r.rounds))}`;
+  )}${figure("Rounds won", winRate(r.wins, r.rounds))}${figure(
+    "K/D",
+    killDeath(e.kills, e.deaths),
+    `${count(e.kills, "kill")} on other players, ${count(e.deaths, "death")} by one (falls not counted)`,
+  )}`;
 }
 
 /** One line about the player: inactive, an alt, not on the board yet, rated elsewhere, other names. */
@@ -184,7 +189,7 @@ async function playerPage(): Promise<void> {
     () => [],
   );
   try {
-    const { player: p, matches, mostEliminated, mostEliminatedBy } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
+    const { player: p, matches, mostEliminated, mostEliminatedBy, eliminations } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
     const r = p.rating;
     title(`${p.name} (${site.short(site.region)})`);
     byId("name").textContent = p.name;
@@ -192,7 +197,7 @@ async function playerPage(): Promise<void> {
     byId("alt").hidden = !p.alt;
     render(byId("tier"), html`${r && tierChip(r.siteTier)}`);
     render(byId("about"), about(p));
-    render(byId("stats"), r ? figures(r) : html``);
+    render(byId("stats"), r ? figures(r, eliminations) : html``);
     const next = byId("next-tier");
     if (r?.rank && r.nextTier) render(next, progress(r, r.nextTier));
     else next.hidden = true;

@@ -301,8 +301,9 @@ async function headToHead(db: D1Database, region: Region, aId: number, bId: numb
   return {
     region: region.id,
     rounds: record.rounds,
-    a: { id: first.id, name: first.name, ahead: record.ahead, kills: record.kills },
-    b: { id: second.id, name: second.name, ahead: record.rounds - record.ahead, kills: record.deaths },
+    finals: record.finals,
+    a: { id: first.id, name: first.name, ahead: record.ahead, kills: record.kills, finalWins: record.finalWins },
+    b: { id: second.id, name: second.name, ahead: record.rounds - record.ahead, kills: record.deaths, finalWins: record.finals - record.finalWins },
   };
 }
 

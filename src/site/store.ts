@@ -573,34 +573,53 @@ export interface RivalRow {
 
 /**
  * A player's most eliminated opponents (`mostEliminated`) and the opponents who eliminated them
- * most (`mostEliminatedBy`) in the region, at most `limit` each, most first. Reads the player's
- * `pair_stats` rows once (one per opponent, through the primary key), and the names of the shown ones.
+ * most (`mostEliminatedBy`) in the region, at most `limit` each, most first, and their totals over
+ * every opponent (`eliminations`: `kills` of theirs on another player, `deaths` by another player's
+ * kill, so a fall or a self-kill is neither). Reads the player's `pair_stats` rows once (one per
+ * opponent, through the primary key), and the names of the shown ones.
  */
 export async function listRivals(
   db: D1Database,
   board: string,
   playerId: number,
   limit: number,
-): Promise<{ mostEliminated: RivalRow[]; mostEliminatedBy: RivalRow[] }> {
+): Promise<{ mostEliminated: RivalRow[]; mostEliminatedBy: RivalRow[]; eliminations: { kills: number; deaths: number } }> {
   const { results } = await db
     .prepare(
-      `SELECT s.opponent_id AS id, p.name, s.kills, s.deaths, s.rounds, s.byKills, s.byDeaths
+      `SELECT s.opponent_id AS id, p.name, s.kills, s.deaths, s.rounds, s.byKills, s.byDeaths, s.totalKills, s.totalDeaths
        FROM (
          SELECT opponent_id, kills, deaths, rounds,
            ROW_NUMBER() OVER (ORDER BY kills DESC, opponent_id) AS byKills,
-           ROW_NUMBER() OVER (ORDER BY deaths DESC, opponent_id) AS byDeaths
+           ROW_NUMBER() OVER (ORDER BY deaths DESC, opponent_id) AS byDeaths,
+           sum(kills) OVER () AS totalKills, sum(deaths) OVER () AS totalDeaths
          FROM pair_stats WHERE region = ?1 AND player_id = ?2 AND (kills > 0 OR deaths > 0)
        ) s JOIN players p ON p.id = s.opponent_id
        WHERE (s.byKills <= ?3 AND s.kills > 0) OR (s.byDeaths <= ?3 AND s.deaths > 0)`,
     )
     .bind(board, playerId, limit)
-    .all<{ id: number; name: string; kills: number; deaths: number; rounds: number; byKills: number; byDeaths: number }>();
+    .all<{
+      id: number;
+      name: string;
+      kills: number;
+      deaths: number;
+      rounds: number;
+      byKills: number;
+      byDeaths: number;
+      totalKills: number;
+      totalDeaths: number;
+    }>();
   const pick = (count: "kills" | "deaths", rank: "byKills" | "byDeaths") =>
     results
       .filter((r) => r[count] > 0 && r[rank] <= limit)
       .sort((a, b) => a[rank] - b[rank])
       .map((r) => ({ id: r.id, name: r.name, kills: r[count], rounds: r.rounds }));
-  return { mostEliminated: pick("kills", "byKills"), mostEliminatedBy: pick("deaths", "byDeaths") };
+  // Every row carries the totals; with any kill or death, the opponent ranked first by it is shown.
+  const totals = results[0];
+  return {
+    mostEliminated: pick("kills", "byKills"),
+    mostEliminatedBy: pick("deaths", "byDeaths"),
+    eliminations: { kills: totals?.totalKills ?? 0, deaths: totals?.totalDeaths ?? 0 },
+  };
 }
 
 export interface PlayerStatsRow {
@@ -644,13 +663,20 @@ export interface HeadToHeadRow {
   /** `KILL` lines of `a` on `b` and of `b` on `a`, anywhere in the matches. */
   kills: number;
   deaths: number;
+  /** Of the rounds, the finals: the two finished 1st and 2nd, the last two alive. */
+  finals: number;
+  /** Finals `a` won. */
+  finalWins: number;
 }
 
 /** Two players' record against each other in the region: one `pair_stats` row. Zeros if they never met. */
 export async function findHeadToHead(db: D1Database, board: string, a: number, b: number): Promise<HeadToHeadRow> {
   const row = await db
-    .prepare("SELECT rounds, ahead, kills, deaths FROM pair_stats WHERE region = ?1 AND player_id = ?2 AND opponent_id = ?3")
+    .prepare(
+      `SELECT rounds, ahead, kills, deaths, finals, final_wins AS finalWins FROM pair_stats
+       WHERE region = ?1 AND player_id = ?2 AND opponent_id = ?3`,
+    )
     .bind(board, a, b)
     .first<HeadToHeadRow>();
-  return row ?? { rounds: 0, ahead: 0, kills: 0, deaths: 0 };
+  return row ?? { rounds: 0, ahead: 0, kills: 0, deaths: 0, finals: 0, finalWins: 0 };
 }
