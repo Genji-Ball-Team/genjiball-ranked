@@ -23,9 +23,5 @@ export const playerLink = (id: number, region = site.region): string => `/player
 
 export const matchLink = (id: number): string => `/match?id=${id}`;
 
-let lobbiesNow: Promise<{ lobbies: unknown[] }> | undefined;
-/** The region's open lobbies, asked once a page: the nav's dot and the home strip share the answer. */
-export const openLobbies = (): Promise<{ lobbies: unknown[] }> => (lobbiesNow ??= api<{ lobbies: unknown[] }>(`lobbies?${inRegion()}`));
-
 /** The `?id=` of a player, match or tourney page. */
 export const idParam = (): string => new URLSearchParams(location.search).get("id") ?? "";

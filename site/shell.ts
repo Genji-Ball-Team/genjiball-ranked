@@ -9,7 +9,7 @@ import "@genji-ball-team/ui/search.js";
 import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/skeleton.js";
 import type { GbSearch, SearchQuery } from "@genji-ball-team/ui/search.js";
-import { api, inRegion, openLobbies, playerLink } from "./lib/api";
+import { api, inRegion, playerLink } from "./lib/api";
 import { showBanners } from "./lib/banners";
 import { rating, tierName } from "./lib/format";
 import { html, raw, render } from "./lib/html";
@@ -133,7 +133,7 @@ function tabBar(page: string): void {
 // itself lists them, so it doesn't ask.
 function liveDot(page: string): void {
   if (page === "live") return;
-  openLobbies()
+  api<{ lobbies: unknown[] }>(`lobbies?${inRegion()}`)
     .then(({ lobbies }) => {
       if (!lobbies.length) return;
       for (const link of document.querySelectorAll<HTMLAnchorElement>('gb-nav a[href="/live"], .tabbar a[href="/live"]')) {

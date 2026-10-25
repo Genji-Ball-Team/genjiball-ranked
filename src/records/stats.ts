@@ -18,9 +18,6 @@ export type RecordsConfig = Pick<
   | "recordsTop"
   | "recordsTopScan"
   | "recordsRatingScan"
-  | "recordsClimbers"
-  | "leaderboardChangeDays"
-  | "minRankedRounds"
   | "regions"
 >;
 
@@ -209,13 +206,6 @@ export type MatchRecordName = (typeof matchRecordNames)[number];
 /** The records set in matches this month (UTC): the match records, not the career ones. */
 export type MonthRecords = Pick<Records, MatchRecordName>;
 
-/** A player who climbed over the last `leaderboardChangeDays`: their rating now and what they gained. */
-export interface Climber {
-  player: RecordPlayer;
-  rating: number;
-  change: number;
-}
-
 export const noMonthRecords: MonthRecords = { roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [], highestRating: [] };
 
 export const noRecords: Records = { ...noMonthRecords, winStreak: [], mostRounds: [], mostWins: [] };
@@ -244,7 +234,6 @@ export interface ActivityDay {
 export interface RecordsInput {
   records: Records;
   month: MonthRecords;
-  climbers: readonly Climber[];
   /** Days with a match, in any order. */
   days: readonly ActivityDay[];
   /** Different players over the whole window. */
@@ -263,7 +252,7 @@ export function activityStart(now: Date, days: number): string {
 }
 
 /** The records page as stored and served, the activity a row for every day of the window. */
-export function recordsView(input: RecordsInput, config: Pick<RecordsConfig, "recordsActivityDays" | "leaderboardChangeDays">, now: Date) {
+export function recordsView(input: RecordsInput, config: Pick<RecordsConfig, "recordsActivityDays">, now: Date) {
   const start = activityStart(now, config.recordsActivityDays);
   const byDate = new Map(input.days.map((d) => [d.date, d]));
   const perDay: ActivityDay[] = [];
@@ -274,7 +263,6 @@ export function recordsView(input: RecordsInput, config: Pick<RecordsConfig, "re
   return {
     records: input.records,
     month: { since: monthStart(now), records: input.month },
-    climbers: { days: config.leaderboardChangeDays, players: [...input.climbers] },
     activity: {
       days: perDay.length,
       matches: perDay.reduce((n, d) => n + d.matches, 0),
@@ -293,21 +281,20 @@ export function recordMatchIds(body: RecordsBody): number[] {
   return [...new Set(matchRecordNames.flatMap((name) => [...body.records[name], ...body.month.records[name]].map((r) => r.matchId)))];
 }
 
-/** Every player the stored page names: record holders and climbers. */
+/** Every player the stored page names as a record holder. */
 export function recordPlayerIds(body: RecordsBody): number[] {
-  const lists: { player: RecordPlayer }[][] = [...Object.values(body.records), ...Object.values(body.month.records), body.climbers.players];
+  const lists: { player: RecordPlayer }[][] = [...Object.values(body.records), ...Object.values(body.month.records)];
   return [...new Set(lists.flat().map((r) => r.player.id))];
 }
 
-/** The page with `fix` applied to each record list (all time and this month); `climbers` to the climbers. */
-function eachList(body: RecordsBody, fix: (name: keyof Records, list: (MatchRecord | CareerRecord)[]) => (MatchRecord | CareerRecord)[], climbers = (c: Climber[]) => c): RecordsBody {
+/** The page with `fix` applied to each record list, all time and this month. */
+function eachList(body: RecordsBody, fix: (name: keyof Records, list: (MatchRecord | CareerRecord)[]) => (MatchRecord | CareerRecord)[]): RecordsBody {
   const fixAll = <T extends Partial<Records>>(records: T): T =>
     Object.fromEntries(Object.entries(records).map(([name, list]) => [name, fix(name as keyof Records, list as MatchRecord[])])) as T;
   return {
     ...body,
     records: fixAll(body.records),
     month: { ...body.month, records: fixAll(body.month.records) },
-    climbers: { ...body.climbers, players: climbers(body.climbers.players) },
   };
 }
 
@@ -321,7 +308,7 @@ export function withPlayers(body: RecordsBody, current: ReadonlyMap<number, Reco
       list.map((r) => ({ ...r, player: current.get(r.player.id) ?? r.player })),
       list.length,
     );
-  return eachList(body, (_, list) => now(list), now);
+  return eachList(body, (_, list) => now(list));
 }
 
 /** The stored page without the match records whose match isn't in `publicIds` any more. */

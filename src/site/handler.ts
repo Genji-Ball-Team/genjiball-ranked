@@ -425,7 +425,7 @@ async function stats(db: D1Database, region: Region, requested: number) {
 async function records(db: D1Database, config: SiteConfig, region: Region, now: Date) {
   const stored = await readRecords(db, region.id);
   if (stored) return { region: region.id, updatedAt: stored.refreshedAt, ...stored.body };
-  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, month: noMonthRecords, climbers: [], days: [], players: 0, topHosts: [] }, config, now) };
+  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, month: noMonthRecords, days: [], players: 0, topHosts: [] }, config, now) };
 }
 
 /**

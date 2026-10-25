@@ -336,24 +336,6 @@ describe("GET /api/records", () => {
     expect(body.month.records).not.toHaveProperty("winStreak");
   });
 
-  it("names the biggest climbers since leaderboardChangeDays ago, a player new since then left out", async () => {
-    await upload(richLog({ deflects: [[1, 1, 20]] }), 3);
-    await refresh();
-    const alpha = await playerId("Alpha");
-    const now = (await db().prepare("SELECT display FROM ratings WHERE board = 'eu' AND player_id = ?").bind(alpha).first<number>("display"))!;
-    await db()
-      .prepare(
-        `INSERT INTO rating_history (board, player_id, match_id, mu, sigma, display, played_at)
-         SELECT board, player_id, match_id, mu, sigma, display - 100, '2026-01-01T00:00:00Z' FROM rating_history WHERE board = 'eu' AND player_id = ?`,
-      )
-      .bind(alpha)
-      .run();
-    const { revision, version } = await revisions("eu");
-    await rebuildRecords(db(), { ...config, minRankedRounds: 1 }, "eu", revision + 1, version, new Date());
-    const body = await records();
-    expect(body.climbers).toEqual({ days: defaults.leaderboardChangeDays, players: [{ player: { id: alpha, name: "Alpha" }, rating: Math.round(now), change: 100 }] });
-  });
-
   it("treats a page stored before the top lists as not made yet", async () => {
     await upload(richLog({ deflects: [[1, 1, 20]] }), 3);
     await refresh();

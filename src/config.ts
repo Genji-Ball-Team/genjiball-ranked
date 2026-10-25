@@ -465,8 +465,6 @@ export const defaults = {
    * the `recordsTop`-th best current rating (a player's peak is at least their rating now), at most this.
    */
   recordsRatingScan: 250,
-  /** Biggest climbers on the records page (and the home page): rating gained over `leaderboardChangeDays`. */
-  recordsClimbers: 3,
 };
 
 export type Config = typeof defaults;

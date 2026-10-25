@@ -1,19 +1,17 @@
-// The leaderboard (index.html): the region's players by rating, in tier bands, a page at a time. Above
-// the first page, a strip: who climbed most this week, the latest match and the lobbies open now.
+// The leaderboard (index.html): the region's players by rating, in tier bands, a page at a time.
 import "@genji-ball-team/ui/button.js";
 import "@genji-ball-team/ui/chip.js";
 import "@genji-ball-team/ui/delta.js";
 import "@genji-ball-team/ui/empty.js";
 import "@genji-ball-team/ui/pager.js";
-import "@genji-ball-team/ui/panel.js";
 import type { GbPager } from "@genji-ball-team/ui/pager.js";
-import { api, inRegion, matchLink, openLobbies, playerLink } from "../lib/api";
-import { ago, count, date, mapName, matchFlags, num, rating, tierChip, tierName, title, winRate } from "../lib/format";
-import { byId, html, raw, render, type Html } from "../lib/html";
+import { api, inRegion, playerLink } from "../lib/api";
+import { ago, date, num, rating, tierChip, tierName, title, winRate } from "../lib/format";
+import { byId, html, raw, type Html } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { me } from "../lib/me";
 import { site } from "../lib/site";
-import type { Climbers, Leaderboard, PlayerPage, RecentMatches, TitleName, Titles } from "../lib/types";
+import type { Leaderboard, PlayerPage, TitleName, Titles } from "../lib/types";
 import { start } from "../shell";
 import { titleChip, titleFx, titleLooks } from "../titles";
 
@@ -67,52 +65,6 @@ function whoFilter(active: boolean): void {
   byId(active ? "who-active" : "who-all").setAttribute("aria-current", "true");
 }
 
-const panel = (label: string, body: Html): Html => html`<gb-panel label="${label}" level="2">${body}</gb-panel>`;
-
-function climbers(c: Climbers): Html | "" {
-  if (!c.players.length) return "";
-  return panel(
-    c.days === 7 ? "Climbing this week" : `Climbing, last ${c.days} days`,
-    html`<ol class="climbers">${c.players.map(
-      (p) => html`<li><a href="${playerLink(p.player.id)}">${p.player.name}</a><gb-delta value="${p.change}"></gb-delta><span class="num muted">${rating(p.rating)}</span></li>`,
-    )}</ol>`,
-  );
-}
-
-function latest(m: RecentMatches["matches"][number] | undefined): Html | "" {
-  if (!m) return "";
-  const winners = m.players.filter((p) => p.place === 1).map((p) => p.name);
-  return panel(
-    "Latest match",
-    html`<a class="latest" href="${matchLink(m.id)}"><b>${winners.join(" & ")}</b> won <span class="muted">${ago(m.playedAt)}</span>
-      <small>${mapName(m.map)} · ${count(m.players.length, "player")} ${matchFlags({ ...m, legacy: false })}</small></a>
-      <a class="more" href="/matches?${inRegion()}">All matches</a>`,
-  );
-}
-
-function live(open: number): Html {
-  return panel(
-    "Live now",
-    open
-      ? html`<a class="latest" href="/live?${inRegion()}"><b>${count(open, "lobby", "lobbies")} open</b><span class="live-dot" aria-hidden="true"></span></a>
-          <a class="more" href="/live?${inRegion()}">Join one</a>`
-      : html`<p class="latest muted">No lobby open</p><a class="more" href="/host">Host one</a>`,
-  );
-}
-
-/** The strip above the first page. A part that can't load is left out; with none, no strip. */
-async function strip(): Promise<void> {
-  const box = byId("strip");
-  const [c, recent, lobbies] = await Promise.all([
-    api<{ climbers: Climbers }>(`records?${inRegion()}`).then((r) => climbers(r.climbers), () => ""),
-    api<RecentMatches>(`recent?${inRegion()}&limit=1`).then((r) => latest(r.matches[0]), () => ""),
-    openLobbies().then((l) => live(l.lobbies.length), () => ""),
-  ]);
-  if (!c && !recent) return;
-  render(box, html`${c}${recent}${lobbies}`);
-  box.hidden = false;
-}
-
 /** "Jump to me": the remembered player's row, on the full board's page it's on. */
 async function jumpToMe(pageSize: number): Promise<void> {
   const id = me();
@@ -140,7 +92,6 @@ async function leaderboardPage(): Promise<void> {
   const filter = active ? "&active=1" : "";
   title(`${site.short(site.region)} leaderboard`);
   whoFilter(active);
-  if (page === 1) void strip();
   // No titles when the site can't say: the board shows without them.
   const titles = api<Titles>(`titles?${inRegion()}`).then(
     (t) => new Map(t.titles.map((p) => [p.id, p.title])),

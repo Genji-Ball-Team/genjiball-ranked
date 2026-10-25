@@ -1,4 +1,3 @@
-import { dayMs, isoSeconds } from "../time";
 import {
   distinctHolders,
   monthStart,
@@ -299,8 +298,8 @@ function toCareerRecords(json: string | null | undefined, top: number): CareerRe
 
 /**
  * Everything the records page shows, for one region: the records (all time and since the month
- * started), the climbers, the activity since `since` (a UTC date; bots aren't players) and the top
- * hosts. Four queries, in one batch. Only matches accepted in the region now count.
+ * started), the activity since `since` (a UTC date; bots aren't players) and the top hosts. Three
+ * queries, in one batch. Only matches accepted in the region now count.
  */
 export async function readRecordsInput(
   db: D1Database,
@@ -315,13 +314,9 @@ export async function readRecordsInput(
     | "recordsTop"
     | "recordsTopScan"
     | "recordsRatingScan"
-    | "recordsClimbers"
-    | "leaderboardChangeDays"
-    | "minRankedRounds"
   >,
 ): Promise<RecordsInput> {
-  const changeSince = isoSeconds(new Date(now.getTime() - config.leaderboardChangeDays * dayMs));
-  const [records, days, hosts, climbers] = await db.batch([
+  const [records, days, hosts] = await db.batch([
     db
       .prepare(
         `SELECT ${matchRecords("round_deflects", "round_deflects_round", false)} AS roundDeflects,
@@ -374,18 +369,6 @@ export async function readRecordsInput(
          JOIN hosts h ON h.id = c.host_id ORDER BY c.matches DESC, c.host_id`,
       )
       .bind(region, config.recordsTopHosts),
-    // Who gained most since `changeSince`, as the leaderboard counts it: a player new since then has no change.
-    db
-      .prepare(
-        `SELECT c.playerId, p.name, c.rating, c.rating - c.before AS change FROM (
-           SELECT r.player_id AS playerId, r.display AS rating,
-             (SELECT h.display FROM rating_history h WHERE h.board = r.board AND h.player_id = r.player_id AND h.played_at < ?2
-              ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS before
-           FROM ratings r WHERE r.board = ?1 AND r.last_played_at >= ?2 AND r.rounds >= ?3) c
-         JOIN players p ON p.id = c.playerId
-         WHERE p.alt = 0 AND c.rating - c.before >= 0.5 ORDER BY change DESC, c.playerId LIMIT ?4`,
-      )
-      .bind(region, changeSince, config.minRankedRounds, config.recordsClimbers),
   ]);
   const row = records!.results[0] as Record<string, string | null> & { players: number };
   const top = config.recordsTop;
@@ -407,11 +390,6 @@ export async function readRecordsInput(
       matchWins: toMatchRecords(row.monthMatchWins, false, top),
       highestRating: toMatchRecords(row.monthHighestRating, false, top),
     },
-    climbers: (climbers!.results as { playerId: number; name: string; rating: number; change: number }[]).map((c) => ({
-      player: { id: c.playerId, name: c.name },
-      rating: Math.round(c.rating),
-      change: Math.round(c.change),
-    })),
     days: days!.results as RecordsInput["days"],
     players: row.players,
     topHosts: hosts!.results as RecordsInput["topHosts"],
