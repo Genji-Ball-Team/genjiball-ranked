@@ -14,7 +14,7 @@ import { staleRegions } from "../rating/store";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { fetchTitles, pickTitles } from "./titles";
-import { gameTiers, nextTier, standing } from "./standing";
+import { gameTiers, nextTier, standing, tierOf } from "./standing";
 import {
   findHeadToHead,
   findMatchDetail,
@@ -364,7 +364,7 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
     player: { id: found.id, name: found.name },
     matches: rows.length,
     points: downsample(rows, config.ratingHistoryMaxPoints).map(point),
-    peak: peak && point(peak),
+    peak: peak && { ...point(peak), siteTier: tierOf(peak.rating, config.tiers) },
     streak: last?.streak ?? 0,
     bestStreak: last?.bestStreak ?? 0,
     form,

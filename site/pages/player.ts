@@ -223,7 +223,9 @@ function history(h: History, r: PlayerRating | null): void {
   byId("history").hidden = false;
   render(
     byId("history-facts"),
-    html`${h.peak && fact("Peak", html`${rating(h.peak.rating)}<small> on ${date(h.peak.playedAt)}</small>`)}${fact(
+    html`${h.peak && fact("Peak", html`${rating(h.peak.rating)}${
+      h.peak.siteTier && h.peak.siteTier.label !== r?.siteTier?.label && html` ${tierChip(h.peak.siteTier)}`
+    }<small> on ${date(h.peak.playedAt)}</small>`)}${fact(
       "Rated matches",
       num(h.matches),
     )}${h.points.length < h.matches && html`<span class="muted">${num(h.points.length)} of them shown</span>`}`,

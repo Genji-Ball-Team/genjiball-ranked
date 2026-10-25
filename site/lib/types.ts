@@ -141,7 +141,7 @@ export interface History {
   player: { id: number; name: string };
   matches: number;
   points: HistoryPoint[];
-  peak: HistoryPoint | null;
+  peak: (HistoryPoint & { siteTier: Tier | null }) | null;
   streak: number;
   bestStreak: number;
   form: {

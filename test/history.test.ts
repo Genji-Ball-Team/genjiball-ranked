@@ -2,6 +2,7 @@ import { createScheduledController, env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import { downsample, peakOf, recentForm, type HistoryPoint } from "../src/site/history";
+import { tierOf } from "../src/site/standing";
 import { listFormRounds, listHistory } from "../src/site/store";
 import { handleSite } from "../src/site/handler";
 import worker from "../src/index";
@@ -31,7 +32,7 @@ interface History {
   player: { id: number; name: string };
   matches: number;
   points: { matchId: number; playedAt: string; rating: number }[];
-  peak: { matchId: number; playedAt: string; rating: number } | null;
+  peak: { matchId: number; playedAt: string; rating: number; siteTier: { label: string } | null } | null;
   streak: number;
   bestStreak: number;
   form: { rounds: number; wins: number; averagePosition: number | null; results: { matchId: number; round: number; position: number; players: number }[] };
@@ -163,6 +164,7 @@ describe("GET /api/players/:id/history", () => {
     expect(body.matches).toBe(keys.length);
     expect(body.points).toHaveLength(5);
     expect(body.peak!.matchId).toBe(peakId);
+    expect(body.peak!.siteTier?.label).toBe(tierOf(2000, defaults.tiers)?.label);
     expect(body.points.map((p) => p.matchId)).toContain(peakId);
     expect(body.form.rounds).toBe(defaults.recentFormRounds);
   });
@@ -179,7 +181,7 @@ describe("GET /api/players/:id/history", () => {
       .all();
     expect(body.points).toEqual(stored.results);
     const top = Math.max(...body.points.map((p) => p.rating));
-    expect(body.peak).toEqual(body.points.find((p) => p.rating === top));
+    expect(body.peak).toEqual({ ...body.points.find((p) => p.rating === top), siteTier: tierOf(top, defaults.tiers) });
     // matchLog: Alpha wins round 1 and goes out first in round 2, in each match.
     expect(body).toMatchObject({ streak: 0, bestStreak: 1 });
     expect(body.form).toMatchObject({ rounds: 4, wins: 2, averagePosition: 2.5 });
