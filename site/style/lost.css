@@ -1,0 +1,93 @@
+/* The 404 page (pages/lost.ts, lost-game.ts): the ball as the 0, where to go instead, and a game to
+   play. The ball is the logo, so it is the one green thing in the hero; the rest is neutral. */
+.lost-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px 48px; align-items: center; }
+.lost-code {
+  display: flex; align-items: center; margin: 0; line-height: 0.8; user-select: none;
+  font-size: clamp(6rem, 16vw, 10.5rem); font-weight: 800; font-stretch: var(--display-width); letter-spacing: -0.03em;
+  color: var(--fg);
+}
+.lost-ball { position: relative; display: grid; place-items: center; inline-size: 0.74em; block-size: 0.74em; margin-inline: 0.04em; color: var(--green); }
+.lost-ball svg { inline-size: 100%; block-size: 100%; overflow: visible; }
+/* The deflect's ring round the ball: two broken arcs. */
+.lost-ball::before, .lost-ball::after {
+  content: ""; position: absolute; inset: -0.09em; border-radius: 50%; border: 0.03em solid currentColor; opacity: 0.4;
+  mask: conic-gradient(#000 0 28%, transparent 0 50%, #000 0 78%, transparent 0);
+}
+.lost-ball::after { inset: -0.2em; opacity: 0.18; border-width: 0.018em; }
+
+.lost-eyebrow {
+  margin: 0 0 10px; color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight);
+  font-stretch: var(--label-width); letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.lost h1 { font-size: clamp(2.25rem, 5vw, 3.25rem); font-stretch: var(--display-width); line-height: 1.05; }
+.lost code {
+  padding: 1px 6px; border-radius: var(--r-chip); background: var(--raised); color: var(--fg);
+  font: 500 0.9em ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere;
+}
+.lost-guess { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 6px; }
+.lost-guess li { padding: 8px 12px; border-radius: var(--r); background: var(--panel); color: var(--soft); }
+.lost-guess a { color: var(--fg); font-weight: 600; text-decoration-color: var(--green); text-underline-offset: 3px; }
+.lost-text .find { display: block; max-inline-size: 20rem; margin-block-start: 18px; }
+
+/* Where to go instead: a tile each, stepping up to `raised` when hovered. */
+.lost-ways { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-block-start: 48px; }
+.lost-ways a {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); color: var(--fg); text-decoration: none;
+}
+.lost-ways a::after { content: "→"; color: var(--muted); }
+.lost-ways a:hover { background: var(--raised); }
+.lost-ways a:hover::after { color: var(--green); }
+.lost-ways a:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.lost-ways b { font-size: var(--title-size); font-weight: var(--title-weight); font-stretch: var(--title-width); }
+
+.lost-game { margin-block-start: 48px; }
+.lost-game-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; margin-block-end: 12px; }
+.lost-game h2 { margin: 0; }
+.lost-score {
+  display: flex; gap: 20px; margin: 0; color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight);
+  font-stretch: var(--label-width); letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.lost-score b { margin-inline-start: 6px; color: var(--fg); font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); letter-spacing: 0; vertical-align: -0.1em; }
+/* A new best is earned, so it's gold. */
+.lost-score b[data-record] { color: var(--gold); }
+
+/* The arena: a flat panel, the canvas filling it and the card over it before and between games. */
+.arena { position: relative; block-size: clamp(18rem, 42vw, 26rem); overflow: hidden; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.arena canvas { position: absolute; inset: 0; inline-size: 100%; block-size: 100%; display: block; outline: none; }
+.arena:has(canvas:focus-visible) { border-color: var(--green); }
+/* While a game is on, the pointer is you, and a finger on the arena doesn't scroll the page. */
+.arena.playing canvas { cursor: none; touch-action: none; }
+.arena-overlay {
+  position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 6px;
+  padding: 24px; text-align: center; background: var(--scrim);
+}
+.arena-title { margin: 0; font-size: var(--heading-size); font-weight: var(--heading-weight); font-stretch: var(--heading-width); line-height: 1.15; text-wrap: balance; }
+.arena-sub { margin: 0; max-inline-size: 26rem; color: var(--soft); text-wrap: pretty; }
+.arena-sub[data-record] { color: var(--gold); font-weight: 650; }
+.arena-overlay gb-button { margin-block-start: 12px; }
+
+@media (max-width: 760px) {
+  .lost-hero { grid-template-columns: minmax(0, 1fr); }
+  .lost-code { font-size: clamp(5.5rem, 30vw, 8rem); }
+  .lost-ways { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .arena { block-size: clamp(20rem, 110vw, 28rem); }
+}
+
+/* Entrances and the slow spin only where motion is welcome. */
+@media (prefers-reduced-motion: no-preference) {
+  /* The 0 spins slowly, as if just deflected, and its rings sweep round it. */
+  .lost-ball svg { animation: lost-spin 9s linear infinite; }
+  .lost-ball::before { animation: lost-spin 2.4s linear infinite; }
+  .lost-ball::after { animation: lost-spin 5s linear infinite reverse; }
+  .lost-code > span:not(.lost-ball) { animation: lost-in 0.7s var(--slash-ease) backwards; }
+  .lost-code > span:last-child { animation-delay: 0.08s; }
+  .lost-ball { animation: lost-drop 0.9s cubic-bezier(0.3, 1.5, 0.5, 1) backwards; }
+  .lost-text > * { animation: lost-in 0.5s var(--slash-ease) backwards; }
+  .lost-text > :nth-child(2) { animation-delay: 0.05s; }
+  .lost-text > :nth-child(3) { animation-delay: 0.1s; }
+  .lost-text > :nth-child(4) { animation-delay: 0.15s; }
+  @keyframes lost-spin { to { rotate: 1turn; } }
+  @keyframes lost-in { from { opacity: 0; translate: 0 0.15em; } }
+  @keyframes lost-drop { from { opacity: 0; scale: 0.2; } }
+}

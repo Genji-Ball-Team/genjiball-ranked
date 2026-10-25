@@ -3,10 +3,12 @@
    file only places things. A region is shown by its name (the switch, a grey chip), never a colour. */
 @import "@genji-ball-team/ui/base.css";
 @import "./share.css";
+@import "./tourneys.css";
 @import "./records.css";
 @import "./live.css";
 @import "./compare.css";
 @import "./match.css";
+@import "./lost.css";
 
 html {
   /* The scrollbar's room is kept on every page, so the layout doesn't shift sideways between a page
