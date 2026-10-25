@@ -8,8 +8,16 @@ export class NotFound extends Error {
   }
 }
 
+/** The head script's answer for `path`, taken once; a failed one is asked again. */
+async function early(path: string): Promise<Response | undefined> {
+  const asked = window.gbEarly.get(path);
+  if (!asked) return undefined;
+  window.gbEarly.delete(path);
+  return asked.catch(() => undefined);
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api/${path}`, init);
+  const res = (!init && (await early(path))) || (await fetch(`/api/${path}`, init));
   if (res.status === 404) throw new NotFound();
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return (await res.json()) as T;

@@ -39,7 +39,7 @@ function page(server) {
     URLSearchParams,
     Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: "Europe/Amsterdam" }) }) },
     localStorage: { getItem: () => null, setItem() {} },
-    location: { search: "?region=eu", href: "https://example.com/match?region=eu", replace() {} },
+    location: { pathname: "/match", search: "?region=eu", href: "https://example.com/match?region=eu", replace() {} },
     document,
     fetch: async () => ({ ok: true, json: async () => ({ regions, ...server }) }),
   };

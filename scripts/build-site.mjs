@@ -58,7 +58,8 @@ const pagePath = (name) => (name === "leaderboard" ? "/" : name === "lost" ? nul
 function writeHeaders(metafile) {
   let text = readFileSync("site/_headers", "utf8");
   for (const [file, output] of Object.entries(metafile?.outputs ?? {})) {
-    const path = output.entryPoint && pagePath(file.split("/").pop().replace(/\.js$/, ""));
+    // A page's module only: a module loaded by import() (share-sheet.ts) is an entry point too.
+    const path = output.entryPoint?.startsWith("site/pages/") && pagePath(file.split("/").pop().replace(/\.js$/, ""));
     if (!path) continue;
     const modules = [file, ...output.imports.filter((i) => i.kind === "import-statement").map((i) => i.path)];
     const links = modules.map((m) => `</${m.replace(/^public\//, "")}>; rel=modulepreload`).join(", ");

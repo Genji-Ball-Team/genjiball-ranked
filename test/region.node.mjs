@@ -21,7 +21,7 @@ function load({ query = "", stored = {}, timeZone = "Europe/Amsterdam" } = {}) {
     URL, URLSearchParams,
     Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone }) }) },
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    location: { search: query, href: `https://example.com/${query}`, replace: (url) => redirects.push(url) },
+    location: { pathname: "/", search: query, href: `https://example.com/${query}`, replace: (url) => redirects.push(url) },
     document: { documentElement: { dataset }, addEventListener() {}, querySelector: () => null },
     fetch: () => response,
   });
