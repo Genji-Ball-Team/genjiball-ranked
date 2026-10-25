@@ -2,30 +2,32 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="theme-color" content="#090b10">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="robots" content="noindex">
   <title>Admin – Genji Ball Ranked</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="preload" href="/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/region.js"></script>
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/build/site.css">
+  <script src="/build/head.js"></script>
+  <script type="module" src="/build/admin.js"></script>
 </head>
 <body class="admin">
-  <header class="top">
-    <a class="mark" href="/"><img src="/favicon.svg" alt="" width="26" height="26">Genji Ball Ranked</a>
-    <nav><a href="/">Leaderboard</a><a href="/tourneys">Tourneys</a><a href="/admin" aria-current="page">Admin</a></nav>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/tourneys">Tourneys</a><a href="/admin" aria-current="page">Admin</a></gb-nav>
+    </div>
   </header>
 
   <main id="signin" class="signin" hidden>
     <form id="signin-form" class="signin-box">
       <h1>Admin</h1>
       <p class="muted">Sign in with your admin token. It's kept in this tab only and forgotten when you close it.</p>
-      <label class="field"><span>Admin token</span>
-        <input id="token" type="password" autocomplete="off" spellcheck="false" required autofocus>
-      </label>
+      <gb-field label="Admin token"><input id="token" type="password" autocomplete="off" spellcheck="false" required autofocus></gb-field>
       <p id="signin-error" class="dialog-error" role="alert" hidden></p>
-      <button class="primary wide">Sign in</button>
+      <gb-button id="signin-button" variant="primary">Sign in</gb-button>
     </form>
   </main>
 
@@ -42,14 +44,12 @@
       </nav>
       <div class="side-foot">
         <span class="muted">Signed in as</span> <strong id="admin-name"></strong>
-        <button type="button" id="signout" class="link">Sign out</button>
+        <gb-button id="signout" variant="ghost" class="small">Sign out</gb-button>
       </div>
     </aside>
     <main id="view" aria-live="polite"></main>
   </div>
 
-  <div id="toasts" class="toasts"></div>
-  <script src="/banner.js"></script>
-  <script src="/admin.js"></script>
+  <gb-toast-region></gb-toast-region>
 </body>
 </html>
