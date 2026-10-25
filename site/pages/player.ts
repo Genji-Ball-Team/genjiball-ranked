@@ -5,6 +5,7 @@ import "@genji-ball-team/ui/chip.js";
 import "@genji-ball-team/ui/delta.js";
 import "@genji-ball-team/ui/empty.js";
 import "@genji-ball-team/ui/rating-chart.js";
+import type { GbButton } from "@genji-ball-team/ui/button.js";
 import type { GbRatingChart, TierLine } from "@genji-ball-team/ui/rating-chart.js";
 import { api, idParam, inRegion, matchLink, NotFound, playerLink } from "../lib/api";
 import { count, date, killDeath, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
@@ -12,7 +13,7 @@ import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { me, setMe } from "../lib/me";
 import { site } from "../lib/site";
-import type { History, PlayerMatch, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
+import type { History, PlayerMatch, PlayerMatches, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
 import { attach, type PlayerCard } from "../share";
 import { start } from "../shell";
 import { titleChip, titleFx, titleLooks, titleSeals } from "../titles";
@@ -155,7 +156,29 @@ function matchRow(m: PlayerMatch, mixed: boolean): Html {
   return html`<li><a href="${matchLink(m.id)}">
     <span class="when">${day}<small>${time}</small></span>
     <span class="map">${mapName(m.map)} ${matchFlags({ ...m, legacy: m.legacy && mixed })}</span>
+    <span class="place">${m.place !== null && html`<b${m.place === 1 && raw(' class="won"')}>${ordinal(m.place)}</b>`}<small class="num">${count(m.roundWins, "round")} won</small></span>
     <span class="change num">${change(m)}</span></a></li>`;
+}
+
+/** "Show more": the next older matches under the list, until there are none. */
+function showMore(id: number, shown: PlayerMatch[]): void {
+  const button = byId<GbButton>("more-matches");
+  const list = byId("matches");
+  button.hidden = false;
+  button.addEventListener("click", async () => {
+    button.busy = true;
+    try {
+      const more = await api<PlayerMatches>(`players/${id}/matches?${inRegion()}&before=${shown.at(-1)!.id}`);
+      shown.push(...more.matches);
+      list.insertAdjacentHTML("beforeend", html`${more.matches.map((m) => matchRow(m, shown.some((o) => o.legacy !== m.legacy)))}`.value);
+      button.hidden = !more.hasMore;
+      button.textContent = "Show more";
+    } catch {
+      button.textContent = "Couldn't load more: try again";
+    } finally {
+      button.busy = false;
+    }
+  });
 }
 
 // Recent form: the last rated rounds, oldest first so they read like the chart, each its place.
@@ -209,7 +232,7 @@ async function playerPage(): Promise<void> {
     () => [],
   );
   try {
-    const { player: p, matches, mostEliminated, mostEliminatedBy, eliminations } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
+    const { player: p, matches, moreMatches, mostEliminated, mostEliminatedBy, eliminations } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
     const r = p.rating;
     title(`${p.name} (${site.short(site.region)})`);
     byId("name").textContent = p.name;
@@ -231,6 +254,7 @@ async function playerPage(): Promise<void> {
         ? html`${matches.map((m) => matchRow(m, matches.some((o) => o.legacy !== m.legacy)))}`
         : html`<li><gb-empty>No matches in ${site.label(site.region)} yet.</gb-empty></li>`,
     );
+    if (moreMatches) showMore(p.id, matches);
     const crown = (await titles).find((t) => t.id === p.id)?.title;
     if (crown) titleHero(crown);
     const headline = byId("headline");

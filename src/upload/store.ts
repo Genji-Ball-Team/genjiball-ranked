@@ -317,8 +317,9 @@ export async function writeUpload(
     ...jsonChunks(w.rows.players, w.chunkBytes).map((rows) =>
       db
         .prepare(
-          `INSERT INTO match_players (match_id, log_id, player_id, alias_id, name, join_time, leave_time, kills)
-           SELECT m.id, e.value ->> 'logId', a.player_id, a.id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime', e.value ->> 'kills'
+          `INSERT INTO match_players (match_id, log_id, player_id, alias_id, name, join_time, leave_time, kills, round_wins)
+           SELECT m.id, e.value ->> 'logId', a.player_id, a.id, e.value ->> 'name', e.value ->> 'joinTime', e.value ->> 'leaveTime', e.value ->> 'kills',
+             e.value ->> 'roundWins'
            FROM json_each(?1) e ${matchJoin}
            CROSS JOIN aliases a ON a.name_key = e.value ->> 'key'`,
         )

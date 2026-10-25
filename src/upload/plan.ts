@@ -366,6 +366,7 @@ export function matchRows(plans: readonly MatchPlan[], playedAt: string) {
         name: player.name,
         joinTime: player.joinTime,
         kills: stats.kills.get(player.id) ?? 0,
+        roundWins: stats.roundWins.get(player.id) ?? 0,
         leaveTime: player.leaveTime,
       });
     }
@@ -439,7 +440,8 @@ const roundKey = (round: number, logId: number) => `${round}:${logId}`;
  * or `KILL` comes first): it counts in the round of the `ELIM` with the same victim and time. Only
  * in new logs: a legacy log's `ELIM`s are rebuilt from its `KILL`s, whose rounds the legacy parser
  * already set (and cleared for a round the file ends in). The rating reads only the `ELIM`s, so
- * nothing else changes.
+ * nothing else changes. `roundWins`: the `WIN` rounds each player won, a round number counted once
+ * as `rounds` keeps it, as the match page counts them.
  */
 export function matchStats(match: ParsedMatch) {
   const elimRound = new Map<string, number>();
@@ -455,7 +457,14 @@ export function matchStats(match: ParsedMatch) {
     if (round !== undefined) add(roundKills, roundKey(round, k.attackerId));
   }
   for (const d of match.deflects) add(roundDeflects, roundKey(d.round, d.id));
-  return { kills, roundKills, roundDeflects };
+  const roundWins = new Map<number, number>();
+  const counted = new Set<number>();
+  for (const round of match.rounds) {
+    if (counted.has(round.number)) continue;
+    counted.add(round.number);
+    if (round.result === "WIN" && round.winnerId !== null) add(roundWins, round.winnerId);
+  }
+  return { kills, roundKills, roundDeflects, roundWins };
 }
 
 interface EventRow {

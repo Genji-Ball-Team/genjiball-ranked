@@ -89,6 +89,16 @@ export interface PlayerMatch {
   tournament: boolean;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  /** Their place in the match, as on the match page. */
+  place: number | null;
+  roundWins: number;
+}
+
+/** `GET /api/players/{id}/matches`: older matches. */
+export interface PlayerMatches {
+  region: string;
+  matches: PlayerMatch[];
+  hasMore: boolean;
 }
 
 /** Who a player eliminates most, or is eliminated by most. */
@@ -111,6 +121,7 @@ export interface PlayerPage {
     rating: PlayerRating | null;
   };
   matches: PlayerMatch[];
+  moreMatches: boolean;
   mostEliminated: Rival[];
   mostEliminatedBy: Rival[];
   /** Kills of theirs on other players and deaths by another player's kill, in the region's accepted matches. */

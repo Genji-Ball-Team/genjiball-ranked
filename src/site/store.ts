@@ -274,7 +274,13 @@ export interface PlayerMatchRow {
  * order, which the page shows by its date anyway. Group and sort on `mp.match_id`, not `m.id`:
  * then SQLite walks the index and stops at the limit instead of grouping the whole history.
  */
-export async function listPlayerMatches(db: D1Database, board: string, playerId: number, limit: number): Promise<PlayerMatchRow[]> {
+export async function listPlayerMatches(
+  db: D1Database,
+  board: string,
+  playerId: number,
+  limit: number,
+  before: number | null = null,
+): Promise<PlayerMatchRow[]> {
   const { results } = await db
     .prepare(
       `SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void, m.tournament, ${tourneyRef},
@@ -284,10 +290,10 @@ export async function listPlayerMatches(db: D1Database, board: string, playerId:
           WHERE h.board = ?1 AND h.player_id = ?2 AND (h.played_at, h.match_id) < (m.played_at, m.id)
           ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
        FROM match_players mp JOIN matches m ON m.id = mp.match_id
-       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
+       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1 AND (?4 IS NULL OR mp.match_id < ?4)
        GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?3`,
     )
-    .bind(board, playerId, limit)
+    .bind(board, playerId, limit, before)
     .all<Omit<PlayerMatchRow, "legacy" | "void" | "tournament" | "tourney"> & { legacy: number; void: number; tournament: number; tourney: string | null }>();
   return results.map((m) => ({
     ...m,
@@ -297,6 +303,27 @@ export async function listPlayerMatches(db: D1Database, board: string, playerId:
     tourney: parseTourney(m.tourney),
     ratingBefore: m.ratingAfter === null ? null : m.ratingBefore,
   }));
+}
+
+/** A player's rounds won and kills in one match, their log ids added up. */
+export interface MatchTotalRow {
+  matchId: number;
+  playerId: number;
+  roundWins: number;
+  kills: number;
+}
+
+/** Every player's totals in these matches, from `match_players` alone: their places follow from it. */
+export async function listMatchTotals(db: D1Database, matchIds: number[]): Promise<MatchTotalRow[]> {
+  if (!matchIds.length) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT match_id AS matchId, player_id AS playerId, SUM(round_wins) AS roundWins, SUM(kills) AS kills
+       FROM match_players WHERE match_id IN (SELECT value FROM json_each(?1)) GROUP BY match_id, player_id`,
+    )
+    .bind(JSON.stringify(matchIds))
+    .all<MatchTotalRow>();
+  return results;
 }
 
 export interface MatchRow {

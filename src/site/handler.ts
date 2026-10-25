@@ -27,6 +27,7 @@ import {
   listFormRounds,
   listHistory,
   listLeaderboard,
+  listMatchTotals,
   listPlayerMatches,
   listRanked,
   listRatedRegions,
@@ -140,6 +141,13 @@ export async function handleSite(
     tourneys: async () => Response.json(await tourneys(db, config, region, url.searchParams.get("page"))),
     "screenshots/:id": () => screenshot(db, proofs, path[1]!, config),
     "players/:id": async () => found(id === null ? null : await player(db, config, region, id, now), "No such player"),
+    "players/:id/matches": async () => {
+      const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
+      if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a match id");
+      const found = id === null ? null : await findCanonicalPlayer(db, id);
+      if (!found) return fail(404, "not_found", "No such player");
+      return Response.json({ region: region.id, ...(await playerMatches(db, config, region, found.id, before)) });
+    },
     "players/:id/history": async () => found(id === null ? null : await history(db, config, region, id), "No such player"),
     "players/:id/stats": async () => found(id === null ? null : await stats(db, region, id), "No such player"),
     "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match"),
@@ -272,9 +280,9 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
 async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
   const found = await findCanonicalPlayer(db, id);
   if (!found) return null;
-  const [rating, matches, rated, rivals] = await Promise.all([
+  const [rating, recent, rated, rivals] = await Promise.all([
     findRating(db, region.id, found.id),
-    listPlayerMatches(db, region.id, found.id, config.playerRecentMatches),
+    playerMatches(db, config, region, found.id, null),
     listRatedRegions(db, found.id, regionIds(config.regions)),
     listRivals(db, region.id, found.id, config.playerRivalsLimit),
   ]);
@@ -294,9 +302,29 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
         nextTier: nextTier(rating.display, config.tiers),
       },
     },
-    matches,
+    matches: recent.matches,
+    moreMatches: recent.hasMore,
     ...rivals,
   };
+}
+
+/**
+ * A page of a player's matches in the region, newest first, older than match `before` when given:
+ * each with their place in it (as on the match page: most rounds won, ties broken by kills, the
+ * same wins and kills sharing a place) and their rounds won, read from the matches' `match_players`.
+ */
+async function playerMatches(db: D1Database, config: SiteConfig, region: Region, playerId: number, before: number | null) {
+  const size = config.playerRecentMatches;
+  const rows = await listPlayerMatches(db, region.id, playerId, size + 1, before);
+  const page = rows.slice(0, size);
+  const totals = await listMatchTotals(db, page.map((m) => m.id));
+  const matches = page.map((m) => {
+    const inMatch = totals.filter((t) => t.matchId === m.id);
+    const mine = inMatch.find((t) => t.playerId === playerId);
+    const place = mine && 1 + inMatch.filter((o) => o.roundWins > mine.roundWins || (o.roundWins === mine.roundWins && o.kills > mine.kills)).length;
+    return { ...m, place: place ?? null, roundWins: mine?.roundWins ?? 0 };
+  });
+  return { matches, hasMore: rows.length > size };
 }
 
 /**

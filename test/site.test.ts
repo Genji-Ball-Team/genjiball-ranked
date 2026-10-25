@@ -206,6 +206,31 @@ describe("player", () => {
     expect(matches[0]!.ratingAfter).toBe(player.rating.rating);
   });
 
+  it("has their place and rounds won in each match, as the match page has them", async () => {
+    await playMatches(1);
+    const alpha = await playerId("Alpha");
+    const { matches } = await get<{ matches: { id: number; place: number | null; roundWins: number }[] }>(`players/${alpha}`);
+    const { match } = await get<{ match: { players: { id: number; place: number; roundWins: number }[] } }>(`matches/${matches[0]!.id}`);
+    const there = match.players.find((p) => p.id === alpha)!;
+    expect(matches[0]).toMatchObject({ place: there.place, roundWins: 1 });
+    expect(there.roundWins).toBe(1);
+  });
+
+  it("pages through older matches with before", async () => {
+    await playMatches(3);
+    const alpha = await playerId("Alpha");
+    type Page = { matches: { id: number }[]; moreMatches?: boolean; hasMore?: boolean };
+    const config = { ...defaults, playerRecentMatches: 2 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Page;
+    const first = await read(`players/${alpha}`);
+    expect(first.matches).toHaveLength(2);
+    expect(first.moreMatches).toBe(true);
+    const rest = await read(`players/${alpha}/matches?before=${first.matches[1]!.id}`);
+    expect(rest).toMatchObject({ hasMore: false });
+    expect(rest.matches.map((m) => m.id)).toEqual([await matchId("000000000001")]);
+    expect((await handleSite(new Request(`https://example.com/api/players/${alpha}/matches?before=x`), db(), config))!.status).toBe(400);
+  });
+
   it("marks an alt account, rated but with no rank", async () => {
     await playMatches(matchesToRank);
     const alpha = await playerId("Alpha");
