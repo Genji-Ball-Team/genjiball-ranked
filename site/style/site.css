@@ -325,8 +325,8 @@ gb-chip.void { color: var(--down); }
   display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
   padding-block: 20px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem;
 }
-.foot-links { display: flex; gap: 16px; }
-.foot-links a { color: var(--muted); text-decoration: none; }
+.foot-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.foot-links a { color: var(--muted); text-decoration: none; white-space: nowrap; }
 .foot-links a:hover { color: var(--fg); }
 
 /* Phone chrome (shell.ts): bottom tab bar, search sheet and back button, only at phone widths. */
