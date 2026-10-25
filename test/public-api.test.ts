@@ -186,15 +186,16 @@ describe("public API: edge cache", () => {
     expect(first.queries).toBeGreaterThan(0);
     const etag = first.res.headers.get("ETag")!;
     const body = await first.res.json();
-    // The time it was made, so a browser counts the time it was kept here.
-    const made = first.res.headers.get("Date");
-    expect(made).toBeTruthy();
 
     const second = await read(url, origin);
     expect(second.queries).toBe(0);
     expect(second.res.status).toBe(200);
     expect(second.res.headers.get("ETag")).toBe(etag);
-    expect(second.res.headers.get("Date")).toBe(made);
+    // What's left of the copy's lifetime, whatever the zone does to a cached Cache-Control.
+    const left = Number(/max-age=(\d+)/.exec(second.res.headers.get("Cache-Control") ?? "")?.[1]);
+    expect(left).toBeGreaterThan(defaults.publicCacheSeconds - 5);
+    expect(left).toBeLessThanOrEqual(defaults.publicCacheSeconds);
+    expect([...second.res.headers.keys()].filter((name) => name.startsWith("gb-"))).toEqual([]);
     expect(second.res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(await second.res.json()).toEqual(body);
 
