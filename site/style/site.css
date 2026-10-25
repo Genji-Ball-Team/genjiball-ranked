@@ -315,6 +315,8 @@ gb-chip.void { color: var(--down); }
 .foot-links a:hover { color: var(--fg); }
 
 /* Phone chrome (shell.ts): bottom tab bar, search sheet and back button, only at phone widths. */
+/* A lobby is open: a plain foreground dot after Live, as on the Live page (never green or a region colour). */
+.live-dot { display: inline-block; width: 6px; height: 6px; margin-inline-start: 6px; border-radius: 50%; background: var(--fg); vertical-align: 0.15em; }
 .tabbar, .back, .sheet { display: none; }
 
 @media (max-width: 640px) {
@@ -335,6 +337,8 @@ gb-chip.void { color: var(--down); }
     letter-spacing: 0.06em; text-transform: uppercase;
   }
   .tabbar gb-icon { inline-size: 22px; block-size: 22px; }
+  .tabbar a.open-now { position: relative; }
+  .tabbar .live-dot { position: absolute; inset-block-start: 6px; inset-inline-start: calc(50% + 14px); margin: 0; }
   .tabbar a[aria-current] { background: var(--raised); color: var(--fg); }
   .tabbar a[aria-current] gb-icon { color: var(--green); }
   /* The search sheet: the whole screen, the field at the top. */

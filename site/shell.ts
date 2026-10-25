@@ -129,6 +129,21 @@ function tabBar(page: string): void {
   if (new URLSearchParams(location.search).has("find") && matchMedia("(max-width: 640px)").matches) openSheet();
 }
 
+// A dot on Live, in the header and the tab bar, while a lobby is open in the region. The Live page
+// itself lists them, so it doesn't ask.
+function liveDot(page: string): void {
+  if (page === "live") return;
+  api<{ lobbies: unknown[] }>(`lobbies?${inRegion()}`)
+    .then(({ lobbies }) => {
+      if (!lobbies.length) return;
+      for (const link of document.querySelectorAll<HTMLAnchorElement>('gb-nav a[href="/live"], .tabbar a[href="/live"]')) {
+        link.classList.add("open-now");
+        link.insertAdjacentHTML("beforeend", html`<span class="live-dot" aria-hidden="true"></span><span class="sr">, ${lobbies.length} open now</span>`.value);
+      }
+    })
+    .catch(() => {});
+}
+
 // Back, on a phone, on the inner pages reached from this site.
 function backButton(): void {
   const head = document.querySelector(".headline");
@@ -206,6 +221,7 @@ export function start(page: string, fill: () => Promise<void> | void): void {
   showBanners(site);
   for (const search of document.querySelectorAll<GbSearch>("gb-search[data-players]")) findPlayers(search);
   tabBar(page);
+  liveDot(page);
   backButton();
   prefetch();
   const restoreScroll = keepScroll();
