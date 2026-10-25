@@ -6,6 +6,7 @@
 //   from the first frame.
 // - build/<page>.js: one module per page (site/pages/), sharing chunks for what they have in common.
 // - build/site.css: @genji-ball-team/ui's base.css and the site's own styles, with Saira's files.
+//   build/admin.css and build/lost.css: the styles only the admin and the 404 page use, after it.
 import { context, build } from "esbuild";
 import { readdirSync, rmSync } from "node:fs";
 import { argv, stdout } from "node:process";
@@ -39,7 +40,7 @@ const builds = [
   },
   {
     ...shared,
-    entryPoints: { site: "site/style/site.css" },
+    entryPoints: { site: "site/style/site.css", admin: "site/style/admin.css", lost: "site/style/lost.css" },
     outdir,
     loader: { ".woff2": "file" },
     // No hash, so the pages can preload Saira by name.

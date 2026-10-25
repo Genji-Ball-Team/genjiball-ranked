@@ -1,7 +1,8 @@
 /* Admin (/admin): a side nav and one view at a time. Green is for what you can press, --down for
    danger, regions are text or a grey chip. Buttons, fields, dialogs, tables and chips come from the
    UI library; this only lays them out. */
-/* Scoped to the admin page: these class names are common, and every page shares one stylesheet. */
+/* Its own stylesheet (build/admin.css, after site.css), and still scoped to the admin page: these
+   class names are common. */
 body.admin {
   & .top, & main { max-width: 76rem; }
   .shell { display: grid; grid-template-columns: 13rem minmax(0, 1fr); gap: 32px; inline-size: 100%; max-inline-size: 76rem; margin-inline: auto; padding-inline: 20px; flex: 1; }

@@ -8,9 +8,7 @@
 @import "./live.css";
 @import "./compare.css";
 @import "./match.css";
-@import "./lost.css";
 @import "./ranked.css";
-@import "./admin.css";
 
 html {
   /* The scrollbar's room is kept on every page, so the layout doesn't shift sideways between a page

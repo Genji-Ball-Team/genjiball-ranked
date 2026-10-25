@@ -1,5 +1,6 @@
 /* The 404 page (pages/lost.ts, lost-game.ts): the ball as the 0, where to go instead, and a game to
-   play. The ball is the logo, so it is the one green thing in the hero; the rest is neutral. */
+   play. The ball is the logo, so it is the one green thing in the hero; the rest is neutral. Its own
+   stylesheet (build/lost.css, after site.css): no other page needs it. */
 .lost-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px 48px; align-items: center; }
 .lost-code {
   display: flex; align-items: center; margin: 0; line-height: 0.8; user-select: none;
