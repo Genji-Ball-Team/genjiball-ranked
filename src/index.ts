@@ -146,7 +146,7 @@ async function previewPage(request: Request, env: Env, config: Config, log: Logg
   return withPreview(page, preview, url);
 }
 
-/** The site's own 404 page (public/404.html), still with a 404 status, for a page that isn't there. */
+/** The site's own 404 page (site/html/404.html, built into public/), still with a 404 status, for a page that isn't there. */
 async function notFoundPage(request: Request, env: Env): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL("/404", request.url), { method: request.method }));
   if (!page.ok) return new Response(null, { status: 404 });

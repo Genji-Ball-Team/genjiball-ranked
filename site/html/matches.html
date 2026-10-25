@@ -4,30 +4,30 @@
   <meta charset="utf-8">
   <meta name="theme-color" content="#0f1314">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Live lobbies – Genji Ball Ranked</title>
-  <meta name="description" content="The ranked Genji Ball lobbies open right now.">
+  <title>Matches – Genji Ball Ranked</title>
+  <meta name="description" content="The latest ranked Genji Ball matches: who won, who climbed.">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/build/site.css">
   <script src="/build/head.js"></script>
-  <script type="module" src="/build/live.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/matches.js"></script>
 </head>
 <body>
   <header class="bar">
     <div class="top">
       <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
       <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
-      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live" aria-current="page">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches" aria-current="page">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
     </div>
   </header>
   <main>
     <div class="headline">
-      <h1>Live lobbies</h1>
+      <h1>Matches</h1>
     </div>
-    <ol id="lobbies" class="lobbies" aria-busy="true" aria-live="polite" aria-label="Open lobbies" data-loading>
-      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
+    <ol id="matches" class="history feed" aria-busy="true" aria-label="Matches" data-loading>
+      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
     </ol>
-    <p id="checked" class="note"></p>
+    <gb-button id="more-matches" class="more" variant="secondary" hidden>Show more</gb-button>
   </main>
   <footer class="foot">
     <span>Genji Ball · an Overwatch Workshop game mode</span>

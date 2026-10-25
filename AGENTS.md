@@ -13,7 +13,7 @@ The ranked server: one Cloudflare Worker (TypeScript) that serves the API and th
 
 Tests run inside the Workers runtime (`@cloudflare/vitest-pool-workers`) with every migration applied, so a test can use `env.DB` directly. The `compatibility_date` in `wrangler.toml` can't be newer than the runtime in the installed wrangler supports, or the tests fail to start.
 
-The website is TypeScript in `site/`, built into `public/build/` (`scripts/build-site.mjs`). The region head script and the banners also have Node tests (`test/*.node.mjs`), bundled with esbuild and run with browser globals stubbed. `npm run test` runs both suites.
+The website is TypeScript and HTML in `site/`, built into `public/` (`scripts/build-site.mjs`): the pages are `site/html/`, and their scripts and styles get hashed names. The region head script and the banners also have Node tests (`test/*.node.mjs`), bundled with esbuild and run with browser globals stubbed. `npm run test` runs both suites.
 
 ## Config: no magic numbers
 

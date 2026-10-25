@@ -41,7 +41,7 @@ Rating recomputation processes 100 matches per run by default, intended for the 
 | `npm run ratings:dry-run -- --region <id> [--remote]` | Show what recomputing a region's ratings would change, writing nothing ([api.md](docs/api.md), "Debug tools") |
 | `npm run rebuild:head-to-head -- <first match id> <last match id>` | Write the SQL that re-derives head-to-head pairs, and print the command to run it ([database.md](docs/database.md)) |
 
-The pages: the leaderboard at `/`, `/player?id=`, `/compare?ids=`, `/match?id=`, `/live` (open lobbies), `/records`, `/tourneys` and `/tourney?id=`. Other paths get the 404 page (`public/404.html`). The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
+The pages: the leaderboard at `/`, `/player?id=`, `/compare?ids=`, `/match?id=`, `/live` (open lobbies), `/records`, `/tourneys` and `/tourney?id=`. Other paths get the 404 page (`site/html/404.html`). The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
 
 Links to a player, match or compare page get a title and description of their own in Discord, X and the like: for a link preview crawler (`linkPreviewAgents` in `src/config.ts`) the Worker fills them into the page's meta tags (`src/site/preview.ts`, `run_worker_first` in `wrangler.toml`). The Share button on those pages draws a card of the page in the browser (`site/share.ts`), so it costs the server nothing.
 

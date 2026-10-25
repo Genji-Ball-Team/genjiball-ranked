@@ -10,6 +10,7 @@ import type { GbCompareChart } from "@genji-ball-team/ui/compare-chart.js";
 import type { TierLine } from "@genji-ball-team/ui/rating-chart.js";
 import type { GbSearch, SearchItem, SearchQuery } from "@genji-ball-team/ui/search.js";
 import { api, inRegion, NotFound, playerLink } from "../lib/api";
+import { compareMax, comparedIds } from "../lib/early";
 import { count, killDeath, plural, rating, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, Html, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
@@ -19,9 +20,6 @@ import { attach, type CompareCard } from "../share";
 import { start } from "../shell";
 
 const siteName = "Genji Ball Ranked";
-
-/** At most this many players: the chart tells three lines apart by stroke, and a fourth would be one too many. */
-const compareMax = 3;
 
 /** `GET /api/players/{id}/stats`: a player's rated rounds in the region, totalled. */
 interface Stats {
@@ -252,10 +250,7 @@ function ratingChart(players: Compared[]): void {
 }
 
 async function comparePage(): Promise<void> {
-  const params = new URLSearchParams(location.search);
-  let ids = [...new Set((params.get("ids") ?? "").split(",").filter((s) => /^[1-9]\d{0,15}$/.test(s)))]
-    .slice(0, compareMax)
-    .map(Number);
+  let ids = comparedIds(location.search);
   const table = byId("table");
   const search = byId<GbSearch>("add");
   const headline = byId("headline");

@@ -557,7 +557,7 @@ describe("site: tourneys", () => {
   });
 
   it("serves the Tourneys pages", async () => {
-    expect(await (await SELF.fetch("https://example.com/tourneys")).text()).toContain('src="/build/tourneys.js"');
-    expect(await (await SELF.fetch("https://example.com/tourney?id=1")).text()).toContain('src="/build/tourney.js"');
+    expect(await (await SELF.fetch("https://example.com/tourneys")).text()).toMatch(/src="\/build\/chunks\/tourneys-[A-Z0-9]{8}\.js"/);
+    expect(await (await SELF.fetch("https://example.com/tourney?id=1")).text()).toMatch(/src="\/build\/chunks\/tourney-[A-Z0-9]{8}\.js"/);
   });
 });
