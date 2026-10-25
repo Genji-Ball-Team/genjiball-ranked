@@ -11,8 +11,38 @@ import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { site } from "../lib/site";
 import type { History, PlayerMatch, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
+import { attach, type PlayerCard } from "../share";
 import { start } from "../shell";
 import { titleChip, titleFx, titleLooks, titleSeals } from "../titles";
+
+const siteName = "Genji Ball Ranked";
+
+/** The share card: the profile now, with the rating history once it's loaded. */
+function shareCard(p: PlayerPage["player"], crown: TitleName | undefined, h: History | null): PlayerCard {
+  const r = p.rating;
+  const where = site.label(site.region);
+  return {
+    kind: "player",
+    file: `${p.name}-${site.region}`,
+    url: new URL(playerLink(p.id), location.origin).href,
+    title: `${p.name} on ${siteName}`,
+    text: r?.rating
+      ? `${p.name}: ${r.siteTier ? `${r.siteTier.label}, ` : ""}${rating(r.rating)}${r.rank ? `, #${r.rank} in ${where}` : ""} on ${siteName}`
+      : `${p.name} on ${siteName}`,
+    region: where,
+    name: p.name,
+    crown: crown ?? null,
+    tier: r?.siteTier ?? null,
+    rating: r && r.rating > 0 ? r.rating : null,
+    rank: r?.rank ?? null,
+    rounds: r?.rounds ?? null,
+    winRate: r?.rounds ? winRate(r.wins, r.rounds) : null,
+    peak: h?.peak && h.peak.rating > 0 ? h.peak.rating : null,
+    bestStreak: h?.matches ? h.bestStreak : null,
+    form: h ? [...h.form.results].reverse().map((f) => f.position) : [],
+    points: h ? h.points.map((point) => point.rating) : [],
+  };
+}
 
 const compareLink = (ids: number[]): string => `/compare?ids=${ids.join(",")}&${inRegion()}`;
 
@@ -178,8 +208,13 @@ async function playerPage(): Promise<void> {
     );
     const crown = (await titles).find((t) => t.id === p.id)?.title;
     if (crown) titleHero(crown);
+    const headline = byId("headline");
+    attach(headline, shareCard(p, crown, null));
     const h = await historyAnswer;
-    if (h) history(h, r);
+    if (h) {
+      history(h, r);
+      attach(headline, shareCard(p, crown, h));
+    }
   } catch (error) {
     byId("name").textContent = error instanceof NotFound ? "Player not found" : "Player";
     showError(byId("matches"), error, "player");
