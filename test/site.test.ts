@@ -333,7 +333,7 @@ describe("match", () => {
 
 describe("pages", () => {
   it.each([
-    ["/", "data-page=\"leaderboard\""],
+    ["/", "src=\"/build/leaderboard.js\""],
     ["/player?id=1", "data-page=\"player\""],
     ["/match?id=1", "data-page=\"match\""],
   ])("serves %s", async (path, marker) => {

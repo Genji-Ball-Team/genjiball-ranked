@@ -1,0 +1,127 @@
+/* The site's layout around @genji-ball-team/ui: the page frame, header, footer and phone chrome. The
+   look itself (type, surfaces, rows, chips, controls) comes from the library and its tokens; this
+   file only places things. A region is shown by its name (the switch, a grey chip), never a colour. */
+@import "@genji-ball-team/ui/base.css";
+
+html {
+  /* The scrollbar's room is kept on every page, so the layout doesn't shift sideways between a page
+     that scrolls and one that doesn't. */
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border) transparent;
+}
+body { display: flex; flex-direction: column; }
+[hidden] { display: none !important; }
+::selection { background: color-mix(in oklab, var(--green) 35%, transparent); }
+/* Read by screen readers, not shown. */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* One column for every page, the header's and footer's contents lined up with it. */
+.top, main, .foot { width: 100%; max-width: 56rem; margin-inline: auto; padding-inline: 20px; }
+
+/* Banners above the header (shell.ts). The test server's says the ratings aren't real, in `down` with
+   its own line; a recompute is a quiet note. */
+.test-banner, .updating-banner { margin: 0; padding: 8px 20px; text-align: center; font-size: var(--body-size); }
+.test-banner { background: var(--raised); color: var(--fg); font-weight: 600; border-bottom: 2px solid var(--down); }
+.test-banner::before { content: "⚠ "; color: var(--down); }
+.updating-banner { background: var(--panel); color: var(--soft); border-bottom: 1px solid var(--line); }
+
+/* Header: a flat bar on `panel`. The wordmark and region switch on the left, the sections on the right. */
+.bar { background: var(--panel); border-bottom: 1px solid var(--line); }
+.top { display: flex; align-items: center; gap: 16px; min-height: 56px; }
+.mark {
+  display: flex; align-items: center; gap: 10px; flex: none; color: var(--fg); text-decoration: none;
+  font-size: var(--title-size); font-weight: 750; font-stretch: var(--heading-width); letter-spacing: 0.01em;
+  border-radius: var(--r-chip);
+}
+.mark span { color: var(--muted); font-weight: 600; }
+.mark img { width: 24px; height: 24px; }
+.regions { flex: none; }
+.top gb-nav { margin-inline-start: auto; min-width: 0; }
+
+main { flex: 1; padding-block: 32px 48px; }
+
+/* A page's heading, with what it's about (a grey region chip) beside it and its search on the right. */
+.headline { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-block-end: 16px; }
+.headline h1 { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
+.find { width: 16rem; }
+
+.note { margin-block-start: 12px; color: var(--muted); font-size: var(--body-size); text-wrap: pretty; }
+.empty { padding: 24px 16px; color: var(--muted); list-style: none; text-align: center; }
+
+/* Leaderboard */
+#board { display: grid; gap: 4px; }
+#board > gb-skeleton { min-block-size: 36px; }
+/* An inactive player keeps their place, faded back to `muted`. */
+gb-leaderboard tr[data-inactive] > td:nth-child(2) > a { color: var(--muted); }
+gb-leaderboard td.floor { color: var(--muted); font-weight: 400; }
+gb-leaderboard td:nth-child(5) { color: var(--muted); min-inline-size: 3.5ch; }
+.pager { margin-block-start: 16px; }
+
+/* Footer: one quiet line. */
+.foot {
+  display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
+  padding-block: 20px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem;
+}
+.foot-links { display: flex; gap: 16px; }
+.foot-links a { color: var(--muted); text-decoration: none; }
+.foot-links a:hover { color: var(--fg); }
+
+/* Phone chrome (shell.ts): bottom tab bar, search sheet and back button, only at phone widths. */
+.tabbar, .back, .sheet { display: none; }
+
+@media (max-width: 640px) {
+  .top, main, .foot { padding-inline: 16px; }
+  main { padding-block-start: 24px; }
+  body:has(.tabbar) { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  body:has(.tabbar) .top gb-nav, body:has(.tabbar) .find { display: none; }
+  body:has(.tabbar) .regions { margin-inline-start: auto; }
+  /* The tab bar: the nav's look (muted, the current one in `fg` with a green icon), in thumb reach. */
+  .tabbar {
+    position: fixed; inset: auto 0 0; z-index: 10; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line);
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; justify-content: center;
+    color: var(--muted); text-decoration: none; border-radius: var(--r); -webkit-tap-highlight-color: transparent;
+    font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .tabbar gb-icon { inline-size: 22px; block-size: 22px; }
+  .tabbar a[aria-current] { background: var(--raised); color: var(--fg); }
+  .tabbar a[aria-current] gb-icon { color: var(--green); }
+  /* The search sheet: the whole screen, the field at the top. */
+  .sheet[open] {
+    display: flex; flex-direction: column; position: fixed; inset: 0; width: 100%; height: 100%;
+    max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--fg);
+  }
+  .sheet::backdrop { background: var(--scrim); }
+  .sheet-bar {
+    display: flex; gap: 12px; align-items: center; padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .sheet-bar gb-search { flex: 1; min-width: 0; }
+  .sheet-bar button {
+    min-height: 40px; padding: 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--green); cursor: pointer;
+  }
+  .back {
+    display: grid; place-items: center; width: 40px; height: 40px; margin-inline-start: -8px; padding: 0;
+    border: 0; border-radius: var(--r); background: none; color: var(--fg); cursor: pointer;
+  }
+  .back gb-icon { inline-size: 24px; block-size: 24px; }
+  .headline:has(.back) { justify-content: start; }
+}
+
+/* Motion, played once: a list that's just loaded rises in, the search sheet slides up and back down.
+   Off under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  /* lib/load.ts numbers the first rows `--i`, one after another; the rest come in together. */
+  .appear > * { animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(min(var(--i, 12), 12) * 25ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+  @view-transition { navigation: auto; }
+  .tabbar { view-transition-name: tabbar; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.2s; }
+  .sheet[open] { animation: sheet-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .sheet.closing { animation: sheet-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards; }
+  @keyframes sheet-in { from { transform: translateY(100%); } }
+  @keyframes sheet-out { to { transform: translateY(100%); } }
+}
