@@ -75,7 +75,7 @@ export async function matchId(key: string): Promise<number> {
 export async function ratingsTable() {
   const { results } = await db()
     .prepare(
-      "SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt FROM ratings ORDER BY player_id",
+      "SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt, scale_base_mu AS scaleBaseMu FROM ratings ORDER BY player_id",
     )
     .all();
   return results;
@@ -85,7 +85,7 @@ export async function historyTable() {
   const { results } = await db()
     .prepare(
       `SELECT player_id AS playerId, match_id AS matchId, played_at AS playedAt, mu, sigma, display, rounds, wins,
-         streak, best_streak AS bestStreak
+         streak, best_streak AS bestStreak, scale_base_mu AS scaleBaseMu
        FROM rating_history ORDER BY played_at, match_id, player_id`,
     )
     .all();
@@ -109,7 +109,7 @@ export async function fromScratch() {
   return {
     ratings: [...ratings]
       .sort(([a], [b]) => a - b)
-      .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, defaults), rounds: r.rounds, wins: r.wins, streak: r.streak, bestStreak: r.bestStreak, lastPlayedAt: r.lastPlayedAt })),
+      .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, defaults), rounds: r.rounds, wins: r.wins, streak: r.streak, bestStreak: r.bestStreak, lastPlayedAt: r.lastPlayedAt, scaleBaseMu: r.scaleBaseMu })),
     history: [...history].sort((a, b) => (a.playedAt === b.playedAt ? a.matchId - b.matchId || a.playerId - b.playerId : a.playedAt < b.playedAt ? -1 : 1)),
   };
 }

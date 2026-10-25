@@ -87,6 +87,14 @@ x < 0:  display = displayFloor + (displayCenter − displayFloor) · e^(x / (dis
 
 rounded. A player who started at `ratingMu` began at `displayCenter` (1000); a new player now starts lower (above). Above it the number rises `displayScale` (70) per point of mu. Below it the curve eases toward `displayFloor` (900) and never reaches it, with the same slope at the center, so a weak player settles in the 900s and climbs again as they improve. Sigma doesn't count: a conservative rating, mu − z·sigma (z = 3 in the first version), drifts up as sigma shrinks, so players climbed by playing more, not by getting better. Someone who stops playing keeps their number.
 
+From `displayScaleAfterFrom` (2026-10-24 13:30 UTC, the 800 start's deploy) on, what a player gains or loses is worth `displayScaleAfter` (75) per point of mu instead of 70; what they had before stays as it was shown. Each player keeps `scaleBaseMu`, their mu just before their first match from then on (a new player's start), so with `b = scaleBaseMu`:
+
+```
+x = displayScale · (b − ratingMu) + displayScaleAfter · (mu − b)
+```
+
+and the curve above as before. A player with no match since has no `scaleBaseMu` and keeps `x = displayScale · (mu − ratingMu)`. The caps and the winner's bonus are in these shown points. A recompute sets `scaleBaseMu` again in play order, so it keeps the rule; migration 0025 re-rated from that moment on to fill it in.
+
 The tiers are Rookie 1000 (site and Discord only: no rank tag in game, light mint green), Apprentice 1300, Master 1600, Grandmaster 1900, Ascendant 2200, Champion 2500 and Sovereign 2800 (dark purple; it was God, now a title for the 1v1 tourney's winner, [api.md](api.md#titles-and-tiers-get-apititlesregioneu-get-apitiersplayers12)). A player shows on the leaderboard, and gets a tier, from `minRankedRounds` (3) rated rounds: someone who drops into one lobby sees themselves there. The per-match cap keeps a lucky first match from putting them high. The labels and colours are those of GenjiBall-CE `src/features/rank-tags.opy`, plus Apprentice (bronze), which that file needs a sixth list for.
 
 ## Tuning

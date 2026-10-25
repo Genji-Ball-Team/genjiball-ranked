@@ -18,7 +18,7 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `match_pairs` | ordered pair of players in a match | Derived at upload: rated rounds both finished, rounds `ahead`, and `KILL` lines between them (`kills`, `deaths`). Both directions ([below](#match-stats-and-head-to-head)) |
 | `pair_stats` | ordered pair of players per region | The sum of `match_pairs` over the region's `accepted` matches, kept by triggers. Derived ([below](#match-stats-and-head-to-head)) |
 | `events` | `KILL` or `DEFLECT` line | For stats. Ids are log ids; join through `match_players` for players |
-| `ratings` | player per region | `board` is the region id (`eu`, `na`): each region is its own leaderboard, tourney matches included (marked `matches.tournament`). `streak`, `best_streak`: rated rounds won in a row now, and the longest ever |
+| `ratings` | player per region | `board` is the region id (`eu`, `na`): each region is its own leaderboard, tourney matches included (marked `matches.tournament`). `streak`, `best_streak`: rated rounds won in a row now, and the longest ever. `scale_base_mu`: mu just before their first match at display scale 75 (also in `rating_history`; [rating.md](rating.md), "Display rating and tiers") |
 | `rating_history` | player per match | On the board of the match's region (`h.board = m.region`). The whole rating after each match (mu, sigma, rounds, wins, streaks): for the graph (`/api/players/:id/history`), and where a recompute starts |
 | `admins` | admin | Only the SHA-256 of the token. `revoked_at` set: the token doesn't work |
 | `admin_actions` | admin action | Who, what, when, which match or host, and a JSON `detail`. Only ever inserted ([api.md](api.md), "Admin") |

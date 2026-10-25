@@ -22,6 +22,8 @@ export type RatingConfig = Pick<
   | "ratingRoundsPerMatch"
   | "displayCenter"
   | "displayScale"
+  | "displayScaleAfter"
+  | "displayScaleAfterFrom"
   | "displayFloor"
   | "ratingMatchMaxChange"
   | "tournamentBonusWeight"
@@ -57,6 +59,11 @@ export interface PlayerRating {
   /** The longest `streak` they ever had. */
   bestStreak: number;
   lastPlayedAt: string | null;
+  /**
+   * Mu just before their first match from `displayScaleAfterFrom` on: the display counts mu up to
+   * here at `displayScale` and the change since at `displayScaleAfter`. `null`: no match since then.
+   */
+  scaleBaseMu: number | null;
 }
 
 /**
@@ -74,6 +81,7 @@ export interface HistoryEntry {
   wins: number;
   streak: number;
   bestStreak: number;
+  scaleBaseMu: number | null;
 }
 
 export type Ratings = Map<number, PlayerRating>;
@@ -81,12 +89,14 @@ export type Ratings = Map<number, PlayerRating>;
 /**
  * A player's rating before their first rated round. One first rated in a match played from
  * `ratingNewPlayerStartFrom` on (`playedAt`) starts at `ratingNewPlayerStart`; before it, and with
- * no `playedAt`, at `ratingMu`.
+ * no `playedAt`, at `ratingMu`. From `displayScaleAfterFrom` on, their start is their `scaleBaseMu`.
  */
 export function newRating(config: RatingConfig, playedAt?: string): PlayerRating {
   const lower = playedAt !== undefined && Date.parse(playedAt) >= Date.parse(config.ratingNewPlayerStartFrom);
   const mu = lower ? config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale : config.ratingMu;
-  return { mu, sigma: config.ratingSigma, rounds: 0, wins: 0, streak: 0, bestStreak: 0, lastPlayedAt: null };
+  // From `displayScaleAfterFrom` on, everything they gain or lose is at `displayScaleAfter`.
+  const scaleAfter = playedAt !== undefined && Date.parse(playedAt) >= Date.parse(config.displayScaleAfterFrom);
+  return { mu, sigma: config.ratingSigma, rounds: 0, wins: 0, streak: 0, bestStreak: 0, lastPlayedAt: null, scaleBaseMu: scaleAfter ? mu : null };
 }
 
 /**
@@ -124,6 +134,7 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
       streak,
       bestStreak: Math.max(prior.bestStreak, streak),
       lastPlayedAt: prior.lastPlayedAt,
+      scaleBaseMu: prior.scaleBaseMu,
     });
   });
   return true;
@@ -139,9 +150,16 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
  * (`rateTournament`).
  */
 export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingConfig): HistoryEntry[] {
+  const scaleAfter = Date.parse(match.playedAt) >= Date.parse(config.displayScaleAfterFrom);
   const started = new Map<number, PlayerRating>();
   for (const order of match.rounds) {
-    for (const id of order) if (!started.has(id)) started.set(id, { ...(ratings.get(id) ?? newRating(config, match.playedAt)) });
+    for (const id of order) {
+      if (started.has(id)) continue;
+      const rating = ratings.get(id);
+      // Their first match at `displayScaleAfter`: what they have now stays shown as it is.
+      if (rating && scaleAfter && rating.scaleBaseMu === null) rating.scaleBaseMu = rating.mu;
+      started.set(id, { ...(rating ?? newRating(config, match.playedAt)) });
+    }
   }
 
   const played = new Set<number>();
@@ -171,6 +189,7 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
       wins: rating.wins,
       streak: rating.streak,
       bestStreak: rating.bestStreak,
+      scaleBaseMu: rating.scaleBaseMu,
     };
   });
 }
@@ -251,7 +270,7 @@ export function rateTournament(ratings: Ratings, started: ReadonlyMap<number, Pl
   for (const { playerId, score } of standings) {
     if (score !== best) continue;
     const rating = ratings.get(playerId)!;
-    rating.mu = muForDisplay(displayExact(rating, config) + config.tournamentWinnerBonus, config);
+    rating.mu = muForDisplay(displayExact(rating, config) + config.tournamentWinnerBonus, rating.scaleBaseMu, config);
   }
 }
 
@@ -269,8 +288,8 @@ export function tournamentMaxLoss(display: number, config: Pick<RatingConfig, "t
 export function capChange(rating: PlayerRating, started: PlayerRating, maxLoss: number, maxGain: number, config: RatingConfig): void {
   const from = displayRating(started, config);
   const change = displayRating(rating, config) - from;
-  if (change > maxGain) rating.mu = muForDisplay(from + maxGain, config);
-  else if (change < -maxLoss) rating.mu = muForDisplay(from - maxLoss, config);
+  if (change > maxGain) rating.mu = muForDisplay(from + maxGain, rating.scaleBaseMu, config);
+  else if (change < -maxLoss) rating.mu = muForDisplay(from - maxLoss, rating.scaleBaseMu, config);
 }
 
 /** Play order: by `playedAt`, then by id, so the same matches always rate the same way. */
@@ -298,28 +317,39 @@ export function recompute(matches: readonly RatingMatch[], config: RatingConfig)
 
 /**
  * The leaderboard number: mu on an Elo-like scale. A new player is `displayCenter`. Above it the
- * number rises `displayScale` per point of mu. Below it the curve eases toward `displayFloor` and
+ * number rises `displayScale` per point of mu, and `displayScaleAfter` per point gained or lost
+ * since `scaleBaseMu`. Below it the curve eases toward `displayFloor` and
  * never reaches it, with the same slope at the center, so weak players pile up in the 900s instead
  * of falling without end. Sigma doesn't count: a number that took off z·sigma would rise as sigma
  * shrinks, so players would climb by playing more, not by getting better.
  */
-export function displayRating(rating: Pick<PlayerRating, "mu">, config: RatingConfig): number {
+export function displayRating(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRating, "scaleBaseMu">>, config: RatingConfig): number {
   return Math.max(config.displayFloor, Math.round(displayExact(rating, config)));
 }
 
 /** `displayRating` before rounding. */
-function displayExact(rating: Pick<PlayerRating, "mu">, config: RatingConfig): number {
-  const x = config.displayScale * (rating.mu - config.ratingMu);
+function displayExact(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRating, "scaleBaseMu">>, config: RatingConfig): number {
+  const x = straightDisplay(rating.mu, rating.scaleBaseMu ?? null, config);
   if (x >= 0) return config.displayCenter + x;
   const room = config.displayCenter - config.displayFloor;
   return config.displayFloor + room * Math.exp(x / room);
 }
 
-/** The mu that `displayExact` turns into `display`, which must be above `displayFloor`. */
-function muForDisplay(display: number, config: RatingConfig): number {
+/**
+ * Display points over `displayCenter` before the curve: mu up to `scaleBaseMu` at `displayScale`,
+ * and the change since at `displayScaleAfter` (all of it at `displayScale` with no `scaleBaseMu`).
+ */
+function straightDisplay(mu: number, scaleBaseMu: number | null, config: RatingConfig): number {
+  const base = scaleBaseMu ?? mu;
+  return config.displayScale * (base - config.ratingMu) + config.displayScaleAfter * (mu - base);
+}
+
+/** The mu that `displayExact` turns into `display` for this `scaleBaseMu`; `display` must be above `displayFloor`. */
+function muForDisplay(display: number, scaleBaseMu: number | null, config: RatingConfig): number {
   const room = config.displayCenter - config.displayFloor;
   const x = display >= config.displayCenter ? display - config.displayCenter : room * Math.log((display - config.displayFloor) / room);
-  return config.ratingMu + x / config.displayScale;
+  if (scaleBaseMu === null) return config.ratingMu + x / config.displayScale;
+  return scaleBaseMu + (x - straightDisplay(scaleBaseMu, scaleBaseMu, config)) / config.displayScaleAfter;
 }
 
 /** The highest tier the display rating reaches, or null below the first. `tiers` is lowest first. */

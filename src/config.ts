@@ -165,6 +165,16 @@ export const defaults = {
   displayCenter: 1000,
   displayScale: 70,
   displayFloor: 900,
+  /**
+   * From `displayScaleAfterFrom` on, each point of mu a player gains or loses is worth this many
+   * display points instead of `displayScale`. What they had before stays at `displayScale`: a player's
+   * mu just before their first match from then on (`scaleBaseMu`) is shown as before, and only the
+   * change since is shown at this scale. A recompute keeps it, as it re-rates in play order. Equal to
+   * `displayScale`: no change (docs/rating.md, "Display rating").
+   */
+  displayScaleAfter: 75,
+  /** ISO 8601: when `displayScaleAfter` took effect, the 800 start's deploy (`ratingNewPlayerStartFrom`). Set it once, never move it. */
+  displayScaleAfterFrom: "2026-10-24T13:30:00Z",
 
   /**
    * Tournaments: a match an admin marks as a tournament is rated in two parts (docs/rating.md,
