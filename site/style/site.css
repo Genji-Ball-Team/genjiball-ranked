@@ -61,6 +61,20 @@ main { flex: 1; padding-block: 32px 48px; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 
+/* The home strip above the leaderboard: climbers, the latest match, the lobbies open now. */
+.strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 8px; margin-block-end: 16px; }
+.strip gb-panel { min-width: 0; }
+.climbers { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.climbers li { display: grid; grid-template-columns: minmax(0, 1fr) auto 3.5rem; gap: 10px; align-items: baseline; }
+.climbers a, .strip .latest { color: var(--fg); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.climbers a:hover, .strip a.latest:hover b { text-decoration: underline; text-decoration-color: var(--green); text-underline-offset: 3px; }
+.climbers .num { text-align: end; }
+.strip .latest { display: block; margin: 0; font-weight: 400; }
+.strip .latest b { font-weight: 600; }
+.strip .latest small { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-block-start: 4px; color: var(--muted); font-size: 0.8rem; }
+.strip .more { display: inline-block; margin-block-start: 10px; color: var(--green); font-size: 0.875rem; font-weight: 600; text-decoration: none; }
+.strip .more:hover { text-decoration: underline; text-underline-offset: 3px; }
+
 /* Leaderboard: the ladder. Rows straight on the page in tier bands, each band's heading pinned while
    its tier scrolls by. */
 .headline h1 { font-size: var(--display-size); font-stretch: var(--display-width); }

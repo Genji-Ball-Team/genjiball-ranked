@@ -389,6 +389,15 @@ describe("recent matches", () => {
     expect(rest.matches.map((m) => m.id)).toEqual([await matchId("000000000001")]);
     expect((await handleSite(new Request("https://example.com/api/recent?before=x"), db(), config))!.status).toBe(400);
   });
+
+  it("asks for fewer with limit, never more than a page", async () => {
+    await playMatches(3);
+    const config = { ...defaults, recentMatchesPageSize: 2 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Recent;
+    expect(await read("recent?limit=1")).toMatchObject({ hasMore: true, matches: [{ id: await matchId("000000000003") }] });
+    expect((await read("recent?limit=50")).matches).toHaveLength(2);
+    expect((await handleSite(new Request("https://example.com/api/recent?limit=0"), db(), config))!.status).toBe(400);
+  });
 });
 
 describe("match", () => {

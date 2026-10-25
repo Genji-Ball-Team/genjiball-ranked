@@ -17,6 +17,14 @@
 .records .who a { color: var(--fg); text-decoration-color: var(--green); text-underline-offset: 3px; }
 .records .who small { display: block; color: var(--muted); font-size: 0.8rem; font-weight: 400; font-stretch: normal; }
 .records .who small a { color: var(--soft); }
+.records .runners {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; padding: 8px 0 0;
+  border-top: 1px solid var(--line); list-style: none; counter-reset: place 1; font-size: 0.875rem;
+}
+.records .runners li { display: flex; gap: 6px; align-items: baseline; padding: 0; background: none; counter-increment: place; }
+.records .runners li::before { content: counter(place); color: var(--muted); font-weight: 600; }
+.records .runners a { color: var(--fg); text-decoration-color: var(--green); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.records .runners .num { color: var(--soft); }
 
 .activity-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 8px; }
 .activity-chart { margin-block-start: 8px; }
@@ -31,4 +39,5 @@
   .records .what { grid-column: 1; }
   .records .value { grid-column: 2; grid-row: 1 / 3; font-size: 1.6rem; }
   .records .who { grid-column: 1; }
+  .records .runners { grid-column: 1 / -1; }
 }

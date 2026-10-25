@@ -8,7 +8,7 @@ import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
 import { countSignups, listSignupNames } from "../tourney/signupStore";
 import { signupSummary } from "../tourney/signups";
 import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
-import { noRecords, recordsView, type RecordsConfig } from "../records/stats";
+import { noMonthRecords, noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
 import { displayRating } from "../rating/engine";
@@ -146,7 +146,9 @@ export async function handleSite(
     recent: async () => {
       const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
       if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a match id");
-      return Response.json(await recent(db, config, region, before));
+      const limit = url.searchParams.has("limit") ? pageNumber(url.searchParams.get("limit")) : config.recentMatchesPageSize;
+      if (limit === null) return fail(400, "bad_request", "limit must be a positive number");
+      return Response.json(await recent(db, region, before, Math.min(limit, config.recentMatchesPageSize)));
     },
     "head-to-head": async () => {
       const a = positiveId(url.searchParams.get("a"));
@@ -352,9 +354,8 @@ function placeIn(everyone: readonly Totals[], mine: Totals): number {
   return 1 + everyone.filter((o) => o.roundWins > mine.roundWins || (o.roundWins === mine.roundWins && o.kills > mine.kills)).length;
 }
 
-/** A page of the region's newest matches, older than match `before` when given, each with its players in place order. */
-async function recent(db: D1Database, config: SiteConfig, region: Region, before: number | null) {
-  const size = config.recentMatchesPageSize;
+/** A page of `size` of the region's newest matches, older than match `before` when given, each with its players in place order. */
+async function recent(db: D1Database, region: Region, before: number | null, size: number) {
   const rows = await listRecentMatches(db, region.id, size + 1, before);
   const matches = rows.slice(0, size).map((m) => ({
     ...m,
@@ -424,7 +425,7 @@ async function stats(db: D1Database, region: Region, requested: number) {
 async function records(db: D1Database, config: SiteConfig, region: Region, now: Date) {
   const stored = await readRecords(db, region.id);
   if (stored) return { region: region.id, updatedAt: stored.refreshedAt, ...stored.body };
-  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, days: [], players: 0, topHosts: [] }, config, now) };
+  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, month: noMonthRecords, climbers: [], days: [], players: 0, topHosts: [] }, config, now) };
 }
 
 /**

@@ -119,6 +119,12 @@ export interface RecentMatches {
   hasMore: boolean;
 }
 
+/** The climbers of `GET /api/records`: who gained most over the last `days`. */
+export interface Climbers {
+  days: number;
+  players: { player: { id: number; name: string }; rating: number; change: number }[];
+}
+
 /** Who a player eliminates most, or is eliminated by most. */
 export interface Rival {
   id: number;

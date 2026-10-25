@@ -31,8 +31,8 @@ import {
 
 /** The most D1 queries a `syncMatchStats` makes: the feed, the recount queue, 4 counts, a batch of 6. */
 export const syncQueries = 12;
-/** The most a `refreshRecords` makes: the regions' state, 3 reads, the write. */
-export const refreshQueries = 5;
+/** The most a `refreshRecords` makes: the regions' state, 4 reads, the write. */
+export const refreshQueries = 6;
 
 /** Returns how many feed changes it handled; 0 when there were none, or another run came first. */
 export async function syncMatchStats(db: D1Database, config: RecordsConfig, log: Logger): Promise<number> {
@@ -95,7 +95,7 @@ export async function rebuildRecords(
   ratingVersion: number,
   now: Date,
 ): Promise<void> {
-  const input = await readRecordsInput(db, region, activityStart(now, config.recordsActivityDays), config);
+  const input = await readRecordsInput(db, region, activityStart(now, config.recordsActivityDays), now, config);
   await writeRecordsStatement(db, region, recordsView(input, config, now), isoSeconds(now), revision, ratingVersion).run();
 }
 

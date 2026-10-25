@@ -1,11 +1,13 @@
-// The records page (records.html): the bests of every accepted match in the region, how much was played
-// over the last weeks, and the hosts who hosted the most.
+// The records page (records.html): the bests of every accepted match in the region, all time or this
+// month, each with its top five; how much was played over the last weeks, and the hosts who hosted the most.
 import "@genji-ball-team/ui/bar-chart.js";
 import "@genji-ball-team/ui/chip.js";
 import "@genji-ball-team/ui/empty.js";
 import "@genji-ball-team/ui/panel.js";
+import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/stat.js";
 import type { Bar, GbBarChart } from "@genji-ball-team/ui/bar-chart.js";
+import type { GbSegmented } from "@genji-ball-team/ui/segmented.js";
 import { api, inRegion, matchLink, playerLink } from "../lib/api";
 import { count, date, dateTime, num, rating, title } from "../lib/format";
 import { byId, html, render, type Html } from "../lib/html";
@@ -29,12 +31,17 @@ interface ActivityDay {
   players: number;
 }
 
+/** Each record's holders, best first, each player once. */
+type RecordLists = Partial<Record<string, RecordEntry[]>>;
+
 /** `GET /api/records`. */
 interface Records {
   region: string;
   /** When the records were last counted; null before the first count. */
   updatedAt: string | null;
-  records: Partial<Record<string, RecordEntry>>;
+  records: RecordLists;
+  /** The match records again, from this month's matches only. */
+  month: { since: string; records: RecordLists };
   activity: { days: number; matches: number; rounds: number; players: number; perDay: ActivityDay[] };
   topHosts: { name: string; matches: number }[];
 }
@@ -60,21 +67,34 @@ const recordList: { key: string; label: string; show: (r: RecordEntry) => string
   { key: "mostRounds", label: "Most rounds played", show: (r) => num(r.value), where: () => "rated rounds, all time" },
 ];
 
-/** The records that exist, each as a row: the record, its value in gold (earned), and who set it. */
-function recordRows(d: Records): Html {
-  const set = recordList.filter((r) => d.records[r.key]);
-  if (!set.length) {
-    return html`<li><gb-empty>${
-      d.updatedAt
-        ? `No records in ${site.label(site.region)} yet: they come with the first matches.`
-        : "The records are being counted. Check back in an hour."
-    }</gb-empty></li>`;
-  }
+/** The records that exist, each as a row: the record, its value in gold (earned), who set it, then the next best. */
+function recordRows(d: Records, lists: RecordLists, empty: string): Html {
+  const set = recordList.filter((r) => lists[r.key]?.length);
+  if (!set.length) return html`<li><gb-empty>${d.updatedAt ? empty : "The records are being counted. Check back in an hour."}</gb-empty></li>`;
   return html`${set.map(({ key, label, show, where }) => {
-    const r = d.records[key] as RecordEntry;
-    return html`<li><span class="what">${label}</span><b class="value num">${show(r)}</b>
-      <span class="who"><a href="${playerLink(r.player.id)}">${r.player.name}</a><small>${where(r)}</small></span></li>`;
+    const [r, ...rest] = lists[key]!;
+    return html`<li><span class="what">${label}</span><b class="value num">${show(r!)}</b>
+      <span class="who"><a href="${playerLink(r!.player.id)}">${r!.player.name}</a><small>${where(r!)}</small></span>
+      ${rest.length > 0 && html`<ol class="runners" start="2">${rest.map((o) => html`<li><a href="${playerLink(o.player.id)}">${o.player.name}</a><span class="num">${show(o)}</span></li>`)}</ol>`}</li>`;
   })}`;
+}
+
+/** All time or this month, switched in place. */
+function periods(d: Records): void {
+  const box = byId("records");
+  const period = byId<GbSegmented>("period");
+  const where = site.label(site.region);
+  const draw = () =>
+    render(
+      box,
+      period.value === "month"
+        ? recordRows(d, d.month.records, `No records in ${where} this month yet.`)
+        : recordRows(d, d.records, `No records in ${where} yet: they come with the first matches.`),
+    );
+  period.hidden = !d.updatedAt;
+  period.value = "all";
+  period.addEventListener("change", draw);
+  loaded(box, recordRows(d, d.records, `No records in ${where} yet: they come with the first matches.`));
 }
 
 const day = (iso: string, long = false): string =>
@@ -121,7 +141,7 @@ async function recordsPage(): Promise<void> {
   try {
     const d = await api<Records>(`records?${inRegion()}`);
     byId("updated").textContent = d.updatedAt ? `Updated ${dateTime(d.updatedAt)}` : "";
-    loaded(box, recordRows(d));
+    periods(d);
     if (d.activity.perDay.length) activity(d.activity);
     if (d.topHosts.length) topHosts(d.topHosts);
   } catch (error) {

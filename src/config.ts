@@ -453,6 +453,20 @@ export const defaults = {
    */
   recordsMinPlayers: 4,
   recordsMinRatedRounds: 5,
+  /** Holders shown per record, best first, each player once (at their best). */
+  recordsTop: 5,
+  /**
+   * The best matches read per match record to find `recordsTop` different players: a player who holds
+   * several of the top matches takes one place. Rows read per record and period.
+   */
+  recordsTopScan: 50,
+  /**
+   * The most `rating_history` rows read for the highest ratings, per period: rows from the top down to
+   * the `recordsTop`-th best current rating (a player's peak is at least their rating now), at most this.
+   */
+  recordsRatingScan: 250,
+  /** Biggest climbers on the records page (and the home page): rating gained over `leaderboardChangeDays`. */
+  recordsClimbers: 3,
 };
 
 export type Config = typeof defaults;

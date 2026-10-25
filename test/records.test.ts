@@ -4,7 +4,7 @@ import { defaults } from "../src/config";
 import worker from "../src/index";
 import { createLogger } from "../src/log";
 import { queryBudget } from "../src/budget";
-import { matchStats, recordsView, noRecords, type MatchCounts } from "../src/records/stats";
+import { matchStats, monthStart, recordsView, noRecords, type MatchCounts } from "../src/records/stats";
 import { readFeedChanges, readMatchCounts, readRecountQueue, syncStatements } from "../src/records/store";
 import { isDue, rebuildRecords, refreshQueries, syncMatchStats, syncQueries, updateRecords } from "../src/records/update";
 import { markAllStale, rateNewQueries, recomputeQueries } from "../src/rating/update";
@@ -186,7 +186,9 @@ describe("GET /api/records", () => {
     const first = names.find((n) => ids[n] === firstId)!;
     expect(body.region).toBe("eu");
     expect(body.updatedAt).not.toBeNull();
-    expect(body.records).toEqual({
+    // Each record's best holder; the rest follow it, one place each.
+    const best = Object.fromEntries(Object.entries(body.records).map(([name, list]) => [name, list[0]]));
+    expect(best).toEqual({
       roundDeflects: { value: 3, player: { id: ids.Alpha, name: "Alpha" }, matchId: id, playedAt, round: 1 },
       fastestDeflect: { value: 50, player: { id: ids.Bravo, name: "Bravo" }, matchId: id, playedAt, round: 1 },
       matchKills: { value: 2, player: { id: ids.Bravo, name: "Bravo" }, matchId: id, playedAt },
@@ -199,7 +201,9 @@ describe("GET /api/records", () => {
       mostWins: { value: 1, player: { id: firstId, name: first } },
     });
     const top = await db().prepare("SELECT max(display) AS top FROM rating_history WHERE board = 'eu'").first<number>("top");
-    expect(body.records.highestRating!.value).toBe(top);
+    expect(body.records.highestRating[0]!.value).toBe(top);
+    expect(body.records.mostRounds.map((r) => r.player.id)).toEqual(Object.values(ids).sort((a, b) => a - b));
+    expect(new Set(body.records.highestRating.map((r) => r.player.id)).size).toBe(body.records.highestRating.length);
 
     expect(body.activity).toMatchObject({ days: defaults.recordsActivityDays, matches: 1, rounds: 2, players: 4 });
     expect(body.activity.perDay).toHaveLength(defaults.recordsActivityDays);
@@ -213,8 +217,8 @@ describe("GET /api/records", () => {
     await db().prepare("UPDATE players SET bot = 1 WHERE name = 'Bravo'").run();
     await refresh();
     const body = await records();
-    expect(body.records.matchKills).toMatchObject({ value: 1, player: { name: "Alpha" } });
-    expect(body.records.fastestDeflect).toMatchObject({ value: 20, player: { name: "Alpha" } });
+    expect(body.records.matchKills[0]).toMatchObject({ value: 1, player: { name: "Alpha" } });
+    expect(body.records.fastestDeflect[0]).toMatchObject({ value: 20, player: { name: "Alpha" } });
     expect(body.activity.players).toBe(3);
   });
 
@@ -225,9 +229,9 @@ describe("GET /api/records", () => {
     const first = await matchId("000000000001");
     const body = await records();
     // The second match played 1 rated round, under the 2 needed: only the first sets records.
-    expect(body.records.fastestDeflect).toMatchObject({ value: 20, matchId: first });
-    expect(body.records.roundDeflects).toMatchObject({ value: 1, matchId: first });
-    expect(body.records.matchKills).toMatchObject({ value: 1, matchId: first });
+    expect(body.records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: first });
+    expect(body.records.roundDeflects[0]).toMatchObject({ value: 1, matchId: first });
+    expect(body.records.matchKills[0]).toMatchObject({ value: 1, matchId: first });
     // Both still count in the activity and top hosts.
     expect(body.activity).toMatchObject({ matches: 2, rounds: 3 });
     expect(body.topHosts).toEqual([{ name: "eu host", matches: 2 }]);
@@ -236,7 +240,7 @@ describe("GET /api/records", () => {
     const { revision, version } = await revisions("eu");
     await rebuildRecords(db(), { ...config, recordsMinPlayers: 5 }, "eu", revision + 1, version, new Date());
     const gated = await records();
-    expect(gated.records).toMatchObject({ roundDeflects: null, fastestDeflect: null, matchKills: null, matchWins: null });
+    expect(gated.records).toMatchObject({ roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [] });
     expect(gated.activity).toMatchObject({ matches: 2, rounds: 3 });
   });
 
@@ -247,8 +251,8 @@ describe("GET /api/records", () => {
     await refresh();
     const eu = await records();
     const na = await records("?region=na");
-    expect(eu.records.fastestDeflect).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
-    expect(na).toMatchObject({ region: "na", records: { fastestDeflect: { value: 90, matchId: await matchId("000000000002") }, roundDeflects: { value: 2 } } });
+    expect(eu.records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
+    expect(na).toMatchObject({ region: "na", records: { fastestDeflect: [{ value: 90, matchId: await matchId("000000000002") }], roundDeflects: [{ value: 2 }] } });
     expect(eu.topHosts).toEqual([{ name: "eu host", matches: 1 }]);
     expect(na.topHosts).toEqual([{ name: "na host", matches: 2 }]);
     expect(eu.activity.matches).toBe(1);
@@ -272,9 +276,9 @@ describe("GET /api/records", () => {
     await refresh(later(defaults.recordsRefreshMinutes));
     const eu = await records();
     const na = await records("?region=na");
-    expect(eu.records.fastestDeflect).toBeNull();
+    expect(eu.records.fastestDeflect).toEqual([]);
     expect(eu.topHosts).toEqual([]);
-    expect(na.records.fastestDeflect).toMatchObject({ value: 20, matchId: id });
+    expect(na.records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: id });
     expect(na.topHosts).toEqual([{ name: "eu host", matches: 1 }]);
   });
 
@@ -291,7 +295,7 @@ describe("GET /api/records", () => {
     await refresh();
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(0);
     const body = await records();
-    expect(body.records).toMatchObject({ roundDeflects: null, fastestDeflect: null, matchKills: null, matchWins: null });
+    expect(body.records).toMatchObject({ roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [] });
     expect(body.topHosts).toEqual([]);
   });
 
@@ -303,6 +307,58 @@ describe("GET /api/records", () => {
     await db().batch([db().prepare("DELETE FROM match_stats"), db().prepare("UPDATE records_state SET feed_cursor = 0")]);
     await syncMatchStats(db(), defaults, log);
     expect((await db().prepare("SELECT * FROM match_stats ORDER BY match_id").all()).results).toEqual(before.results);
+  });
+
+  it("lists each record's best holders, each player once at their best", async () => {
+    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 90]] }), 3);
+    await upload(richLog({ key: "000000000002", deflects: [[1, 1, 80]] }), 2);
+    await upload(richLog({ key: "000000000003", deflects: [[1, 3, 60]] }), 1);
+    await refresh();
+    const body = await records();
+    expect(body.records.fastestDeflect).toMatchObject([
+      { value: 90, player: { name: "Alpha" }, matchId: await matchId("000000000001") },
+      { value: 60, player: { name: "Charlie" }, matchId: await matchId("000000000003") },
+    ]);
+    const { revision, version } = await revisions("eu");
+    await rebuildRecords(db(), { ...config, recordsTop: 1 }, "eu", revision + 1, version, new Date());
+    expect((await records()).records.fastestDeflect).toHaveLength(1);
+  });
+
+  it("keeps this month's records apart from all time's", async () => {
+    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 90]] }), 24 * 40);
+    await upload(richLog({ key: "000000000002", deflects: [[1, 3, 60]] }), 0);
+    await refresh();
+    const body = await records();
+    expect(body.month.since).toBe(monthStart(new Date()));
+    expect(body.records.fastestDeflect.map((r) => r.value)).toEqual([90, 60]);
+    expect(body.month.records.fastestDeflect).toMatchObject([{ value: 60, matchId: await matchId("000000000002") }]);
+    expect(body.month.records.highestRating.every((r) => r.playedAt >= body.month.since)).toBe(true);
+    expect(body.month.records).not.toHaveProperty("winStreak");
+  });
+
+  it("names the biggest climbers since leaderboardChangeDays ago, a player new since then left out", async () => {
+    await upload(richLog({ deflects: [[1, 1, 20]] }), 3);
+    await refresh();
+    const alpha = await playerId("Alpha");
+    const now = (await db().prepare("SELECT display FROM ratings WHERE board = 'eu' AND player_id = ?").bind(alpha).first<number>("display"))!;
+    await db()
+      .prepare(
+        `INSERT INTO rating_history (board, player_id, match_id, mu, sigma, display, played_at)
+         SELECT board, player_id, match_id, mu, sigma, display - 100, '2026-01-01T00:00:00Z' FROM rating_history WHERE board = 'eu' AND player_id = ?`,
+      )
+      .bind(alpha)
+      .run();
+    const { revision, version } = await revisions("eu");
+    await rebuildRecords(db(), { ...config, minRankedRounds: 1 }, "eu", revision + 1, version, new Date());
+    const body = await records();
+    expect(body.climbers).toEqual({ days: defaults.leaderboardChangeDays, players: [{ player: { id: alpha, name: "Alpha" }, rating: Math.round(now), change: 100 }] });
+  });
+
+  it("treats a page stored before the top lists as not made yet", async () => {
+    await upload(richLog({ deflects: [[1, 1, 20]] }), 3);
+    await refresh();
+    await db().prepare("UPDATE records SET body = json_remove(body, '$.month') WHERE region = 'eu'").run();
+    expect(await records()).toMatchObject({ updatedAt: null, records: noRecords });
   });
 
   it("answers empty records before the first refresh, and a 400 for an unknown region", async () => {
@@ -322,19 +378,19 @@ describe("records: matches that stop counting", () => {
     await upload(richLog({ key: "000000000002", deflects: [[1, 2, 90]] }), 2);
     await refresh();
     const second = await matchId("000000000002");
-    expect((await records()).records.fastestDeflect).toMatchObject({ matchId: second });
+    expect((await records()).records.fastestDeflect[0]).toMatchObject({ matchId: second });
 
     // A longer copy sent it back to review: the trigger drops its stats in the same transaction.
     await db().prepare("UPDATE matches SET status = 'review' WHERE id = ?").bind(second).run();
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats WHERE match_id = ?").bind(second).first("n")).toBe(0);
     // Served from the stored page until the rebuild, without the match.
     const served = await records();
-    expect(served.records.fastestDeflect).toBeNull();
+    expect(served.records.fastestDeflect).toMatchObject([{ value: 20, matchId: await matchId("000000000001") }]);
     expect(JSON.stringify(served.records)).not.toContain(`"matchId":${second}`);
 
     // Due at once, inside recordsRefreshMinutes.
     await updateRecords(db(), config, new Date(), log);
-    expect((await records()).records.fastestDeflect).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
+    expect((await records()).records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
   });
 
   it("counts only matches accepted in the region now when rebuilding", async () => {
@@ -350,7 +406,7 @@ describe("records: matches that stop counting", () => {
       expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(1);
       await rebuildRecords(db(), config, "eu", 99, 0, new Date());
       const body = await records();
-      expect(body.records).toMatchObject({ roundDeflects: null, fastestDeflect: null, matchWins: null });
+      expect(body.records).toMatchObject({ roundDeflects: [], fastestDeflect: [], matchWins: [] });
       expect(body.topHosts).toEqual([]);
       expect(body.activity.matches).toBe(0);
     } finally {
@@ -432,16 +488,16 @@ describe("records: player merges (#8)", () => {
     await refresh();
     const [alpha, alpha2] = [await playerId("Alpha"), await playerId("Alpha2")];
     // Apart: Alpha2's 3 kills hold the record.
-    expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
+    expect((await records()).records.matchKills[0]).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
 
     const mergeId = await merge(alpha2, alpha);
     // Queued and urgent in the merge's transaction: the stored page already names Alpha.
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(1);
-    expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha } });
+    expect((await records()).records.matchKills[0]).toMatchObject({ value: 3, player: { id: alpha } });
     await updateRecords(db(), config, new Date(), log);
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats_recount").first("n")).toBe(0);
-    expect((await records()).records.matchKills).toMatchObject({ value: 5, player: { id: alpha } });
-    expect((await records()).records.matchWins).toMatchObject({ value: 2, player: { id: alpha } });
+    expect((await records()).records.matchKills[0]).toMatchObject({ value: 5, player: { id: alpha } });
+    expect((await records()).records.matchWins[0]).toMatchObject({ value: 2, player: { id: alpha } });
 
     const undo = await SELF.fetch(`https://example.com/api/admin/merges/${mergeId}/undo`, {
       method: "POST",
@@ -449,7 +505,7 @@ describe("records: player merges (#8)", () => {
     });
     expect(undo.status, await undo.clone().text()).toBe(200);
     await updateRecords(db(), config, new Date(), log);
-    expect((await records()).records.matchKills).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
+    expect((await records()).records.matchKills[0]).toMatchObject({ value: 3, player: { id: alpha2, name: "Alpha2" } });
   });
 
   it("keeps a queued recount that arrived while a run was counting", async () => {
@@ -540,7 +596,7 @@ describe("records refresh", () => {
     expect((await db().prepare("SELECT region FROM records").all()).results).toEqual([{ region: "eu" }]);
     expect(await db().prepare("SELECT players, rated_rounds AS rounds FROM match_stats").first()).toEqual({ players: 4, rounds: 2 });
     // The cron's defaults: 2 rated rounds are too few to set a record.
-    expect((await records()).records.fastestDeflect).toBeNull();
+    expect((await records()).records.fastestDeflect).toEqual([]);
     await updateRecords(db(), config, new Date(), log);
     expect((await db().prepare("SELECT region FROM records ORDER BY region").all()).results).toEqual([{ region: "eu" }, { region: "na" }]);
   });
