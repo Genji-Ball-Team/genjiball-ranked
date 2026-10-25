@@ -2,6 +2,7 @@ import { rate } from "openskill";
 import { describe, expect, it } from "vitest";
 import { defaults } from "../src/config";
 import {
+  capChange,
   displayRating,
   newRating,
   rateMatch,
@@ -199,6 +200,7 @@ describe("rateMatch", () => {
         wins: rating.wins,
         streak: rating.streak,
         bestStreak: rating.bestStreak,
+        scaleBaseMu: null,
       });
       expect(rating.lastPlayedAt).toBe("2026-10-01T20:00:00Z");
     }
@@ -343,6 +345,67 @@ describe("displayRating", () => {
       last = shown;
     }
     expect(displayRating({ mu: -1000 }, config)).toBe(config.displayFloor);
+  });
+});
+
+describe("display scale after displayScaleAfterFrom", () => {
+  const before = "2026-10-20T20:00:00Z";
+  const after = "2026-11-01T20:00:00Z";
+  const straight = (shown: number) => shown - config.displayCenter;
+
+  it("keeps what a player had shown at displayScale and shows the change since at displayScaleAfter", () => {
+    const ratings: Ratings = new Map();
+    rateMatch(ratings, match(1, [[1, 2, 3]], before), config);
+    const base = { ...ratings.get(1)! };
+    expect(base.scaleBaseMu).toBeNull();
+    const shownBefore = displayRating(base, config);
+
+    const [entry] = rateMatch(ratings, match(2, [[1, 2, 3]], after), config).filter((e) => e.playerId === 1);
+    const now = ratings.get(1)!;
+    expect(now.scaleBaseMu).toBe(base.mu);
+    expect(entry!.scaleBaseMu).toBe(base.mu);
+    // Their start in the match shows exactly as before; only the change since is at 75.
+    expect(displayRating({ mu: base.mu, scaleBaseMu: base.mu }, config)).toBe(shownBefore);
+    expect(entry!.display).toBe(Math.round(shownBefore + config.displayScaleAfter * (now.mu - base.mu)));
+    // Later matches keep the same base.
+    rateMatch(ratings, match(3, [[2, 1, 3]], "2026-11-02T20:00:00Z"), config);
+    expect(ratings.get(1)!.scaleBaseMu).toBe(base.mu);
+  });
+
+  it("leaves a player who hasn't played since as they were", () => {
+    const ratings: Ratings = new Map();
+    rateMatch(ratings, match(1, [[1, 2, 3]], before), config);
+    const idle = { ...ratings.get(3)! };
+    rateMatch(ratings, match(2, [[1, 2]], after), config);
+    expect(ratings.get(3)).toEqual(idle);
+  });
+
+  it("puts a new player on displayScaleAfter from their start, which still shows as before", () => {
+    const start = newRating(config, after);
+    expect(start.scaleBaseMu).toBe(start.mu);
+    expect(displayRating(start, config)).toBe(displayRating({ mu: start.mu }, config));
+    expect(newRating(config, before).scaleBaseMu).toBeNull();
+  });
+
+  it("holds the per-match cap in shown points at the new scale", () => {
+    const start = { ...newRating(config), mu: 35, scaleBaseMu: 33 };
+    const rating = { ...start, mu: 45 };
+    capChange(rating, start, config.ratingMatchMaxChange, config.ratingMatchMaxChange, config);
+    expect(displayRating(rating, config) - displayRating(start, config)).toBe(config.ratingMatchMaxChange);
+    // A player under the center too: the curve is the same, on the new straight number.
+    const low = { ...newRating(config), mu: 22, scaleBaseMu: 22.14 };
+    const up = { ...low, mu: 30 };
+    capChange(up, low, config.ratingMatchMaxChange, config.ratingMatchMaxChange, config);
+    expect(displayRating(up, config) - displayRating(low, config)).toBe(config.ratingMatchMaxChange);
+  });
+
+  it("changes nothing when displayScaleAfter is displayScale", () => {
+    const same = { ...config, displayScaleAfter: config.displayScale };
+    const ratings: Ratings = new Map();
+    rateMatch(ratings, match(1, [[1, 2, 3]], before), same);
+    rateMatch(ratings, match(2, [[3, 1, 2], [1, 2, 3]], after), same);
+    for (const rating of ratings.values()) expect(displayRating(rating, same)).toBe(displayRating({ mu: rating.mu }, same));
+    expect(straight(displayRating({ mu: 30, scaleBaseMu: 28 }, same))).toBe(5 * config.displayScale);
   });
 });
 

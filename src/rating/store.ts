@@ -228,7 +228,8 @@ export async function readRatings(db: D1Database, board: string, playerIds: read
   if (!playerIds.length) return new Map();
   const { results } = await db
     .prepare(
-      `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt
+      `SELECT player_id AS playerId, mu, sigma, display, rounds, wins, streak, best_streak AS bestStreak, last_played_at AS lastPlayedAt,
+         scale_base_mu AS scaleBaseMu
        FROM ratings WHERE board = ?1 AND player_id IN (SELECT value FROM json_each(?2))`,
     )
     .bind(board, JSON.stringify(playerIds))
@@ -242,7 +243,7 @@ export async function readHistory(db: D1Database, board: string, matchIds: reado
   const { results } = await db
     .prepare(
       `SELECT player_id AS playerId, match_id AS matchId, played_at AS playedAt, mu, sigma, display, rounds, wins,
-         streak, best_streak AS bestStreak
+         streak, best_streak AS bestStreak, scale_base_mu AS scaleBaseMu
        FROM rating_history WHERE board = ?1 AND match_id IN (SELECT value FROM json_each(?2))`,
     )
     .bind(board, JSON.stringify(matchIds))
@@ -266,7 +267,8 @@ export async function readRatingsBefore(
   if (!playerIds.length) return new Map();
   const { results } = await db
     .prepare(
-      `SELECT h.player_id AS playerId, h.mu, h.sigma, h.rounds, h.wins, h.streak, h.best_streak AS bestStreak, h.played_at AS lastPlayedAt
+      `SELECT h.player_id AS playerId, h.mu, h.sigma, h.rounds, h.wins, h.streak, h.best_streak AS bestStreak, h.played_at AS lastPlayedAt,
+         h.scale_base_mu AS scaleBaseMu
        FROM json_each(?2) p CROSS JOIN rating_history h ON h.board = ?1 AND h.player_id = p.value
          AND (h.played_at, h.match_id) = (
            SELECT played_at, match_id FROM rating_history
@@ -387,14 +389,15 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
     statements.push(
       db
         .prepare(
-          `INSERT INTO rating_history (board, player_id, match_id, played_at, mu, sigma, display, rounds, wins, streak, best_streak)
+          `INSERT INTO rating_history (board, player_id, match_id, played_at, mu, sigma, display, rounds, wins, streak, best_streak,
+             scale_base_mu)
            SELECT ?1, e.value ->> 'playerId', e.value ->> 'matchId', e.value ->> 'playedAt', e.value ->> 'mu',
              e.value ->> 'sigma', e.value ->> 'display', e.value ->> 'rounds', e.value ->> 'wins',
-             e.value ->> 'streak', e.value ->> 'bestStreak'
+             e.value ->> 'streak', e.value ->> 'bestStreak', e.value ->> 'scaleBaseMu'
            FROM json_each(?2) e WHERE true
            ON CONFLICT (board, player_id, played_at, match_id) DO UPDATE SET mu = excluded.mu, sigma = excluded.sigma,
              display = excluded.display, rounds = excluded.rounds, wins = excluded.wins, streak = excluded.streak,
-             best_streak = excluded.best_streak`,
+             best_streak = excluded.best_streak, scale_base_mu = excluded.scale_base_mu`,
         )
         .bind(board, JSON.stringify(w.historyUpsert)),
     );
@@ -403,13 +406,14 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
     statements.push(
       db
         .prepare(
-          `INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, wins, streak, best_streak, last_played_at)
+          `INSERT INTO ratings (board, player_id, mu, sigma, display, rounds, wins, streak, best_streak, last_played_at, scale_base_mu)
            SELECT ?1, e.value ->> 'playerId', e.value ->> 'mu', e.value ->> 'sigma', e.value ->> 'display',
-             e.value ->> 'rounds', e.value ->> 'wins', e.value ->> 'streak', e.value ->> 'bestStreak', e.value ->> 'lastPlayedAt'
+             e.value ->> 'rounds', e.value ->> 'wins', e.value ->> 'streak', e.value ->> 'bestStreak', e.value ->> 'lastPlayedAt',
+             e.value ->> 'scaleBaseMu'
            FROM json_each(?2) e WHERE true
            ON CONFLICT (board, player_id) DO UPDATE SET mu = excluded.mu, sigma = excluded.sigma, display = excluded.display,
              rounds = excluded.rounds, wins = excluded.wins, streak = excluded.streak, best_streak = excluded.best_streak,
-             last_played_at = excluded.last_played_at`,
+             last_played_at = excluded.last_played_at, scale_base_mu = excluded.scale_base_mu`,
         )
         .bind(board, JSON.stringify(w.ratingsUpsert)),
     );
@@ -432,14 +436,14 @@ export function writeStatements(db: D1Database, board: string, w: RatingWrites):
  */
 export function leaveBoardStatements(db: D1Database, board: string, matchId: number): D1PreparedStatement[] {
   const players = "SELECT player_id FROM match_players WHERE match_id = ?2";
-  const latest = `SELECT h.mu, h.sigma, h.display, h.rounds, h.wins, h.streak, h.best_streak, h.played_at FROM rating_history h
+  const latest = `SELECT h.mu, h.sigma, h.display, h.rounds, h.wins, h.streak, h.best_streak, h.played_at, h.scale_base_mu FROM rating_history h
     WHERE h.board = ratings.board AND h.player_id = ratings.player_id ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1`;
   const hasHistory = "EXISTS (SELECT 1 FROM rating_history h WHERE h.board = ratings.board AND h.player_id = ratings.player_id)";
   return [
     db.prepare("DELETE FROM rating_history WHERE board = ?1 AND match_id = ?2").bind(board, matchId),
     db
       .prepare(
-        `UPDATE ratings SET (mu, sigma, display, rounds, wins, streak, best_streak, last_played_at) = (${latest})
+        `UPDATE ratings SET (mu, sigma, display, rounds, wins, streak, best_streak, last_played_at, scale_base_mu) = (${latest})
          WHERE board = ?1 AND player_id IN (${players}) AND ${hasHistory}`,
       )
       .bind(board, matchId),
