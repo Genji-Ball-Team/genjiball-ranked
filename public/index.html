@@ -33,11 +33,10 @@
       <h1>Leaderboard <gb-chip data-region-short>EU</gb-chip></h1>
       <gb-search class="find" data-players label="Find a player" hide-label placeholder="Find a player" shortcut="/" min-length="2" delay="250"></gb-search>
     </div>
-    <gb-panel compact class="board-panel">
-      <div id="board" aria-busy="true" aria-label="Leaderboard" data-loading>
-        <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
-      </div>
-    </gb-panel>
+    <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span>Rounds</span><span>Won</span></div>
+    <ol id="list" class="ladder" aria-busy="true" aria-label="Leaderboard" data-loading>
+      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
+    </ol>
     <p id="floor-note" class="note" hidden>A rating of – is still at the bottom of the scale: it starts climbing as the player wins rounds.</p>
     <gb-pager id="pager" class="pager"></gb-pager>
   </main>

@@ -48,14 +48,130 @@ main { flex: 1; padding-block: 32px 48px; }
 .note { margin-block-start: 12px; color: var(--muted); font-size: var(--body-size); text-wrap: pretty; }
 .empty { padding: 24px 16px; color: var(--muted); list-style: none; text-align: center; }
 
-/* Leaderboard */
-#board { display: grid; gap: 4px; }
-#board > gb-skeleton { min-block-size: 36px; }
-/* An inactive player keeps their place, faded back to `muted`. */
-gb-leaderboard tr[data-inactive] > td:nth-child(2) > a { color: var(--muted); }
-gb-leaderboard td.floor { color: var(--muted); font-weight: 400; }
-gb-leaderboard td:nth-child(5) { color: var(--muted); min-inline-size: 3.5ch; }
-.pager { margin-block-start: 16px; }
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+
+/* Leaderboard: the ladder. Rows straight on the page in tier bands, each band's heading pinned while
+   its tier scrolls by. */
+.headline h1 { font-size: var(--display-size); font-stretch: var(--display-width); }
+.cols, .entry {
+  display: grid; grid-template-columns: 3rem minmax(0, 1fr) 5.5rem 5.5rem 4.5rem; gap: 16px; align-items: center;
+}
+.cols {
+  margin-block-start: 24px; padding: 0 12px 4px 16px; color: var(--muted);
+  font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.cols > :nth-child(n + 3), .entry > :nth-child(n + 3) { text-align: end; }
+.ladder { list-style: none; margin: 0; padding: 0; }
+.ladder[data-loading] { display: grid; gap: 6px; }
+.ladder gb-skeleton { min-block-size: 52px; }
+.band {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
+  margin-block-start: 20px; padding: 8px 0 6px; background: var(--bg); color: var(--muted); font-size: 0.8rem;
+}
+.band:first-child { margin-block-start: 0; }
+.band::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+[data-tier="rookie"] { --tier: var(--t-rookie); }
+[data-tier="apprentice"] { --tier: var(--t-apprentice); }
+[data-tier="master"] { --tier: var(--t-master); }
+[data-tier="grandmaster"] { --tier: var(--t-grandmaster); }
+[data-tier="ascendant"] { --tier: var(--t-ascendant); }
+[data-tier="champion"] { --tier: var(--t-champion); }
+[data-tier="sovereign"] { --tier: var(--t-sovereign); }
+.entry {
+  position: relative; padding: 11px 12px 11px 16px; color: var(--fg); text-decoration: none;
+  border-radius: var(--r); -webkit-tap-highlight-color: transparent;
+}
+/* The tier bar: the tier's colour shows here and on the chip, never on text. */
+.entry::before {
+  content: ""; position: absolute; inset-inline-start: 0; inset-block: 8px; width: 3px; border-radius: 2px;
+  background: var(--tier, var(--border));
+}
+/* Hovered, a row steps up to `panel` with a hint of its tier, and its tier bar thickens. */
+a.entry:hover, a.entry:active { background: color-mix(in oklab, var(--tier, var(--panel)) 6%, var(--panel)); }
+a.entry:hover::before { width: 4px; }
+.entry .pos { color: var(--muted); font-size: 1.05rem; font-weight: 600; font-stretch: var(--heading-width); }
+.entry .pos.high { color: var(--fg); font-weight: 700; }
+.who { min-width: 0; }
+.who b {
+  display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere;
+  font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width);
+}
+.who small { display: block; color: var(--muted); font-size: 0.8rem; }
+.who .stats { display: none; }
+.entry .rating { font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); }
+.entry .rating.floor { color: var(--muted); font-weight: 400; }
+.entry.inactive .who b, .entry.inactive .rating { color: var(--muted); }
+.entry.inactive::before { opacity: 0.45; }
+.pager { margin-block-start: 24px; }
+
+/* Titles (titles.ts): God and Demigod keep their place and stand out there instead, the library's
+   title looks (brand.md, Colour) plus the ladder's own sparkles. God is white light: a white rim
+   running round the row, a glowing place and rating, a shimmering name, motes and sparkles. Demigod
+   is dark red: a slower red rim turning the other way and a red haze. Without motion, the rims and
+   glows stay and nothing moves. */
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+a.entry.god, a.entry.demi { isolation: isolate; overflow: hidden; border: 1.5px solid transparent; }
+.entry.god > :not(.fx), .entry.demi > :not(.fx) { position: relative; z-index: 1; }
+a.entry.god::before, a.entry.demi::before { z-index: 2; inset-inline-start: 2px; width: 4px; }
+a.entry.god::before {
+  background: linear-gradient(var(--god-cream), var(--god));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--god-cream) 90%, transparent);
+}
+a.entry.demi::before {
+  background: linear-gradient(var(--demi-hi), var(--demi));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--demi-hi) 75%, transparent);
+}
+.entry > .fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+a.entry.god {
+  --fill: var(--panel); margin-block: 4px;
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--god-cream) 14%, transparent), transparent 80%) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box,
+    conic-gradient(from var(--spin), var(--line) 0 55%, var(--god) 72%, var(--god-rim) 80%, var(--line) 92% 100%) border-box;
+  box-shadow: 0 0 18px color-mix(in oklab, var(--god-cream) 12%, transparent);
+}
+a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
+.entry.god .pos, .entry.god .rating { color: var(--god); text-shadow: 0 0 12px color-mix(in oklab, var(--god-rim) 80%, transparent); }
+.entry.god .name {
+  background: linear-gradient(110deg, var(--god) 0 35%, var(--god-rim) 45%, var(--god) 50%, var(--god-cream) 55%, var(--god) 65% 100%) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fx .mote {
+  position: absolute; width: var(--s); height: var(--s); border-radius: 50%; opacity: 0;
+  background: var(--god-cream); box-shadow: 0 0 6px 2px color-mix(in oklab, var(--god-rim) 60%, transparent);
+}
+.fx .spark {
+  position: absolute; width: 10px; height: 10px; opacity: 0; filter: drop-shadow(0 0 4px var(--god-rim));
+  background: radial-gradient(circle, var(--god) 0 18%, transparent 20%),
+    conic-gradient(transparent 0 40deg, var(--god) 45deg, transparent 50deg 130deg, var(--god) 135deg, transparent 140deg 220deg, var(--god) 225deg, transparent 230deg 310deg, var(--god) 315deg, transparent 320deg);
+  mask: radial-gradient(circle, #000 0 30%, transparent 70%);
+}
+a.entry.demi {
+  --fill: color-mix(in oklab, var(--demi-dark) 17%, var(--bg)); margin-block: 2px;
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--demi) 14%, transparent), transparent 70%) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box,
+    conic-gradient(from var(--spin), var(--demi-dark) 0 35%, var(--demi) 45%, var(--demi-hi) 50%, var(--demi-dark) 60% 85%, var(--demi-deep) 92%, var(--demi-dark) 100%) border-box;
+}
+a.entry.demi:hover, a.entry.demi:active { --fill: color-mix(in oklab, var(--demi-dark) 30%, var(--bg)); }
+.fx .haze { position: absolute; inset: -50% -20%; background: radial-gradient(40% 60% at 50% 50%, color-mix(in oklab, var(--demi) 18%, transparent), transparent 70%); }
+@media (prefers-reduced-motion: no-preference) {
+  a.entry.god { animation: title-spin 4s linear infinite; }
+  a.entry.demi { animation: title-spin 7s linear infinite reverse; }
+  .entry.god .name { animation: title-shimmer 3s linear infinite; }
+  .fx .mote { animation: title-mote var(--t) linear infinite; }
+  .fx .spark { animation: title-twinkle var(--t) ease-in-out infinite; }
+  .fx .haze { animation: title-drift 6s ease-in-out infinite alternate; }
+  @keyframes title-spin { to { --spin: 360deg; } }
+  @keyframes title-shimmer { to { background-position: -200% 0; } }
+  @keyframes title-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
+  @keyframes title-twinkle { 0%, 100% { opacity: 0; scale: 0.2; rotate: 0deg; } 50% { opacity: 1; scale: 1; rotate: 45deg; } }
+  @keyframes title-drift { from { transform: translateX(-30%); } to { transform: translateX(30%); } }
+  a.entry { transition: background-color 0.15s; }
+  .entry::before { transition: width 0.15s; }
+}
 
 /* Footer: one quiet line. */
 .foot {
@@ -109,6 +225,11 @@ gb-leaderboard td:nth-child(5) { color: var(--muted); min-inline-size: 3.5ch; }
   }
   .back gb-icon { inline-size: 24px; block-size: 24px; }
   .headline:has(.back) { justify-content: start; }
+  .headline h1 { font-size: 2rem; }
+  .entry { padding-block: 12px; }
+  .cols, .entry { grid-template-columns: 2.25rem minmax(0, 1fr) 4.5rem; gap: 12px; }
+  .cols > :nth-child(n + 4), .entry > :nth-child(n + 4) { display: none; }
+  .who .stats { display: block; }
 }
 
 /* Motion, played once: a list that's just loaded rises in, the search sheet slides up and back down.
