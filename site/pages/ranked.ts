@@ -16,7 +16,7 @@ function tiers(r: Rules): Html {
   const ladder = [...r.tiers].reverse();
   return html`<section>
     <h2>Tiers</h2>
-    <ol class="ladder">
+    <ol class="tier-ladder">
       ${r.titles.map(
         (t) => html`<li>${titleChip(t.label as TitleName)}<span class="muted">${t.max === 1 ? "One" : num(t.max)} per region, won in the 1v1 tourney</span></li>`,
       )}
