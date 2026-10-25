@@ -222,6 +222,8 @@ h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(-
 .facts b { color: var(--fg); font-stretch: var(--title-width); }
 .facts small { color: var(--muted); font-weight: 400; }
 .graph { margin-block-start: 16px; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
+.chart-dates { display: flex; justify-content: space-between; margin: 4px 0 0; color: var(--muted); font-size: 0.8rem; }
 /* Form: a square a round, its place in it. A win is the only filled one. */
 .form { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0 0; padding: 0; }
 .form a {

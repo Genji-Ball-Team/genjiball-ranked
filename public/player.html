@@ -42,8 +42,12 @@
     <div id="next-tier" class="next-tier"></div>
     <section id="history" hidden>
       <h2>Rating over time</h2>
-      <p id="history-facts" class="facts"></p>
+      <div class="chart-head">
+        <p id="history-facts" class="facts"></p>
+        <gb-segmented id="range" label="Range"><button value="7">7 days</button><button value="30">30 days</button><button value="all">All</button></gb-segmented>
+      </div>
       <gb-rating-chart id="graph" class="graph"></gb-rating-chart>
+      <p id="graph-dates" class="chart-dates num"></p>
       <h2>Form</h2>
       <p id="form-facts" class="facts"></p>
       <ol id="form" class="form"></ol>
