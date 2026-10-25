@@ -371,7 +371,7 @@ export const defaults = {
     "Cardyb",
     "Applebot",
   ] as string[],
-  /** Players a compare page shows at most (site.js's `compareMax`): its link preview names as many. */
+  /** Players a compare page shows at most (`compareMax` in site/pages/compare.ts): its link preview names as many. */
   compareMaxPlayers: 3,
 
   /**
@@ -397,7 +397,7 @@ export const defaults = {
   lobbyBodyMaxBytes: 1024,
   /**
    * How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. The Lobbies page
-   * asks again this often (`lobbiesRefreshMs` in public/site.js): change both.
+   * asks again this often (`lobbiesRefreshMs` in site/pages/live.ts): change both.
    */
   lobbiesCacheSeconds: 15,
   /**

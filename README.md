@@ -43,7 +43,7 @@ Rating recomputation processes 100 matches per run by default, intended for the 
 
 The pages: the leaderboard at `/`, `/player?id=`, `/compare?ids=`, `/match?id=`, `/live` (open lobbies), `/records`, `/tourneys` and `/tourney?id=`. Other paths get the 404 page (`public/404.html`). The admin page is at `/admin` ([api.md](docs/api.md), "Admin").
 
-Links to a player, match or compare page get a title and description of their own in Discord, X and the like: for a link preview crawler (`linkPreviewAgents` in `src/config.ts`) the Worker fills them into the page's meta tags (`src/site/preview.ts`, `run_worker_first` in `wrangler.toml`). The Share button on those pages draws a card of the page in the browser (`public/share.js`), so it costs the server nothing.
+Links to a player, match or compare page get a title and description of their own in Discord, X and the like: for a link preview crawler (`linkPreviewAgents` in `src/config.ts`) the Worker fills them into the page's meta tags (`src/site/preview.ts`, `run_worker_first` in `wrangler.toml`). The Share button on those pages draws a card of the page in the browser (`site/share.ts`), so it costs the server nothing.
 
 ## Tourney screenshot storage
 
@@ -72,7 +72,8 @@ A second deployment for playtests and for trying changes before they reach the r
 |---|---|
 | `src/` | The Worker: API routes, parser, rating engine |
 | `src/config.ts` | Every tunable and its default |
-| `public/` | The website's static files |
+| `site/` | The website in TypeScript on `@genji-ball-team/ui`: a module per page in `site/pages/`, built into `public/build/` by `scripts/build-site.mjs` |
+| `public/` | The website's HTML pages and static files |
 | `migrations/` | D1 schema migrations. Tables and free-tier budget: [docs/database.md](docs/database.md) |
 | `docs/` | [deployment.md](docs/deployment.md) (Cloudflare setup, updating, admins, backups, rollback), [api.md](docs/api.md) (the upload, host token check, admin, site and rank tags APIs, CORS and caching of the public API), [rating.md](docs/rating.md), [database.md](docs/database.md), [legacy.md](docs/legacy.md) (old v1.3.2 logs) |
 | `scripts/` | Node scripts behind the `npm run` commands above (`upload`, `admin:token`, `import:legacy`, `tune:rating`, `ratings:dry-run`, `rebuild:head-to-head`) |

@@ -1,13 +1,18 @@
 /* global URL, URLSearchParams, setTimeout */
-// Run the region head script and the banners with a stubbed page: the ratings banner follows the
-// region the page shows, also one a match page takes after /api/server answered.
+// Run the head script and the banners (site/head.ts and site/lib/banners.ts, bundled here as the
+// build does) with a stubbed page: the ratings banner follows the region the page shows, also one a
+// match page takes after /api/server answered.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import { buildSync } from "esbuild";
 
-const region = readFileSync(new URL("../public/region.js", import.meta.url), "utf8");
-const banner = readFileSync(new URL("../public/banner.js", import.meta.url), "utf8");
+const bundle = (file, options = {}) =>
+  buildSync({ entryPoints: [fileURLToPath(new URL(file, import.meta.url))], bundle: true, format: "iife", write: false, ...options })
+    .outputFiles[0].text;
+const head = bundle("../site/head.ts");
+const banners = bundle("../site/lib/banners.ts", { globalName: "banners" });
 const regions = [{ id: "eu", label: "Europe" }, { id: "na", label: "North America" }];
 
 // The body's paragraphs, top first, as `class: text`.
@@ -38,7 +43,7 @@ function page(server) {
     document,
     fetch: async () => ({ ok: true, json: async () => ({ regions, ...server }) }),
   };
-  const site = runInNewContext(`${region}\n${banner}\nsite;`, context);
+  const site = runInNewContext(`var window = globalThis;\n${head}\n${banners}\nbanners.showBanners(window.gbSite);\nwindow.gbSite;`, context);
   return { site, shown: () => body.map((p) => `${p.className}: ${p.textContent}`) };
 }
 

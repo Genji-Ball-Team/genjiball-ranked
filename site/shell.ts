@@ -10,10 +10,11 @@ import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/skeleton.js";
 import type { GbSearch, SearchQuery } from "@genji-ball-team/ui/search.js";
 import { api, inRegion, playerLink } from "./lib/api";
+import { showBanners } from "./lib/banners";
 import { rating, tierName } from "./lib/format";
 import { html, raw, render } from "./lib/html";
 import { site } from "./lib/site";
-import type { FoundPlayers, Server } from "./lib/types";
+import type { FoundPlayers } from "./lib/types";
 
 /** The pages whose region goes in the URL, so a shared link opens the same view. */
 const pinned = ["leaderboard", "player", "compare", "live", "records", "tourneys"];
@@ -40,32 +41,6 @@ function drawRegions(): void {
         html`<a href="${site.link(r.id)}" title="${r.label}"${r.id === site.region && raw(' aria-current="true"')}>${site.short(r.id)}</a>`,
     )}`,
   );
-}
-
-// Banners above the header, from /api/server: on the test server, so its ratings aren't taken for
-// the real ones, and while this region's ratings are being recomputed (docs/rating.md, "Ratings in
-// the database"). The test server's stays on top.
-let server: Server | null = null;
-function banner(className: string, text: string | null): void {
-  let p = document.querySelector(`body > .${className}`);
-  if (text === null) return p?.remove();
-  if (!p) {
-    p = document.createElement("p");
-    p.className = className;
-    const test = document.querySelector("body > .test-banner");
-    if (test) test.after(p);
-    else document.body.prepend(p);
-  }
-  p.textContent = text;
-}
-function drawBanners(): void {
-  if (!server) return;
-  const updating = server.ratingsUpdating.includes(site.region);
-  banner(
-    "updating-banner",
-    updating ? `${site.label(site.region)} ratings are being recalculated. Some numbers may not match until it's done.` : null,
-  );
-  banner("test-banner", server.testServer ? "Test server: ratings here aren't real." : null);
 }
 
 /** Makes a `<gb-search>` find players in this page's region (`/api/players?search=`). */
@@ -228,13 +203,7 @@ export function start(page: string, fill: () => Promise<void> | void): void {
   if (pinned.includes(page)) site.pin();
   drawRegions();
   site.watch(drawRegions);
-  site.watch(drawBanners);
-  site.server
-    .then((answer) => {
-      server = answer;
-      drawBanners();
-    })
-    .catch(() => {});
+  showBanners(site);
   for (const search of document.querySelectorAll<GbSearch>("gb-search[data-players]")) findPlayers(search);
   tabBar(page);
   backButton();
