@@ -495,8 +495,8 @@ What the host tool builds the game's `RANKS - generated` rule from (GenjiBall-CE
   "header": "Ranks updated 2026-10-03",
   "updatedAt": "2026-10-03T12:00:00Z",
   "tiers": [
-    { "label": "Apprentice", "color": [205, 127, 50, 255], "guide": "Apprentice - 1300", "names": ["Kenzo"] },
-    { "label": "Master", "color": [255, 215, 0, 255], "guide": "Master - 1600", "names": [] }
+    { "label": "Apprentice", "color": [207, 131, 88, 255], "guide": "Apprentice - 1300", "names": ["Kenzo"] },
+    { "label": "Master", "color": [232, 211, 79, 255], "guide": "Master - 1600", "names": [] }
   ]
 }
 ```

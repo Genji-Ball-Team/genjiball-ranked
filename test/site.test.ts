@@ -58,19 +58,19 @@ describe("standing", () => {
 
   it("gives the tier only from minRankedRounds rated rounds", () => {
     expect(standing({ display: 1700, rounds: 9, lastPlayedAt: null }, config, now).tier).toBeNull();
-    expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Master", color: [255, 215, 0], threshold: 1600 });
+    expect(standing({ display: 1700, rounds: 10, lastPlayedAt: null }, config, now).tier).toEqual({ label: "Master", color: [232, 211, 79], threshold: 1600 });
     // Rookie is the site's only: the game's tier (`tier`, which the host tool colours the top 10 by) stays null.
     expect(standing({ display: 1299, rounds: 10, lastPlayedAt: null }, config, now)).toMatchObject({
       tier: null,
-      siteTier: { label: "Rookie", color: [126, 224, 200], threshold: 1000 },
+      siteTier: { label: "Rookie", color: [143, 211, 202], threshold: 1000 },
     });
     expect(standing({ display: 1300, rounds: 10, lastPlayedAt: null }, config, now).siteTier?.label).toBe("Apprentice");
     expect(standing({ display: 999, rounds: 10, lastPlayedAt: null }, config, now).siteTier).toBeNull();
   });
 
   it("gives the next tier up, none at the top", () => {
-    expect(nextTier(0, config.tiers)).toEqual({ label: "Rookie", color: [126, 224, 200], threshold: 1000 });
-    expect(nextTier(1000, config.tiers)).toEqual({ label: "Apprentice", color: [205, 127, 50], threshold: 1300 });
+    expect(nextTier(0, config.tiers)).toEqual({ label: "Rookie", color: [143, 211, 202], threshold: 1000 });
+    expect(nextTier(1000, config.tiers)).toEqual({ label: "Apprentice", color: [207, 131, 88], threshold: 1300 });
     expect(nextTier(1600, config.tiers)?.label).toBe("Grandmaster");
     expect(nextTier(1599, config.tiers)?.label).toBe("Master");
     expect(nextTier(2800, config.tiers)).toBeNull();
@@ -246,7 +246,7 @@ describe("player search", () => {
     ]);
     const { players: found } = await search("KENZO");
     expect(found.map((p) => p.id)).toEqual([1, 2, 3, 4, 5]);
-    expect(found[0]).toEqual({ id: 1, name: "Kenzo", rating: 1200, tier: null, siteTier: { label: "Rookie", color: [126, 224, 200], threshold: 1000 }, matchedAlias: null });
+    expect(found[0]).toEqual({ id: 1, name: "Kenzo", rating: 1200, tier: null, siteTier: { label: "Rookie", color: [143, 211, 202], threshold: 1000 }, matchedAlias: null });
     expect(found[1]!.tier?.label).toBe("Master");
     expect(found[4]).toMatchObject({ rating: null, tier: null });
   });
