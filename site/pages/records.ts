@@ -53,7 +53,7 @@ const playedOn = (r: RecordEntry): Html | "" =>
 // The records, in the order the page shows them: what it is, the value as shown, and where it was set.
 const recordList: { key: string; label: string; show: (r: RecordEntry) => string; where: (r: RecordEntry) => Html | string }[] = [
   { key: "highestRating", label: "Highest rating", show: (r) => rating(r.value), where: (r) => html`after the match of ${playedOn(r)}` },
-  { key: "winStreak", label: "Longest win streak", show: (r) => num(r.value), where: () => "rated rounds won in a row" },
+  { key: "winStreak", label: "Longest win streak", show: (r) => num(r.value), where: () => "" },
   { key: "matchWins", label: "Most rounds won in a match", show: (r) => num(r.value), where: playedOn },
   { key: "matchKills", label: "Most kills in a match", show: (r) => num(r.value), where: playedOn },
   { key: "roundDeflects", label: "Most deflects in a round", show: (r) => num(r.value), where: (r) => html`round ${r.round}, ${playedOn(r)}` },
@@ -63,18 +63,20 @@ const recordList: { key: string; label: string; show: (r: RecordEntry) => string
     show: (r) => num(Math.round(r.value)),
     where: (r) => html`ball speed in m/s, round ${r.round}, ${playedOn(r)}`,
   },
-  { key: "mostWins", label: "Most rounds won", show: (r) => num(r.value), where: () => "rated rounds, all time" },
-  { key: "mostRounds", label: "Most rounds played", show: (r) => num(r.value), where: () => "rated rounds, all time" },
+  { key: "mostWins", label: "Most rounds won", show: (r) => num(r.value), where: () => "" },
+  { key: "mostRounds", label: "Most rounds played", show: (r) => num(r.value), where: () => "" },
 ];
 
-/** The records that exist, each as a row: the record, its value in gold (earned), who set it, then the next best. */
+/** The records that exist, each as a tile: the record, its value in gold (earned) and who set it, then the next best. */
 function recordRows(d: Records, lists: RecordLists, empty: string): Html {
   const set = recordList.filter((r) => lists[r.key]?.length);
   if (!set.length) return html`<li><gb-empty>${d.updatedAt ? empty : "The records are being counted. Check back in an hour."}</gb-empty></li>`;
   return html`${set.map(({ key, label, show, where }) => {
     const [r, ...rest] = lists[key]!;
-    return html`<li><span class="what">${label}</span><b class="value num">${show(r!)}</b>
-      <span class="who"><a href="${playerLink(r!.player.id)}">${r!.player.name}</a><small>${where(r!)}</small></span>
+    const at = where(r!);
+    return html`<li><span class="what">${label}</span>
+      <span class="top"><b class="value num">${show(r!)}</b><a class="who" href="${playerLink(r!.player.id)}">${r!.player.name}</a></span>
+      ${at && html`<small class="where">${at}</small>`}
       ${rest.length > 0 && html`<ol class="runners" start="2">${rest.map((o) => html`<li><a href="${playerLink(o.player.id)}">${o.player.name}</a><span class="num">${show(o)}</span></li>`)}</ol>`}</li>`;
   })}`;
 }
