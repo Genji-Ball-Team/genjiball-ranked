@@ -212,7 +212,8 @@ async function tourneyPage(): Promise<void> {
       site.label(t.region),
       t.lobbies.length > 0 && count(t.lobbies.length, "lobby", "lobbies"),
     ];
-    render(byId("facts"), html`${facts.filter(Boolean).map((f) => html`<li>${f}</li>`)}`);
+    const won = t.winner && html`<li class="won">${cup}Won by <a href="${playerLink(t.winner.id)}">${t.winner.name}</a></li>`;
+    render(byId("facts"), html`${won}${facts.filter(Boolean).map((f) => html`<li>${f}</li>`)}`);
     byId("notes").textContent = t.notes ?? "";
     const upcoming = t.status === "scheduled" || t.status === "live";
     if (upcoming) signupSection(t);

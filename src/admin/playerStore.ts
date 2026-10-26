@@ -31,9 +31,11 @@ import { matchPairsInsert } from "../upload/pairs";
  *   matches whose rows moved from their rounds and events (`src/upload/pairs.ts`); deleting the old
  *   rows takes them out of the totals and inserting the new adds them, so `pair_stats` follows.
  * - `merge`: the merges' own bookkeeping, which a merge doesn't move.
+ * - `followed`: an admin's pick of a player (a tourney's winner). Left as it is: reads follow
+ *   `players.merged_into` to the player it is now (`resolvePlayers`), so an undo needs nothing either.
  */
 export type PlayerIdColumn =
-  | { table: string; column: string; kind: "aliases" | "matchPlayers" | "derived" | "pairs" | "merge" }
+  | { table: string; column: string; kind: "aliases" | "matchPlayers" | "derived" | "pairs" | "merge" | "followed" }
   | { table: string; column: string; kind: "perMatch"; matchOf: string; logOf: string };
 
 export const playerIdColumns: readonly PlayerIdColumn[] = [
@@ -55,6 +57,7 @@ export const playerIdColumns: readonly PlayerIdColumn[] = [
   { table: "players", column: "merged_into", kind: "merge" },
   { table: "player_merges", column: "from_id", kind: "merge" },
   { table: "player_merges", column: "into_id", kind: "merge" },
+  { table: "tourneys", column: "winner_player_id", kind: "followed" },
 ];
 
 export interface AliasRow {

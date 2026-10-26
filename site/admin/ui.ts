@@ -276,8 +276,8 @@ export function ask<R = Values>(options: AskOptions<R>): Promise<R | null> {
 export const confirmAction = (title: string, text: string, action: string, danger = true): Promise<boolean> =>
   confirmDialog({ title, text, action, danger });
 
-/** A player search to pick another player (merges): the id of the one picked. */
-export function playerPicker(excludeId: number): { el: HTMLElement; get: () => string } {
+/** A player search to pick another player (merges, a tourney's winner): the id of the one picked. */
+export function playerPicker(excludeId: number | null, label = "Merge into"): { el: HTMLElement; get: () => string } {
   let picked = "";
   const results = h("div", { class: "picks", role: "radiogroup", "aria-label": "Players" });
   const input = h("input", { type: "search", placeholder: "Name or old name", autocomplete: "off" });
@@ -302,7 +302,7 @@ export function playerPicker(excludeId: number): { el: HTMLElement; get: () => s
                     h("span", null, h("b", null, p.name), h("small", null, ` #${p.id}`)),
                   ),
                 )
-              : [empty("No other player has that name.")]),
+              : [empty(excludeId === null ? "No player has that name." : "No other player has that name.")]),
           );
         } catch (e) {
           results.replaceChildren(h("p", { class: "error" }, messageOf(e)));
@@ -310,7 +310,7 @@ export function playerPicker(excludeId: number): { el: HTMLElement; get: () => s
       })();
     }, 250);
   });
-  return { el: h("div", { class: "form-row" }, h("gb-field", { label: "Merge into" }, input), results), get: () => picked };
+  return { el: h("div", { class: "form-row" }, h("gb-field", { label }, input), results), get: () => picked };
 }
 
 /** A screenshot, full size, over the page. */

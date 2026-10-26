@@ -54,6 +54,8 @@ export interface AdminTourney {
   capacity: number;
   signups: { count: number; open: boolean };
   lobbies: Lobby[];
+  winnerId: number | null;
+  winner: { id: number; name: string } | null;
 }
 
 export interface Signup {

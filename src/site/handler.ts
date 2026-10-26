@@ -7,7 +7,7 @@ import { capacityOf } from "../tourney/code";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
 import { countSignups, listSignupNames } from "../tourney/signupStore";
 import { signupSummary } from "../tourney/signups";
-import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
+import { countTourneyWins, findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, resolvePlayers, type LobbyRow, type TourneyRow } from "../tourney/store";
 import { noMonthRecords, noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
@@ -21,6 +21,7 @@ import {
   findMatchDetail,
   findCanonicalIds,
   findCanonicalPlayer,
+  findEliminations,
   findPlayerStats,
   findRating,
   latestFeedSeq,
@@ -302,11 +303,12 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
 async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
   const found = await findCanonicalPlayer(db, id);
   if (!found) return null;
-  const [rating, recent, rated, rivals] = await Promise.all([
+  const [rating, recent, rated, rivals, tourneyWins] = await Promise.all([
     findRating(db, region.id, found.id),
     playerMatches(db, config, region, found.id, null),
     listRatedRegions(db, found.id, regionIds(config.regions)),
     listRivals(db, region.id, found.id, config.playerRivalsLimit),
+    countTourneyWins(db, region.id, found.id),
   ]);
   // An alt is rated, but has no place on the leaderboard.
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds && !found.alt;
@@ -327,6 +329,7 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
     matches: recent.matches,
     moreMatches: recent.hasMore,
     ...rivals,
+    tourneyWins,
   };
 }
 
@@ -418,9 +421,16 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
 async function stats(db: D1Database, region: Region, requested: number) {
   const found = await findCanonicalPlayer(db, requested);
   if (!found) return null;
-  const totals = await findPlayerStats(db, region.id, found.id);
-  return { region: region.id, player: { id: found.id, name: found.name }, stats: totals };
+  const [totals, eliminations, tourneyWins] = await Promise.all([
+    findPlayerStats(db, region.id, found.id),
+    findEliminations(db, region.id, found.id),
+    countTourneyWins(db, region.id, found.id),
+  ]);
+  return { region: region.id, player: { id: found.id, name: found.name }, stats: { ...totals, eliminations, kd: kd(eliminations), tourneyWins } };
 }
+
+/** Kills on other players a death by one, to 2 decimals; with no death yet, the kills alone (#124). */
+const kd = ({ kills, deaths }: { kills: number; deaths: number }): number => Math.round((deaths ? kills / deaths : kills) * 100) / 100;
 
 /** The region's records page, as the cron last stored it; empty before the first refresh. */
 async function records(db: D1Database, config: SiteConfig, region: Region, now: Date) {
@@ -583,10 +593,11 @@ async function tourney(db: D1Database, config: SiteConfig, id: number) {
  */
 async function tourneyViews(db: D1Database, config: SiteConfig, list: TourneyRow[], withNames = false) {
   const ids = list.map((t) => t.id);
-  const [lobbies, signups, names] = await Promise.all([
+  const [lobbies, signups, names, winners] = await Promise.all([
     listLobbies(db, ids),
     countSignups(db, ids),
     withNames && list.length === 1 ? listSignupNames(db, list[0]!.id) : null,
+    resolvePlayers(db, list.flatMap((t) => (t.status === "done" && t.winnerId !== null ? [t.winnerId] : []))),
   ]);
   const standings = await readStandings(
     db,
@@ -609,7 +620,9 @@ async function tourneyViews(db: D1Database, config: SiteConfig, list: TourneyRow
     const own = lobbies.filter((l) => l.tourneyId === t.id).map(lobbyView);
     const capacity = own.reduce((sum, l) => sum + l.capacity, 0);
     const summary = signupSummary(t.status, signups.get(t.id) ?? 0, capacity);
-    return { ...t, capacity, signups: names ? { ...summary, names } : summary, lobbies: own };
+    const { winnerId, ...shown } = t;
+    const winner = t.status === "done" && winnerId !== null ? (winners.get(winnerId) ?? null) : null;
+    return { ...shown, winner, capacity, signups: names ? { ...summary, names } : summary, lobbies: own };
   });
 }
 

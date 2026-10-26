@@ -43,7 +43,7 @@ interface HeadToHead {
 }
 
 /** Everything compare shows of one player in this region. */
-type Compared = PlayerPage["player"] & Pick<PlayerPage, "eliminations"> & { history: History; stats: Stats };
+type Compared = PlayerPage["player"] & Pick<PlayerPage, "eliminations" | "tourneyWins"> & { history: History; stats: Stats };
 
 const compared = new Map<number, Promise<Compared>>();
 
@@ -56,7 +56,13 @@ function comparedPlayer(id: number): Promise<Compared> {
       api<PlayerPage>(`${path}?${inRegion()}`),
       api<History>(`${path}/history?${inRegion()}`),
       api<{ stats: Stats }>(`${path}/stats?${inRegion()}`),
-    ]).then(([player, history, stats]) => ({ ...player.player, eliminations: player.eliminations, history, stats: stats.stats }));
+    ]).then(([player, history, stats]) => ({
+      ...player.player,
+      eliminations: player.eliminations,
+      tourneyWins: player.tourneyWins,
+      history,
+      stats: stats.stats,
+    }));
     // A failed fetch isn't kept, so adding the player again tries again.
     loading.catch(() => compared.delete(id));
     compared.set(id, loading);
@@ -123,6 +129,7 @@ const rows: Row[] = [
     show: fixed2,
     better: 1,
   },
+  { label: "Tourney wins", tip: "Tourneys in this region they won", value: (p) => p.tourneyWins || null, better: 1 },
   { label: "Peak rating", value: (p) => p.history.peak?.rating ?? null, show: rating, better: 1 },
   {
     label: "Best win streak",

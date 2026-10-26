@@ -16,6 +16,7 @@ import {
   isLobbyKeyTaken,
   listAllTourneys,
   listLobbies,
+  resolvePlayers,
   setVerified,
   tournamentStatement,
   tourneyStatuses,
@@ -80,12 +81,17 @@ export async function handleTourneyAdmin(ctx: Context, request: Request, path: s
 async function listTourneys(ctx: Context): Promise<Response> {
   const tourneys = await listAllTourneys(ctx.db, ctx.config.adminListLimit);
   const ids = tourneys.map((t) => t.id);
-  const [lobbies, counts] = await Promise.all([listLobbies(ctx.db, ids), countSignups(ctx.db, ids)]);
+  const [lobbies, counts, winners] = await Promise.all([
+    listLobbies(ctx.db, ids),
+    countSignups(ctx.db, ids),
+    resolvePlayers(ctx.db, tourneys.flatMap((t) => (t.winnerId === null ? [] : [t.winnerId]))),
+  ]);
   return Response.json({
     tourneys: tourneys.map((t) => {
       const own = lobbies.filter((l) => l.tourneyId === t.id).map((l) => lobbyView(ctx, l));
       const capacity = own.reduce((sum, l) => sum + l.capacity, 0);
-      return { ...t, capacity, signups: signupSummary(t.status, counts.get(t.id) ?? 0, capacity), lobbies: own };
+      const winner = t.winnerId === null ? null : (winners.get(t.winnerId) ?? null);
+      return { ...t, winner, capacity, signups: signupSummary(t.status, counts.get(t.id) ?? 0, capacity), lobbies: own };
     }),
   });
 }
@@ -124,13 +130,16 @@ async function removeSignup(ctx: Context, id: number, data: Record<string, unkno
 /** `POST /api/admin/tourneys` with `{ name, region, startsAt, notes?, status? }`. */
 async function addTourney(ctx: Context, data: Record<string, unknown>): Promise<Response> {
   const fields = tourneyFields(ctx, data, null);
+  const noWinner = await checkWinner(ctx, fields, null);
+  if (noWinner) return noWinner;
   const tourney = await createTourney(
     ctx.db,
     fields,
     log(ctx, "tourney_create", { name: fields.name, region: fields.region, startsAt: fields.startsAt }),
   );
   ctx.log.info("admin: tourney created", { admin: ctx.admin.id, tourney: tourney.id });
-  return Response.json({ tourney: { ...tourney, lobbies: [] } }, { status: 201 });
+  const winner = fields.winnerId === null ? null : ((await resolvePlayers(ctx.db, [fields.winnerId])).get(fields.winnerId) ?? null);
+  return Response.json({ tourney: { ...tourney, winner, lobbies: [] } }, { status: 201 });
 }
 
 /** `POST /api/admin/tourneys/:id`: changes the fields that are sent. The region only while no lobby has a match. */
@@ -138,12 +147,16 @@ async function editTourney(ctx: Context, id: number, data: Record<string, unknow
   const tourney = await findTourney(ctx.db, id);
   if (!tourney) return fail(404, "not_found", "No such tourney");
   const fields = tourneyFields(ctx, data, tourney);
+  const noWinner = await checkWinner(ctx, fields, tourney);
+  if (noWinner) return noWinner;
   if (fields.region !== tourney.region && (await listLobbies(ctx.db, [id])).some((l) => l.matchId !== null)) {
     return fail(409, "conflict", "Unlink the lobbies' matches before moving the tourney to another region");
   }
   await updateTourney(ctx.db, id, fields, log(ctx, "tourney_edit", { tourney: id, ...changes(tourney, fields) }));
   ctx.log.info("admin: tourney edited", { admin: ctx.admin.id, tourney: id });
-  return Response.json({ tourney: { ...tourney, ...fields, lobbies: (await listLobbies(ctx.db, [id])).map((l) => lobbyView(ctx, l)) } });
+  const [lobbies, winners] = await Promise.all([listLobbies(ctx.db, [id]), resolvePlayers(ctx.db, fields.winnerId === null ? [] : [fields.winnerId])]);
+  const winner = fields.winnerId === null ? null : (winners.get(fields.winnerId) ?? null);
+  return Response.json({ tourney: { ...tourney, ...fields, winner, lobbies: lobbies.map((l) => lobbyView(ctx, l)) } });
 }
 
 /**
@@ -367,12 +380,27 @@ function tourneyFields(ctx: Context, data: Record<string, unknown>, from: Tourne
   const status = data.status === undefined ? (from?.status ?? "scheduled") : data.status;
   if (!(tourneyStatuses as unknown[]).includes(status)) throw new BadRequest(`status must be one of ${tourneyStatuses.join(", ")}`);
   const notes = data.notes === undefined && from ? from.notes : text(data.notes, ctx.config, "notes", ctx.config.tourneyNotesMaxLength);
-  return { name, region, startsAt: startsAt!, status: status as TourneyStatus, notes };
+  let winnerId = from?.winnerId ?? null;
+  if (data.winnerId !== undefined) {
+    if (data.winnerId !== null && !(Number.isSafeInteger(data.winnerId) && (data.winnerId as number) > 0)) {
+      throw new BadRequest("winnerId must be a player id or null");
+    }
+    winnerId = data.winnerId as number | null;
+  }
+  // Only a played tourney has a winner: clear it before the tourney goes back to scheduled or live.
+  if (winnerId !== null && status !== "done") throw new BadRequest("Only a done tourney has a winner: clear winnerId first");
+  return { name, region, startsAt: startsAt!, status: status as TourneyStatus, notes, winnerId };
+}
+
+/** The winner sent is a player (a merged one counts as the player it went into, when read). */
+async function checkWinner(ctx: Context, fields: TourneyFields, from: TourneyFields | null): Promise<Response | null> {
+  if (fields.winnerId === null || fields.winnerId === from?.winnerId) return null;
+  return (await resolvePlayers(ctx.db, [fields.winnerId])).has(fields.winnerId) ? null : fail(404, "not_found", "No such player");
 }
 
 /** What an edit changed, for the action log. */
 function changes(from: TourneyFields, to: TourneyFields): Record<string, unknown> {
-  const keys = (["name", "region", "startsAt", "status", "notes"] as const).filter((k) => from[k] !== to[k]);
+  const keys = (["name", "region", "startsAt", "status", "notes", "winnerId"] as const).filter((k) => from[k] !== to[k]);
   return Object.fromEntries(keys.map((k) => [k, { from: from[k], to: to[k] }]));
 }
 

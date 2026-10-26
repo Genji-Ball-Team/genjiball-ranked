@@ -744,6 +744,18 @@ export async function listRivals(
   };
 }
 
+/**
+ * The player's kills on other players and deaths by another player's kill in the region, summed over
+ * their `pair_stats` rows as `listRivals` does, so the K/D on the stats route is the player page's.
+ */
+export async function findEliminations(db: D1Database, board: string, playerId: number): Promise<{ kills: number; deaths: number }> {
+  const row = await db
+    .prepare("SELECT coalesce(sum(kills), 0) AS kills, coalesce(sum(deaths), 0) AS deaths FROM pair_stats WHERE region = ?1 AND player_id = ?2")
+    .bind(board, playerId)
+    .first<{ kills: number; deaths: number }>();
+  return row ?? { kills: 0, deaths: 0 };
+}
+
 export interface PlayerStatsRow {
   /** Rated rounds the player finished (`position` set) in the region's accepted matches. */
   rounds: number;

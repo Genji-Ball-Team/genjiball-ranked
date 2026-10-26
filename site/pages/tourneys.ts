@@ -46,7 +46,10 @@ function upcomingItem(t: Tourney): Html {
 }
 
 function pastItem(t: Tourney): Html {
-  const results = t.lobbies
+  // The tourney's winner when an admin set one, else each lobby's.
+  const results = t.winner
+    ? [html`<span class="winner">${cup}<b>${t.winner.name}</b><small>Tourney winner</small></span>`]
+    : t.lobbies
     .filter((l) => l.standings.length)
     .map((l) => {
       const won = winners(l);

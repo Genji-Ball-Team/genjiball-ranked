@@ -78,7 +78,7 @@ function progress(r: PlayerRating, next: Tier): Html {
 
 const fact = (label: string, value: Html | string | number): Html => html`<span>${label} <b class="num">${value}</b></span>`;
 
-function figures(r: PlayerRating, e: PlayerPage["eliminations"]): Html {
+function figures(r: PlayerRating, e: PlayerPage["eliminations"], tourneyWins: number): Html {
   const figure = (label: string, value: string, tip?: string) =>
     html`<div${tip && html` title="${tip}"`}><dt>${label}</dt><dd class="num">${value}</dd></div>`;
   return html`${figure("Rating", rating(r.rating))}${figure("Rank", r.rank ? num(r.rank) : "–")}${figure(
@@ -88,7 +88,7 @@ function figures(r: PlayerRating, e: PlayerPage["eliminations"]): Html {
     "K/D",
     killDeath(e.kills, e.deaths),
     `${count(e.kills, "kill")} on other players, ${count(e.deaths, "death")} by one (falls not counted)`,
-  )}`;
+  )}${tourneyWins > 0 && figure("Tourney wins", num(tourneyWins))}`;
 }
 
 /** One line about the player: inactive, an alt, not on the board yet, rated elsewhere, other names. */
@@ -258,7 +258,7 @@ async function playerPage(): Promise<void> {
     () => [],
   );
   try {
-    const { player: p, matches, moreMatches, mostEliminated, mostEliminatedBy, eliminations } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
+    const { player: p, matches, moreMatches, mostEliminated, mostEliminatedBy, eliminations, tourneyWins } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
     const r = p.rating;
     title(`${p.name} (${site.short(site.region)})`);
     byId("name").textContent = p.name;
@@ -266,7 +266,7 @@ async function playerPage(): Promise<void> {
     byId("alt").hidden = !p.alt;
     render(byId("tier"), html`${r && tierChip(r.siteTier)}`);
     render(byId("about"), about(p));
-    render(byId("stats"), r ? figures(r, eliminations) : html``);
+    render(byId("stats"), r ? figures(r, eliminations, tourneyWins) : html``);
     const next = byId("next-tier");
     if (r?.rank && r.nextTier) render(next, progress(r, r.nextTier));
     else next.hidden = true;

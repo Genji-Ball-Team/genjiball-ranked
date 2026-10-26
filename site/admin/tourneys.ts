@@ -4,7 +4,7 @@ import { h, count, localInput, longTime, time } from "./dom";
 import { api, app, currentRoute, hosts, post, regionLabel, regionOptions, setQuery, staleNote } from "./state";
 import type { AdminTourney, Lobby, Signup } from "./types";
 import {
-  ask, btn, chip, confirmAction, crumb, empty, head, lede, lightbox, matchPreview, notFound, notify, run, section, seg, statusChip,
+  ask, btn, chip, confirmAction, crumb, empty, head, lede, lightbox, matchPreview, notFound, notify, playerPicker, run, section, seg, statusChip,
   table, type FieldSpec, type View,
 } from "./ui";
 
@@ -138,13 +138,22 @@ export const tourneyView: View = async (view, [id]) => {
       seg(
         ["scheduled", "live", "done", "cancelled"].map((s): [string, string] => [s, s[0]!.toUpperCase() + s.slice(1)]),
         t.status,
-        (status) => (status === t.status ? undefined : run(t.name, () => post(`tourneys/${t.id}`, { status }).then(() => `${t.name} is ${status}.`))),
+        // Only a done tourney has a winner: leaving done clears it.
+        (status) =>
+          status === t.status
+            ? undefined
+            : run(t.name, () =>
+                post(`tourneys/${t.id}`, { status, ...(t.winner && status !== "done" ? { winnerId: null } : {}) }).then(
+                  () => `${t.name} is ${status}${t.winner && status !== "done" ? `, and ${t.winner.name} is no longer its winner` : ""}.`,
+                ),
+              ),
         "Status",
       ),
       h("span", { class: "muted" }, regionLabel(t.region), " · ", longTime(t.startsAt), " (", time(t.startsAt), ")"),
     ),
   );
   if (t.notes) view.append(lede(t.notes));
+  if (t.status === "done") view.append(winnerRow(t));
 
   const over = t.signups.count - t.capacity;
   view.append(section("Lobbies", btn("Add a lobby", () => addLobby(t), over > 0 ? { variant: "primary" } : {})));
@@ -158,6 +167,39 @@ export const tourneyView: View = async (view, [id]) => {
   );
   view.append(signupSection(t, signups));
 };
+
+/** A done tourney's winner: shown on the public pages and counted on the player's page. */
+function winnerRow(t: AdminTourney): HTMLElement {
+  const pick = btn(
+    t.winner ? "Change" : "Set the winner",
+    async () => {
+      const res = await ask({
+        title: `Winner of ${t.name}`,
+        fields: [{ name: "winnerId", render: () => playerPicker(null, "Winner") }],
+        ok: "Save",
+        submit: ({ winnerId }) => {
+          if (!winnerId) throw new Error("Pick the player who won.");
+          return post<{ tourney?: AdminTourney }>(`tourneys/${t.id}`, { winnerId: Number(winnerId) });
+        },
+      });
+      if (res) {
+        notify(`${res.tourney?.winner?.name ?? "The winner"} won ${t.name}.`);
+        await app.refresh();
+      }
+    },
+    { small: true, variant: t.winner ? undefined : "primary" },
+  );
+  const clear = t.winner
+    ? btn("Clear", () => run(t.name, () => post(`tourneys/${t.id}`, { winnerId: null }).then(() => `${t.name} has no winner.`)), { small: true, variant: "ghost" })
+    : null;
+  return h(
+    "div",
+    { class: "toolbar" },
+    h("span", null, "Winner: ", t.winner ? h("a", { href: `#/players/${t.winner.id}` }, h("b", null, t.winner.name)) : h("span", { class: "faint" }, "Not set")),
+    pick,
+    clear,
+  );
+}
 
 async function addLobby(t: AdminTourney): Promise<void> {
   const hostList = (await hosts()).filter((x) => x.trust !== "revoked");

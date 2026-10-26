@@ -254,7 +254,7 @@ describe("players: merge", () => {
     const page = await response!.json<{ player: { id: number }; matches: unknown[] }>();
     expect(page.player.id).toBe(alpha);
     expect(page).toEqual(await get(`players/${alpha}?region=eu`));
-    expect(queries).toBe(7); // The player (merges followed), rating, matches and their places, regions, rivals (#18) and rank.
+    expect(queries).toBe(8); // The player (merges followed), rating, matches and their places, regions, rivals (#18), rank and tourney wins (#124).
   });
 
   it("refuses a shared round uploaded after the check, and rolls back the merge and action", async () => {

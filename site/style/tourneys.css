@@ -33,6 +33,8 @@
   gb-chip.unverified { --chip: var(--muted); }
 
   #facts { list-style: none; padding: 0; }
+  #facts .won { display: flex; align-items: center; gap: 6px; }
+  #facts .won a { color: var(--gold); font-weight: var(--title-weight); font-stretch: var(--title-width); }
 
   /* A tourney: sign-ups in a panel, the count against the places, a box for a name, the names as pills. */
   .signup-count { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; max-width: 26rem; }

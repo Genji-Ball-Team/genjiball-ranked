@@ -49,6 +49,8 @@ export interface Tourney {
   capacity: number;
   signups: Signups;
   lobbies: Lobby[];
+  /** Who won the whole tourney, set by an admin once it's done. */
+  winner: { id: number; name: string } | null;
 }
 
 /** `GET /api/tourneys`. */

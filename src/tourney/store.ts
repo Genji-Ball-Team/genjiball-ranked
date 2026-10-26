@@ -22,6 +22,8 @@ export interface TourneyRow {
   startsAt: string;
   status: TourneyStatus;
   notes: string | null;
+  /** The player an admin set as its winner (#124), only once it's done; maybe merged since (`resolvePlayers`). */
+  winnerId: number | null;
 }
 
 export interface LobbyRow {
@@ -52,7 +54,7 @@ export interface LobbyRow {
   verifiedBy: string | null;
 }
 
-const tourneyColumns = "id, name, region, starts_at AS startsAt, status, notes";
+const tourneyColumns = "id, name, region, starts_at AS startsAt, status, notes, winner_player_id AS winnerId";
 
 /** The region's tourneys still to come or being played, soonest first (index `tourneys_region_status_starts`). */
 export async function listUpcoming(db: D1Database, region: string): Promise<TourneyRow[]> {
@@ -83,6 +85,49 @@ export async function listAllTourneys(db: D1Database, limit: number): Promise<To
 
 export async function findTourney(db: D1Database, id: number): Promise<TourneyRow | null> {
   return db.prepare(`SELECT ${tourneyColumns} FROM tourneys WHERE id = ?`).bind(id).first<TourneyRow>();
+}
+
+/**
+ * These players as they are now: each id followed through `players.merged_into` to the player it was
+ * merged into, with that player's name. Ids that aren't players are left out. For tourney winners,
+ * which a merge leaves as they are.
+ */
+export async function resolvePlayers(db: D1Database, ids: readonly number[]): Promise<Map<number, { id: number; name: string }>> {
+  const found = new Map<number, { id: number; name: string }>();
+  if (!ids.length) return found;
+  const { results } = await db
+    .prepare(
+      `WITH RECURSIVE chain(start, id, merged_into) AS (
+         SELECT p.id, p.id, p.merged_into FROM players p WHERE p.id IN (SELECT value FROM json_each(?1))
+         UNION
+         SELECT c.start, p.id, p.merged_into FROM chain c JOIN players p ON p.id = c.merged_into
+       )
+       SELECT c.start, p.id, p.name FROM chain c JOIN players p ON p.id = c.id WHERE c.merged_into IS NULL`,
+    )
+    .bind(JSON.stringify([...new Set(ids)]))
+    .all<{ start: number; id: number; name: string }>();
+  for (const r of results) found.set(r.start, { id: r.id, name: r.name });
+  return found;
+}
+
+/**
+ * The region's done tourneys whose winner is this player now, merges followed (#124). Reads the
+ * region's done tourneys through `tourneys_region_status_starts`, and their winners' merge chains.
+ */
+export async function countTourneyWins(db: D1Database, region: string, playerId: number): Promise<number> {
+  const row = await db
+    .prepare(
+      `WITH RECURSIVE chain(tourney, id, merged_into) AS (
+         SELECT t.id, p.id, p.merged_into FROM tourneys t JOIN players p ON p.id = t.winner_player_id
+         WHERE t.region = ?1 AND t.status = 'done'
+         UNION
+         SELECT c.tourney, p.id, p.merged_into FROM chain c JOIN players p ON p.id = c.merged_into
+       )
+       SELECT count(*) AS n FROM chain WHERE merged_into IS NULL AND id = ?2`,
+    )
+    .bind(region, playerId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 const lobbyColumns = `l.id, l.version, l.tourney_id AS tourneyId, l.label, l.host_id AS hostId, h.name AS hostName,
@@ -207,15 +252,17 @@ export interface TourneyFields {
   startsAt: string;
   status: TourneyStatus;
   notes: string | null;
+  winnerId: number | null;
 }
 
 export async function createTourney(db: D1Database, t: TourneyFields, log: ActionLog): Promise<TourneyRow> {
   const [inserted] = await db.batch<TourneyRow>([
     db
       .prepare(
-        `INSERT INTO tourneys (name, starts_at, status, notes, created_at, region) VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING ${tourneyColumns}`,
+        `INSERT INTO tourneys (name, starts_at, status, notes, created_at, region, winner_player_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+         RETURNING ${tourneyColumns}`,
       )
-      .bind(t.name, t.startsAt, t.status, t.notes, log.at, t.region),
+      .bind(t.name, t.startsAt, t.status, t.notes, log.at, t.region, t.winnerId),
     newRowActionStatement(db, log, "tourney"),
   ]);
   return inserted!.results[0]!;
@@ -224,8 +271,8 @@ export async function createTourney(db: D1Database, t: TourneyFields, log: Actio
 export async function updateTourney(db: D1Database, id: number, t: TourneyFields, log: ActionLog): Promise<void> {
   await db.batch([
     db
-      .prepare("UPDATE tourneys SET name = ?2, starts_at = ?3, status = ?4, notes = ?5, region = ?6 WHERE id = ?1")
-      .bind(id, t.name, t.startsAt, t.status, t.notes, t.region),
+      .prepare("UPDATE tourneys SET name = ?2, starts_at = ?3, status = ?4, notes = ?5, region = ?6, winner_player_id = ?7 WHERE id = ?1")
+      .bind(id, t.name, t.startsAt, t.status, t.notes, t.region, t.winnerId),
     actionStatement(db, log),
   ]);
 }
