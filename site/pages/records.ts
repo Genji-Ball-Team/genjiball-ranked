@@ -75,7 +75,7 @@ function recordRows(d: Records, lists: RecordLists, empty: string): Html {
     const [r, ...rest] = lists[key]!;
     const at = where(r!);
     return html`<li><span class="what">${label}</span>
-      <span class="top"><b class="value num">${show(r!)}</b><a class="who" href="${playerLink(r!.player.id)}">${r!.player.name}</a></span>
+      <span class="best"><b class="value num">${show(r!)}</b><a class="who" href="${playerLink(r!.player.id)}">${r!.player.name}</a></span>
       ${at && html`<small class="where">${at}</small>`}
       ${rest.length > 0 && html`<ol class="runners" start="2">${rest.map((o) => html`<li><a href="${playerLink(o.player.id)}">${o.player.name}</a><span class="num">${show(o)}</span></li>`)}</ol>`}</li>`;
   })}`;
