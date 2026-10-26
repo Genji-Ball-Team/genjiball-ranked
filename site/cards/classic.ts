@@ -1,125 +1,230 @@
-// Classic: the first card. Everything at once: name and rating, four figures, the rating line and
-// recent form.
-import { box, c, caps, chip, cup, figures, footer, form, ground, header, lines, rgba, text, titleLooks, trend, type Series } from "./kit";
-import { titleSeals } from "../titles";
-import type { ComparedPlayer, CompareCard, MatchCard, PlayerCard } from "./types";
-export function playerCard(ctx: CanvasRenderingContext2D, W: number, H: number, d: PlayerCard, tall: boolean): void {
-  const look = d.crown ? titleLooks[d.crown]() : null;
-  const seal = d.crown ? titleSeals[d.crown] : null;
-  const sealText = seal && `${seal[0]} · ${d.region} ${seal[1]}`;
-  ground(ctx, W, H, look?.glow ?? d.tier?.color ?? null);
-  const graph: Series[] = d.points.length > 1 ? [{ points: d.points.map((rating, t) => ({ rating, t })), color: trend(d.points) }] : [];
-  const stats: [string, string | number][] = [
-    ["Rated rounds", d.rounds ?? "–"],
-    ["Rounds won", d.winRate ?? "–"],
-    ["Peak", d.peak ?? "–"],
-    ["Best streak", d.bestStreak ?? "–"],
-  ];
-  const rank = d.rank ? `#${d.rank} in ${d.region}` : d.rating ? "Not ranked yet" : `Not rated in ${d.region}`;
-  const rating = d.rating ?? "–";
+// Classic: the first card. Name and rating side by side, figures, the rating line and recent form,
+// each only when picked; what's left takes the room the rest leave.
+import {
+  block,
+  c,
+  caps,
+  change,
+  chartBlock,
+  chipBlock,
+  compareRows,
+  crownOf,
+  figuresBlock,
+  fitTable,
+  font,
+  footer,
+  form,
+  formBlock,
+  ground,
+  header,
+  label,
+  leads,
+  line,
+  matchFacts,
+  matchId,
+  natural,
+  playerSeries,
+  playerStats,
+  rankLine,
+  rgba,
+  stack,
+  text,
+  cup,
+  type Block,
+  type Rgb,
+  type Series,
+} from "./kit";
+import type { ComparePart, MatchPart, PlayerPart, Show } from "./parts";
+import type { CompareCard, MatchCard, PlayerCard } from "./types";
+
+const present = (list: (Block | null | false | undefined | "")[]): Block[] => list.filter((b): b is Block => Boolean(b));
+
+function measure(ctx: CanvasRenderingContext2D, value: string | number, size: number, weight: number, narrow = true): number {
+  font(ctx, size, weight, narrow);
+  return ctx.measureText(String(value)).width;
+}
+
+interface Bit {
+  s: string;
+  color: Rgb;
+  weight: number;
+}
+
+/** Texts on one line, `gap` apart, from `x` (or ending at `x` when `align` is "right"). */
+function bits(ctx: CanvasRenderingContext2D, list: Bit[], x: number, size: number, align: "left" | "right" | "center", gap = 0): Block | null {
+  if (!list.length) return null;
+  return block(size * 0.72, gap, (top, k) => {
+    const s = size * k;
+    const space = s * 0.7;
+    const widths = list.map((b) => measure(ctx, b.s, s, b.weight, false));
+    const total = widths.reduce((a, w) => a + w, 0) + space * (list.length - 1);
+    let left = align === "right" ? x - total : align === "center" ? x - total / 2 : x;
+    list.forEach((b, i) => {
+      text(ctx, b.s, left, top + s * 0.72, { size: s, weight: b.weight, color: b.color });
+      left += (widths[i] ?? 0) + space;
+    });
+  });
+}
+
+export function playerCard(ctx: CanvasRenderingContext2D, W: number, H: number, d: PlayerCard, tall: boolean, on: Show<PlayerPart>): void {
+  const { look, seal } = on.has("title") ? crownOf(d) : { look: null, seal: null };
+  ground(ctx, W, H, look?.glow ?? (on.has("tier") ? (d.tier?.color ?? null) : null));
+  const tier = on.has("tier") ? d.tier : null;
   const sealColor = look?.seal ?? c.fg;
+  // The big number is the rating, or the rank when the rating's hidden.
+  const big = on.has("rating") ? String(d.rating ?? "–") : on.has("rank") && d.rank ? `#${d.rank}` : null;
+  const bigLabel = on.has("rating") ? "Rating" : "Rank";
+  const bigColor = on.has("rating") && !d.rating ? c["control-border"] : (look?.light ?? c.fg);
+  const ch = on.has("change") ? change(d.points) : null;
+  const sub: Bit[] = [];
+  if (on.has("rank") && (on.has("rating") || !d.rank)) sub.push({ s: rankLine(d), color: c.soft, weight: 500 });
+  if (ch) sub.push({ s: ch.label, color: ch.color, weight: 700 });
+  const stats = playerStats(d, on);
+  const series = on.has("chart") ? playerSeries(d) : [];
+  const results = on.has("form") ? d.form : [];
   if (!tall) {
     const pad = 64;
     header(ctx, pad, 74, 26, d.region);
-    let y = 214;
-    if (sealText) {
-      caps(ctx, sealText, pad, 136, 20, sealColor);
-      y = 222;
-    }
-    text(ctx, d.name, pad, y, { size: 112, weight: 700, narrow: true, max: W - pad * 2 - 380, fill: look?.name });
-    if (d.tier) chip(ctx, d.tier, pad, y + 26, 26);
-    caps(ctx, "Rating", W - pad, 128, 20, c.muted, "right");
-    text(ctx, rating, W - pad, 252, { size: 140, weight: 700, narrow: true, align: "right", color: look?.light ?? c.fg });
-    text(ctx, rank, W - pad, 296, { size: 28, weight: 500, color: c.soft, align: "right" });
-    figures(ctx, stats, pad, 392, W - pad * 2, 54);
-    lines(ctx, graph, pad, 470, W - pad * 2, 90);
     footer(ctx, W, 600, 20, "left", pad);
-    if (d.form.length) {
+    const subW = sub.reduce((a, b) => a + measure(ctx, b.s, 28, b.weight, false) + 20, 0);
+    const rightW = big ? Math.max(measure(ctx, big, 140, 700), subW) : 0;
+    const busy = stats.length > 0 && series.length > 0 ? 0.8 : 1;
+    // The name and the rating side by side, drawn bigger when there's room (`k`).
+    const left = (k: number) => {
+      const max = W - pad * 2 - (rightW ? rightW * k + 70 : 0);
+      return present([
+        seal && label(ctx, seal, pad, 20 * k, sealColor),
+        line(ctx, d.name, pad, { size: 112 * k, weight: 700, narrow: true, max, fill: look?.name }, 26 * k),
+        tier && chipBlock(ctx, tier, pad, 26 * k, "left", 22 * k),
+        !big && bits(ctx, sub, pad, 28 * k, "left", 26 * k),
+      ]);
+    };
+    const right = (k: number) =>
+      big
+        ? present([
+            label(ctx, bigLabel, W - pad, 20 * k, c.muted, "right"),
+            line(ctx, big, W - pad, { size: 140 * k, weight: 700, narrow: true, align: "right", color: bigColor }, 26 * k),
+            bits(ctx, sub, W - pad, 28 * k, "right", 26 * k),
+          ])
+        : [];
+    const h = Math.max(natural(left(1)), natural(right(1)));
+    const grow = stats.length || series.length ? 0 : 0.3;
+    const head = block(h, 0, (top, k) => {
+      stack(left(k), top, top + h * k, "end", 1);
+      stack(right(k), top, top + h * k, "end", 1);
+    }, grow);
+    stack(
+      [head, figuresBlock(ctx, stats, pad, W - pad * 2, 54 * busy, 60), chartBlock(ctx, series, pad, W - pad * 2, 100 * busy, 50)],
+      116,
+      results.length ? 540 : 556,
+      "center",
+      1.8,
+    );
+    if (results.length) {
       const size = 30;
-      const n = Math.min(d.form.length, 10);
-      form(ctx, d.form.slice(-n), W - pad - n * (size * 1.18) + size * 0.18, 578, size);
+      const n = Math.min(results.length, 10);
+      form(ctx, results.slice(-n), W - pad - n * (size * 1.18) + size * 0.18, 578, size);
     }
     return;
   }
   const pad = 80;
   header(ctx, W / 2, 140, 34, d.region, "center");
-  if (sealText) caps(ctx, sealText, W / 2, 330, 28, sealColor, "center");
-  text(ctx, d.name, W / 2, 520, { size: 210, weight: 700, narrow: true, align: "center", max: W - pad * 2, fill: look?.name });
-  if (d.tier) chip(ctx, d.tier, W / 2, 576, 46, "center");
-  caps(ctx, "Rating", W / 2, 780, 32, c.muted, "center");
-  text(ctx, rating, W / 2, 1040, { size: 300, weight: 700, narrow: true, align: "center", color: look?.light ?? c.fg });
-  text(ctx, rank, W / 2, 1116, { size: 48, weight: 500, color: c.soft, align: "center" });
-  figures(ctx, stats.slice(0, 2), pad + 40, 1270, W - pad * 2 - 40, 84);
-  figures(ctx, stats.slice(2), pad + 40, 1430, W - pad * 2 - 40, 84);
-  if (d.form.length) form(ctx, d.form.slice(-10), W / 2, 1530, 72, "center");
-  lines(ctx, graph, pad, 1680, W - pad * 2, 130);
   footer(ctx, W, 1860, 30, "center");
+  const cx = W / 2;
+  const half = Math.ceil(stats.length / 2);
+  const rows = stats.length > 2 ? [stats.slice(0, half), stats.slice(half)] : [stats];
+  stack(
+    [
+      seal && label(ctx, seal, cx, 28, sealColor, "center"),
+      line(ctx, d.name, cx, { size: 210, weight: 700, narrow: true, align: "center", max: W - pad * 2, fill: look?.name }, 60, 0.15),
+      tier && chipBlock(ctx, tier, cx, 46, "center", 40),
+      big && label(ctx, bigLabel, cx, 32, c.muted, "center", 150),
+      big && line(ctx, big, cx, { size: 300, weight: 700, narrow: true, align: "center", color: bigColor }, 60, 0.15),
+      bits(ctx, sub, cx, 48, "center", big ? 60 : 100),
+      ...rows.map((list, i) => figuresBlock(ctx, list, pad + 40, W - pad * 2 - 40, 84, i ? 90 : 150)),
+      formBlock(ctx, results, cx, W - pad * 2, 72, "center", 110, 10),
+      chartBlock(ctx, series, pad, W - pad * 2, 200, 100, 1.4),
+    ],
+    230,
+    1780,
+    "center",
+    1.6,
+  );
 }
 
-export function matchCard(ctx: CanvasRenderingContext2D, W: number, H: number, d: MatchCard, tall: boolean): void {
-  ground(ctx, W, H, d.winners.length && d.tourney ? c.gold : null);
-  const facts = [d.date, d.map, d.rounds, d.playerCount].filter(Boolean).join("  ·  ");
-  const winner = d.winners.join(" & ");
+export function matchCard(ctx: CanvasRenderingContext2D, W: number, H: number, d: MatchCard, tall: boolean, on: Show<MatchPart>): void {
+  ground(ctx, W, H, d.winners.length && d.tourney && on.has("tourney") ? c.gold : null);
   // A win is `up`; a tourney's winner has earned gold.
   const prize = d.tourney ? c.gold : c.up;
   const nameFill = [c.fg, d.tourney ? c.gold : c["god-cream"]];
-  const pad = tall ? 80 : 64;
-  const table = (x: number, y: number, w: number, rowH: number, size: number, max: number) => {
-    const rating = x + w - size * 0.6;
-    const kills = rating - size * 5.2;
-    const cols = { place: x + size * 0.9, name: x + size * 2.2, won: kills - size * 3.4, kills, rating };
-    caps(ctx, "#", cols.place, y, size * 0.6, c.muted, "center");
-    caps(ctx, "Player", cols.name, y, size * 0.6, c.muted);
-    caps(ctx, "Won", cols.won, y, size * 0.6, c.muted, "right");
-    caps(ctx, "Kills", cols.kills, y, size * 0.6, c.muted, "right");
-    caps(ctx, "Rating", cols.rating, y, size * 0.6, c.muted, "right");
-    d.rows.slice(0, max).forEach((p, i) => {
-      const top = y + size * 0.7 + i * rowH;
-      const base = top + rowH * 0.66;
-      box(ctx, x, top, w, rowH - 8, 10);
-      ctx.fillStyle = p.place === 1 ? rgba(prize, 0.1) : rgba(c.fg, i % 2 ? 0.02 : 0.045);
-      ctx.fill();
-      text(ctx, p.place, cols.place, base, { size, weight: 700, narrow: true, align: "center", color: p.place === 1 ? prize : c.soft });
-      text(ctx, p.name, cols.name, base, { size, weight: 600, narrow: true, max: cols.won - cols.name - size * 1.6, shrink: 0.7 });
-      text(ctx, p.won, cols.won, base, { size, weight: 600, narrow: true, align: "right", color: c.soft });
-      text(ctx, p.kills, cols.kills, base, { size, weight: 600, narrow: true, align: "right", color: c.soft });
-      const delta = p.after != null && p.before != null ? p.after - p.before : 0;
-      let right = cols.rating;
-      // The arrow says it too, so the colour isn't the only cue.
-      if (delta) right -= text(ctx, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}`, right, base, { size: size * 0.8, weight: 700, narrow: true, align: "right", color: delta > 0 ? c.up : c.down }) + size * 0.4;
-      text(ctx, p.after ? p.after : "–", right, base, { size, weight: 700, narrow: true, align: "right", color: p.after ? c.fg : c["control-border"] });
+  const winner = on.has("winner") ? d.winners.join(" & ") : "";
+  const winnerLine = on.has("winnerLine") ? d.winnerLine : "";
+  const winLabel = d.winners.length > 1 ? "Shared win" : "Winner";
+  const id = matchId(d, on);
+  const facts = matchFacts(d, on);
+  const standings = on.has("standings") && d.rows.length > 0;
+  // Names alone don't take the whole width: centred, or beside the winner.
+  const namesOnly = !on.count("won", "kills", "ratings", "changes");
+  const cupRow = (x: number, size: number, align: "left" | "center", gap: number) =>
+    block(size, gap, (top, k) => {
+      const s = size * k;
+      if (align === "center") {
+        cup(ctx, x - s / 2, top, s, prize);
+        return;
+      }
+      cup(ctx, x, top, s, prize);
+      caps(ctx, winLabel, x + s * 1.4, top + s * 0.78, s * 0.55, prize);
     });
-  };
-  const label = d.winners.length > 1 ? "Shared win" : "Winner";
   if (!tall) {
+    const pad = 64;
     header(ctx, pad, 74, 26, d.region);
-    caps(ctx, `Match #${d.id}${d.tourney ? ` · ${d.tourney}` : ""}`, pad, 150, 22, c.muted);
-    text(ctx, facts, pad, 190, { size: 24, color: c.soft, max: 520 });
-    if (winner) {
-      cup(ctx, pad, 252, 40, prize);
-      caps(ctx, label, pad + 56, 284, 22, prize);
-      text(ctx, winner, pad, 400, { size: 104, weight: 700, narrow: true, max: 520, fill: nameFill });
-      text(ctx, d.winnerLine, pad, 452, { size: 28, color: c.soft, max: 520 });
-    }
-    table(620, 150, W - 620 - pad, 76, 30, 5);
     footer(ctx, W, 600, 20, "left", pad);
+    const info = present([
+      id && label(ctx, id, pad, 22, c.muted),
+      facts && line(ctx, facts, pad, { size: 24, color: c.soft, max: standings ? 500 : W - pad * 2 }, 20),
+    ]);
+    const win = (max: number, size: number) =>
+      present([
+        (winner || winnerLine) && cupRow(pad, 40, "left", 0),
+        winner && line(ctx, winner, pad, { size, weight: 700, narrow: true, max, fill: nameFill }, 34, 0.25),
+        winnerLine && line(ctx, winnerLine, pad, { size: 28, color: c.soft, max }, 30),
+      ]);
+    if (!standings) {
+      const body = win(W - pad * 2, 130);
+      stack([...info, ...body.map((b, i) => (i ? b : { ...b, gap: info.length ? 70 : 0 }))], 120, 560, "center", 1.8);
+      return;
+    }
+    const leftBlocks = [...info, ...win(500, 100).map((b, i) => (i ? b : { ...b, gap: info.length ? 64 : 0 }))];
+    const x = leftBlocks.length ? 620 : namesOnly ? W / 2 - 220 : pad;
+    const w = leftBlocks.length ? W - x - pad : namesOnly ? 440 : W - pad * 2;
+    stack(leftBlocks, 130, 560, "center", 1.6);
+    stack([fitTable(ctx, d, on, { x, w, size: 30, prize, look: "bands" }, 430)], 130, 560, "center");
     return;
   }
-  header(ctx, W / 2, 140, 34, d.region, "center");
-  caps(ctx, `Match #${d.id}`, W / 2, 300, 34, c.muted, "center");
-  if (d.tourney) text(ctx, d.tourney, W / 2, 354, { size: 36, weight: 600, align: "center", max: W - pad * 2 });
-  text(ctx, facts, W / 2, d.tourney ? 408 : 360, { size: 32, color: c.soft, align: "center", max: W - pad * 2 });
-  if (winner) {
-    cup(ctx, W / 2 - 50, 500, 100, prize);
-    caps(ctx, label, W / 2, 680, 32, prize, "center");
-    text(ctx, winner, W / 2, 840, { size: 150, weight: 700, narrow: true, align: "center", max: W - pad * 2, fill: nameFill });
-    text(ctx, d.winnerLine, W / 2, 910, { size: 40, color: c.soft, align: "center", max: W - pad * 2 });
-  }
-  table(pad, 1030, W - pad * 2, 88, 40, 8);
+  const pad = 80;
+  const cx = W / 2;
+  header(ctx, cx, 140, 34, d.region, "center");
   footer(ctx, W, 1860, 30, "center");
+  const tourney = on.has("tourney") ? d.tourney : null;
+  const idOnly = on.has("id") ? `Match #${d.id}` : "";
+  const head = present([
+    idOnly && label(ctx, idOnly, cx, 34, c.muted, "center"),
+    tourney && line(ctx, tourney, cx, { size: 40, weight: 600, align: "center", max: W - pad * 2 }, 30),
+    facts && line(ctx, facts, cx, { size: 32, color: c.soft, align: "center", max: W - pad * 2 }, 30),
+  ]);
+  const win = present([
+    (winner || winnerLine) && cupRow(cx, 100, "center", head.length ? 110 : 0),
+    (winner || winnerLine) && label(ctx, winLabel, cx, 32, prize, "center", 50),
+    winner && line(ctx, winner, cx, { size: 150, weight: 700, narrow: true, align: "center", max: W - pad * 2, fill: nameFill }, 60, standings ? 0 : 0.3),
+    winnerLine && line(ctx, winnerLine, cx, { size: 40, color: c.soft, align: "center", max: W - pad * 2 }, 44),
+  ]);
+  const top = [...head, ...win];
+  const room = 1790 - 230 - (top.length ? natural(top) + 100 : 0);
+  const table = fitTable(ctx, d, on, { x: namesOnly ? cx - 300 : pad, w: namesOnly ? 600 : W - pad * 2, size: 46, prize, look: "bands" }, Math.min(room, 820), top.length ? 100 : 0);
+  stack([...top, table], 230, 1790, "center", 1.6);
 }
 
-export function compareCard(ctx: CanvasRenderingContext2D, W: number, H: number, d: CompareCard, tall: boolean): void {
+export function compareCard(ctx: CanvasRenderingContext2D, W: number, H: number, d: CompareCard, tall: boolean, on: Show<ComparePart>): void {
   ground(ctx, W, H, null);
   // One line a player, told apart by stroke as well as shade: solid, dashed, dotted.
   const strokes: Pick<Series, "color" | "dash">[] = [{ color: c.fg }, { color: c.soft, dash: "dashed" }, { color: c.muted, dash: "dotted" }];
@@ -127,51 +232,69 @@ export function compareCard(ctx: CanvasRenderingContext2D, W: number, H: number,
   const pad = tall ? 80 : 64;
   const n = d.players.length;
   const s = tall ? 1.45 : 1;
-  const top = tall ? 400 : 160;
-  const step = tall ? 54 : 38;
   const gap = 32 * s;
   const colW = (W - pad * 2 - gap * (n - 1)) / n;
+  const rows = compareRows(on);
+  const series = on.has("chart") ? d.players.flatMap((p, i) => (p.points.length > 1 ? [{ points: p.points, ...stroke(i) }] : [])) : [];
+  const anyTier = on.has("tier") && d.players.some((p) => p.tier);
+  // Fewer parts, bigger type.
+  const few = !on.has("rating") && !rows.length && !series.length ? 1.4 : 1;
+  // A wide card with the lines under everything: smaller figures.
+  const busy = !tall && series.length && rows.length > 1 ? 0.7 : 1;
+  const nameSize = Math.min(...d.players.map((p) => {
+    font(ctx, 54 * s * few, 700, true);
+    const w = ctx.measureText(p.name).width;
+    const room = colW - 24 * s;
+    return Math.max(54 * s * 0.6, (w > room ? 54 * s * few * (room / w) : 54 * s * few) * busy);
+  }));
+  const step = (tall ? 54 : 38) * s * (on.has("rating") ? 1 : 1.15) * (busy < 1 ? 0.78 : 1);
   header(ctx, tall ? W / 2 : pad, tall ? 140 : 74, tall ? 34 : 26, d.region, tall ? "center" : "left");
-  caps(ctx, n === 2 ? "Head to head" : n > 2 ? "Compare" : "Player", tall ? W / 2 : pad, top - 30 * s, 20 * s, c.muted, tall ? "center" : "left");
-  const rows: [string, (p: ComparedPlayer) => string, (p: ComparedPlayer) => number | null, 1 | -1][] = [
-    ["Rank", (p) => (p.rank ? `#${p.rank}` : "–"), (p) => p.rank, -1],
-    ["Rounds won", (p) => p.winRate ?? "–", (p) => p.winShare, 1],
-    ["Kills a round", (p) => p.killsPerRound?.toFixed(2) ?? "–", (p) => p.killsPerRound, 1],
-    ["Peak", (p) => String(p.peak ?? "–"), (p) => p.peak, 1],
-  ];
-  d.players.forEach((p, i) => {
-    const x = pad + i * (colW + gap);
-    const { color, dash } = stroke(i);
-    // The key: a sample of the player's line.
-    ctx.save();
-    ctx.strokeStyle = rgba(color);
-    ctx.lineWidth = 8 * s;
-    ctx.lineCap = dash === "dotted" ? "round" : "butt";
-    ctx.setLineDash(dash === "dashed" ? [32 * s, 20 * s] : dash === "dotted" ? [0, 18 * s] : []);
-    ctx.beginPath();
-    ctx.moveTo(x + (dash === "dotted" ? 4 * s : 0), top + 4 * s);
-    ctx.lineTo(x + colW, top + 4 * s);
-    ctx.stroke();
-    ctx.restore();
-    text(ctx, p.name, x, top + 72 * s, { size: 54 * s, weight: 700, narrow: true, max: colW });
-    if (p.tier) chip(ctx, p.tier, x, top + 92 * s, 22 * s);
-    text(ctx, p.rating ?? "–", x, top + 220 * s, { size: 96 * s, weight: 700, narrow: true, color: p.rating ? c.fg : c["control-border"] });
-    rows.forEach(([label, show, value, better], j) => {
-      const y = top + (262 + j * step) * s;
-      const known = d.players.map(value).filter((v): v is number => v != null);
-      const mine = value(p);
-      const best = n > 1 && known.length > 1 && mine != null && mine === (better > 0 ? Math.max(...known) : Math.min(...known));
-      text(ctx, label, x, y, { size: 22 * s, color: c.muted, max: colW * 0.6 });
-      // The leader in each row is brighter and bolder.
-      text(ctx, show(p), x + colW, y, { size: 24 * s, weight: best ? 800 : 600, narrow: true, align: "right", color: best ? c.fg : c.muted });
-    });
-  });
-  const series = d.players.flatMap((p, i) => (p.points.length > 1 ? [{ points: p.points, ...stroke(i) }] : []));
-  if (tall) {
-    if (series.length) {
-      caps(ctx, "Rating over time", pad, 1200, 28, c.muted);
-      lines(ctx, series, pad, 1250, W - pad * 2, 500, series.length === 1);
-    }
-    footer(ctx, W, 1860, 30, "center");
-  } else footer(ctx, W, 600, 20, "left", pad);
+  footer(ctx, W, tall ? 1860 : 600, tall ? 30 : 20, tall ? "center" : "left", pad);
+  const kind = n === 2 ? "Head to head" : n > 2 ? "Compare" : "Player";
+  const columns = block(0, 0, () => undefined);
+  // Every column has the same parts, so one height fits all.
+  const parts = (x: number, p: CompareCard["players"][number], i: number): Block[] =>
+    present([
+      block(8 * s, 0, (top, k) => {
+        const { color, dash } = stroke(i);
+        ctx.save();
+        ctx.strokeStyle = rgba(color);
+        ctx.lineWidth = 8 * s * k;
+        ctx.lineCap = dash === "dotted" ? "round" : "butt";
+        ctx.setLineDash(dash === "dashed" ? [32 * s, 20 * s] : dash === "dotted" ? [0, 18 * s] : []);
+        ctx.beginPath();
+        ctx.moveTo(x + (dash === "dotted" ? 4 * s : 0), top + 4 * s);
+        ctx.lineTo(x + colW, top + 4 * s);
+        ctx.stroke();
+        ctx.restore();
+      }),
+      line(ctx, p.name, x, { size: nameSize, weight: 700, narrow: true, max: colW }, 40 * s * busy),
+      anyTier && block(22 * s * 1.55, 18 * s, (top, k) => p.tier && chipBlock(ctx, p.tier, x, 22 * s * k).draw(top, 1)),
+      on.has("rating") && line(ctx, p.rating ?? "–", x, { size: 96 * s * busy, weight: 700, narrow: true, color: p.rating ? c.fg : c["control-border"] }, 40 * s * busy),
+      ...rows.map((row, j) =>
+        block(24 * s * 0.72, j ? step - 24 * s * 0.72 : 44 * s * busy, (top, k) => {
+          const y = top + 24 * s * 0.72 * k;
+          const best = leads(d.players, p, row);
+          text(ctx, row[0], x, y, { size: 22 * s * k, color: c.muted, max: colW * 0.6 });
+          // The leader in each row is brighter and bolder.
+          text(ctx, row[1](p), x + colW, y, { size: 24 * s * k, weight: best ? 800 : 600, narrow: true, align: "right", color: best ? c.fg : c.muted });
+        }),
+      ),
+    ]);
+  const h = natural(parts(pad, d.players[0] as CompareCard["players"][number], 0));
+  columns.h = h;
+  columns.gap = 34 * s;
+  columns.draw = (top, k) => d.players.forEach((p, i) => stack(parts(pad + i * (colW + gap), p, i), top, top + h * k, "start", 1));
+  stack(
+    [
+      label(ctx, kind, tall ? W / 2 : pad, 20 * s, c.muted, tall ? "center" : "left"),
+      columns,
+      tall && series.length > 0 && label(ctx, "Rating over time", pad, 20 * s, c.muted, "left", 120),
+      chartBlock(ctx, series, pad, W - pad * 2, tall ? 320 : 80, tall ? 40 : 30, tall ? 0.3 : 1.2, series.length === 1),
+    ],
+    tall ? 250 : 110,
+    tall ? 1780 : 556,
+    "center",
+    1.6,
+  );
 }

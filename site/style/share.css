@@ -31,6 +31,13 @@
 .share-styles[data-format="story"] img { aspect-ratio: 1080 / 1920; max-block-size: 5.5rem; inline-size: auto; }
 .share-styles span { max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Show: what the card says, one toggle a part. */
+.share-show { display: grid; gap: 4px; margin-block-start: var(--gap); }
+.share-show > span {
+  color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+
 .share-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: var(--gap); margin-block-start: var(--gap); }
 .share-actions gb-button { display: block; }
 
