@@ -41,15 +41,34 @@ export interface RatingRow {
 
 const ratingColumns = `r.player_id AS playerId, p.name, r.display, r.rounds, r.wins, r.last_played_at AS lastPlayedAt`;
 
-/** A leaderboard row, with the display rating the player had before `changeSince` (null when they had none yet). */
+/** A leaderboard row: its place on the whole board, and the display rating the player had before `changeSince` (null when they had none yet). */
 export interface LeaderboardRow extends RatingRow {
+  rank: number;
   displayBefore: number | null;
 }
 
+/** Which of the board's players a leaderboard page shows (src/site/boardFilter.ts), as SQL values. */
+export interface LeaderboardWhere {
+  /** Display ratings in any of these `[from, below]` ranges (null for no bound); null for any. */
+  tierRanges: [number | null, number | null][] | null;
+  /** A rated round since then; null for any time. */
+  playedSince: string | null;
+  /** At least this many rated rounds; null for the board's minimum. */
+  rounds: number | null;
+  /** Display rating from and to, both included. */
+  min: number | null;
+  max: number | null;
+}
+
+/** `displayBefore`: one seek per row in `rating_history`'s key. */
+const displayBefore = `(SELECT h.display FROM rating_history h WHERE h.board = ?1 AND h.player_id = playerId AND h.played_at < ?5
+  ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS displayBefore`;
+
 /**
  * A leaderboard page: players with at least `minRounds` rated rounds, best first, alts left out (index
- * `ratings_board_display`). With `activeSince`, only those who played a rated round since then, and the
- * places count only them. `displayBefore` is one seek per row in `rating_history`'s key.
+ * `ratings_board_display`). Without `where` it reads only the page. With it, the rows are the matching
+ * ones, each still with its place on the whole board, and `matched` is how many match in all: that
+ * reads the region's whole board once (each page is cached, `publicCacheSeconds`).
  */
 export async function listLeaderboard(
   db: D1Database,
@@ -58,20 +77,52 @@ export async function listLeaderboard(
   limit: number,
   offset: number,
   changeSince: string,
-  activeSince: string | null,
-): Promise<LeaderboardRow[]> {
+  where: LeaderboardWhere | null,
+): Promise<{ rows: LeaderboardRow[]; matched: number | null }> {
+  if (!where) {
+    const { results } = await db
+      .prepare(
+        `SELECT *, ${displayBefore} FROM (
+           SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+           WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0
+           ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4
+         )`,
+      )
+      .bind(board, minRounds, limit, offset, changeSince)
+      .all<RatingRow & { displayBefore: number | null }>();
+    return { rows: results.map((row, i) => ({ ...row, rank: offset + i + 1 })), matched: null };
+  }
   const { results } = await db
     .prepare(
-      `SELECT ${ratingColumns},
-         (SELECT h.display FROM rating_history h WHERE h.board = r.board AND h.player_id = r.player_id AND h.played_at < ?5
-          ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS displayBefore
-       FROM ratings r JOIN players p ON p.id = r.player_id
-       WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0 AND (?6 IS NULL OR r.last_played_at >= ?6)
-       ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4`,
+      `WITH ranked AS (
+         SELECT ${ratingColumns}, ROW_NUMBER() OVER (ORDER BY r.display DESC, r.player_id) AS rank
+         FROM ratings r JOIN players p ON p.id = r.player_id
+         WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0
+       ), picked AS (
+         SELECT *, COUNT(*) OVER () AS matched FROM ranked
+         WHERE (?6 IS NULL OR EXISTS (SELECT 1 FROM json_each(?6) t
+             WHERE (json_extract(t.value, '$[0]') IS NULL OR display >= json_extract(t.value, '$[0]'))
+               AND (json_extract(t.value, '$[1]') IS NULL OR display < json_extract(t.value, '$[1]'))))
+           AND (?7 IS NULL OR lastPlayedAt >= ?7) AND (?8 IS NULL OR rounds >= ?8)
+           AND (?9 IS NULL OR display >= ?9) AND (?10 IS NULL OR display <= ?10)
+       )
+       SELECT *, ${displayBefore} FROM picked ORDER BY rank LIMIT ?3 OFFSET ?4`,
     )
-    .bind(board, minRounds, limit, offset, changeSince, activeSince)
-    .all<LeaderboardRow>();
-  return results;
+    .bind(
+      board,
+      minRounds,
+      limit,
+      offset,
+      changeSince,
+      where.tierRanges ? JSON.stringify(where.tierRanges) : null,
+      where.playedSince,
+      where.rounds,
+      where.min,
+      where.max,
+    )
+    .all<LeaderboardRow & { matched: number }>();
+  // A page past the last match has no row to carry the count.
+  return { rows: results, matched: results[0]?.matched ?? (offset ? null : 0) };
 }
 
 /**

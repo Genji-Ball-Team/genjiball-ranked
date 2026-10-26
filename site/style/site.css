@@ -120,8 +120,39 @@ a.entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border
   font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase;
 }
 #me { scroll-margin-block: 96px; }
-.board-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.board-tools { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
 .me-button { margin-inline-start: auto; }
+/* The leaderboard's filter (leaderboard.ts): a button with how many parts are set, its box, and a
+   pill per set part that removes it. */
+.filter-count {
+  display: inline-grid; place-items: center; min-inline-size: 20px; block-size: 20px; margin-inline-start: 8px; padding-inline: 5px;
+  border-radius: 10px; background: var(--green); color: var(--bg); font-size: 0.75rem; font-weight: 700;
+}
+.filter-count[hidden] { display: none; }
+.filter-box { display: grid; gap: 16px; inline-size: 296px; max-inline-size: 100%; }
+.filter-box fieldset { min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.filter-box legend {
+  margin-block-end: 8px; padding: 0; color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight);
+  font-stretch: var(--label-width); letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.filter-box input { inline-size: 100%; }
+.filter-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.filter-foot { display: flex; justify-content: end; padding-block-start: 12px; border-block-start: 1px solid var(--line); }
+.filter-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.filter-pills:empty { display: none; }
+.filter-pill, .filter-pill-clear {
+  display: inline-flex; align-items: center; gap: 6px; block-size: 30px; margin: 0; padding: 0 6px 0 10px; border: 0;
+  border-radius: 15px; background: var(--raised); color: var(--soft); font: inherit; font-size: 0.82rem; cursor: pointer;
+}
+.filter-pill b { color: var(--fg); font-weight: 600; }
+.filter-pill .x { display: grid; place-items: center; inline-size: 20px; block-size: 20px; border-radius: 10px; color: var(--muted); }
+.filter-pill:hover .x { color: var(--fg); }
+.filter-pill-clear { padding-inline: 6px; background: none; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+.filter-pill-clear:hover { color: var(--fg); }
+.filter-pill:focus-visible, .filter-pill-clear:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+@media (pointer: coarse) { .filter-pill, .filter-pill-clear { block-size: 40px; border-radius: 20px; } }
+.matched { margin-block: 14px 0; color: var(--muted); font-size: 0.82rem; }
+.matched[hidden] { display: none; }
 .pager { margin-block-start: 24px; }
 /* gb-search draws its shortcut hint even without a shortcut: hide the empty one (fix in genjiball-ui). */
 gb-search kbd:empty { display: none; }

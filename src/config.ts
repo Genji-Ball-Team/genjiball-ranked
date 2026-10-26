@@ -323,6 +323,8 @@ export const defaults = {
   leaderboardPageSize: 50,
   /** Days back the leaderboard's rating change counts from: each row's rating now against its rating then. */
   leaderboardChangeDays: 7,
+  /** The most days the leaderboard's "last played" filter (`?played=`) reaches back. */
+  leaderboardFilterMaxDays: 365,
   /** Matches on a player page, newest first. */
   playerRecentMatches: 20,
   /** Matches a page of the recent matches (`/api/recent`), newest first. */
