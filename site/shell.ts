@@ -114,12 +114,17 @@ function tabBar(page: string): void {
   bar.setAttribute("aria-label", "Sections");
   render(
     bar,
-    html`${tab("/", "leaderboard", "Leaderboard", page === "leaderboard")}${tab("/live", "live", "Live", page === "live")}${tab(
-      "/records",
-      "records",
-      "Records",
-      page === "records",
-    )}${tab("/tourneys", "tourney", "Tourneys", page === "tourneys" || page === "tourney")}${tab("/?find", "search", "Find a player", false)}`,
+    html`${tab("/", "leaderboard", "Leaderboard", page === "leaderboard")}${tab(
+      "/matches",
+      "matches",
+      "Matches",
+      page === "matches" || page === "match",
+    )}${tab("/live", "live", "Live", page === "live")}${tab("/records", "records", "Records", page === "records")}${tab(
+      "/tourneys",
+      "tourney",
+      "Tourneys",
+      page === "tourneys" || page === "tourney",
+    )}${tab("/?find", "search", "Search", false)}`,
   );
   document.body.append(bar);
   bar.lastElementChild?.addEventListener("click", (e) => {

@@ -30,7 +30,14 @@
 .tug b { color: var(--fg); font-size: 1.4rem; font-stretch: var(--display-width); }
 .split { height: 6px; border-radius: 3px; background: var(--muted); overflow: hidden; }
 .split span { display: block; height: 100%; background: var(--fg); }
+/* A phone: tighter cells, names kept whole, and three players scroll sideways under row labels that stay put. */
 @media (max-width: 640px) {
-  .versus thead th, .versus tbody td { min-width: 6.5rem; }
+  .versus th, .versus td { padding-inline-end: 10px; }
+  .versus thead th, .versus tbody td { min-width: 0; }
+  .versus tbody th { white-space: normal; }
+  .versus tbody th, .versus thead td { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--bg); }
+  .versus .who { font-size: 1rem; }
+  .versus .who a { overflow-wrap: break-word; }
+  .versus td { font-size: 1.05rem; }
   .picker { max-width: none; }
 }
