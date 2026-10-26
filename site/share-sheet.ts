@@ -1,19 +1,23 @@
 // The share sheet behind the Share button (share.ts), loaded the first time it's wanted: it draws a
 // card of what the page shows, to post anywhere: the phone's own share menu, a copied image to paste
 // in Discord, a download, the link, or a post on X, Reddit or Bluesky. Two sizes, wide (Discord, X)
-// and story (9:16, phones), and a few styles to pick from, each shown as a small preview.
+// and story (9:16, phones), and a few styles to pick from, each shown as a small preview. "Show" picks
+// what the card says (cards/parts.ts), kept per kind of card; every style lays itself out around it.
 // The card is drawn on a canvas, in the brand's colours and Saira, by one of the styles in cards/. A
 // link posted without the image still shows a preview of its own (src/site/preview.ts).
 import "@genji-ball-team/ui/button.js";
+import "@genji-ball-team/ui/chip-select.js";
 import "@genji-ball-team/ui/dialog.js";
 import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/toast.js";
 import type { GbButton } from "@genji-ball-team/ui/button.js";
+import type { GbChipSelect } from "@genji-ball-team/ui/chip-select.js";
 import type { GbDialog } from "@genji-ball-team/ui/dialog.js";
 import type { GbSegmented } from "@genji-ball-team/ui/segmented.js";
 import type { GbToast, GbToastRegion, ToastKind } from "@genji-ball-team/ui/toast.js";
 import { drawCard, isStyle, styles, type StyleName } from "./cards";
 import { refreshPalette } from "./cards/kit";
+import { defaults, offered, parts } from "./cards/parts";
 import type { ShareCard } from "./cards/types";
 import { html, render } from "./lib/html";
 
@@ -45,6 +49,28 @@ function keep(key: string, value: string): void {
   }
 }
 
+type Kind = ShareCard["kind"];
+const showKey = (kind: Kind) => `share-show-${kind}`;
+
+/**
+ * The parts picked for a kind of card last time. Kept with the parts there were then, so a part added
+ * since starts as it would for anyone new.
+ */
+function keptParts(kind: Kind): string[] {
+  try {
+    const raw = localStorage.getItem(showKey(kind));
+    const { on, seen } = raw ? (JSON.parse(raw) as { on?: unknown; seen?: unknown }) : {};
+    if (!Array.isArray(on) || !Array.isArray(seen)) return defaults(kind);
+    const first = defaults(kind);
+    return Object.keys(parts[kind]).filter((key) => (seen.includes(key) ? on.includes(key) : first.includes(key)));
+  } catch {
+    return defaults(kind);
+  }
+}
+function keepParts(kind: Kind, on: readonly string[]): void {
+  keep(showKey(kind), JSON.stringify({ on, seen: Object.keys(parts[kind]) }));
+}
+
 /** Every name on the card, so the font's other subset (latin-ext) loads for names that need it. */
 function words(card: ShareCard): string {
   const names =
@@ -52,7 +78,7 @@ function words(card: ShareCard): string {
   return [card.region, ...names].join(" ");
 }
 
-async function draw(card: ShareCard, format: Format, style: StyleName): Promise<Blob> {
+async function draw(card: ShareCard, format: Format, style: StyleName, picked: readonly string[]): Promise<Blob> {
   const { w, h } = formats[format];
   await Promise.all([400, 500, 600, 700, 800].map((weight) => document.fonts.load(`${weight} 40px Saira`, words(card)))).catch(() => undefined);
   // Read now, so the card has the colours the page has.
@@ -62,17 +88,18 @@ async function draw(card: ShareCard, format: Format, style: StyleName): Promise<
   canvas.height = h;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("no canvas");
-  drawCard(ctx, style, card, format === "story");
+  drawCard(ctx, style, card, format === "story", picked);
   return new Promise((resolve, reject) => canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("no image"))), "image/png"));
 }
 
-/** The images drawn for the current card, by style and size: switching back is instant, and the previews reuse them. */
+/** The images drawn for the current card, by style, size and parts: switching back is instant, and the previews reuse them. */
 const drawings = new Map<string, Promise<Blob>>();
 function drawing(card: ShareCard, format: Format, style: StyleName): Promise<Blob> {
-  const key = `${style} ${format}`;
+  const picked = keptParts(card.kind);
+  const key = `${style} ${format} ${picked.join(",")}`;
   let made = drawings.get(key);
   if (!made) {
-    made = draw(card, format, style);
+    made = draw(card, format, style, picked);
     drawings.set(key, made);
     // A failed draw is tried again next time.
     made.catch(() => drawings.delete(key));
@@ -133,6 +160,7 @@ function build(): GbDialog {
       <div class="share-styles" role="group" aria-label="Style">${Object.entries(styles).map(
         ([key, s]) => html`<button type="button" value="${key}" aria-pressed="${key === style}"><img alt=""><span>${s.label}</span></button>`,
       )}</div>
+      <div class="share-show"><span aria-hidden="true">Show</span><gb-chip-select label="Show on the card"></gb-chip-select></div>
       <div class="share-actions">
         ${native && button("native", "Share…", true)}
         ${copyImage && button("copy", "Copy image", !native)}
@@ -146,6 +174,12 @@ function build(): GbDialog {
       <gb-button slot="actions" value="close">Close</gb-button>`,
   );
   dialog.addEventListener("change", (event) => {
+    if (event.target instanceof HTMLElement && event.target.localName === "gb-chip-select") {
+      if (!current) return;
+      keepParts(current.kind, (event.target as GbChipSelect).values);
+      void redraw();
+      return;
+    }
     const picked = (event.target as GbSegmented).value;
     if (!isFormat(picked) || picked === format) return;
     format = picked;
@@ -211,10 +245,24 @@ const actions: Record<Action, () => Promise<void>> = {
   },
 };
 
+/** Fills "Show" with the parts this card has, the kept ones picked. */
+function showParts(card: ShareCard): void {
+  const select = sheet?.querySelector<GbChipSelect>(".share-show gb-chip-select");
+  if (!select) return;
+  const list = offered(card);
+  const signature = list.map((p) => p.key).join(",");
+  if (select.dataset.parts !== signature) {
+    select.dataset.parts = signature;
+    render(select, html`${list.map((p) => html`<button type="button" value="${p.key}">${p.label}</button>`)}`);
+  }
+  select.values = keptParts(card.kind);
+}
+
 /** Draws the card in the current size into the sheet. */
 async function redraw(): Promise<void> {
   const card = current;
   if (!sheet || !card) return;
+  showParts(card);
   const run = ++drawn;
   const figure = sheet.querySelector<HTMLElement>(".share-preview");
   const img = figure?.querySelector("img");
