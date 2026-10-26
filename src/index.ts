@@ -14,6 +14,7 @@ import { handleBotSignups } from "./tourney/botSignups";
 import { expireOld } from "./tourney/expiry";
 import { handleHostTourneyLobby, handleHostTourneys } from "./tourney/host";
 import { handleSignup } from "./tourney/signups";
+import { robotsTxt, sitemapXml } from "./site/robots";
 import { handleHostMatches, handleHostMe, handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
@@ -119,6 +120,9 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
     if (site) return site;
     return Response.json({ error: "not_found" }, { status: 404 });
   }
+
+  if (url.pathname === "/robots.txt") return robotsTxt(config, url.origin);
+  if (url.pathname === "/sitemap.xml") return sitemapXml(config, url.origin);
 
   if (previewPages.includes(url.pathname)) return previewPage(request, env, config, log, url);
 
