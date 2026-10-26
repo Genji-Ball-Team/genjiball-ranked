@@ -26,7 +26,7 @@ describe("rankTags", () => {
       ["Champion", "Champion - 2500", []],
       ["Sovereign", "Sovereign - 2800", ["Zeus"]],
     ]);
-    expect(tags.tiers[0]!.color).toEqual([205, 127, 50, 255]);
+    expect(tags.tiers[0]!.color).toEqual([207, 131, 88, 255]);
   });
 
   it("leaves out inactive players, players with too few rounds, and names the Workshop can't hold", () => {

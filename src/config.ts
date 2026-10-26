@@ -278,20 +278,21 @@ export const defaults = {
 
   /**
    * Tiers with a rank tag in game and on the site, lowest first. A player is in the highest tier
-   * whose threshold their display rating reaches; below the first, no tier. Labels and colours
-   * (Apprentice is new) match GenjiBall-CE v1.3.3R `src/features/rank-tags.opy`, except the top
-   * tier: Sovereign, dark purple, was God, a name now given to the 1v1 tourney's winner (`titles`).
+   * whose threshold their display rating reaches; below the first, no tier. The colours are the
+   * tuned ones in genjiball-ui docs/brand.md (Rank tiers), so every tier reads on the dark background;
+   * the game gets them from here, through the host tool's code (`/api/rank-tags`). Sovereign, the top
+   * tier, was God, a name now given to the 1v1 tourney's winner (`titles`).
    * A `siteOnly` tier (Rookie) shows on the site and the Discord bot's rank roles but has no rank tag
    * in game: `/api/rank-tags` leaves it out, so the game's tiers stay as they are.
    */
   tiers: [
-    { label: "Rookie", color: [126, 224, 200], threshold: 1000, siteOnly: true },
-    { label: "Apprentice", color: [205, 127, 50], threshold: 1300 },
-    { label: "Master", color: [255, 215, 0], threshold: 1600 },
-    { label: "Grandmaster", color: [255, 140, 0], threshold: 1900 },
-    { label: "Ascendant", color: [60, 160, 255], threshold: 2200 },
-    { label: "Champion", color: [150, 0, 0], threshold: 2500 },
-    { label: "Sovereign", color: [90, 20, 140], threshold: 2800 },
+    { label: "Rookie", color: [143, 211, 202], threshold: 1000, siteOnly: true },
+    { label: "Apprentice", color: [207, 131, 88], threshold: 1300 },
+    { label: "Master", color: [232, 211, 79], threshold: 1600 },
+    { label: "Grandmaster", color: [240, 156, 23], threshold: 1900 },
+    { label: "Ascendant", color: [112, 154, 251], threshold: 2200 },
+    { label: "Champion", color: [251, 87, 93], threshold: 2500 },
+    { label: "Sovereign", color: [183, 119, 248], threshold: 2800 },
   ] as Tier[],
 
   /**
