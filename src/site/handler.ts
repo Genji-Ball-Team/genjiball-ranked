@@ -87,6 +87,7 @@ export type SiteConfig = RankTagsConfig &
     | "ratingMatchMaxChange"
     | "displayCenter"
     | "displayScale"
+    | "displayScaleAfter"
     | "displayFloor"
     | "tournamentWinnerBonus"
     | "tournamentMaxGain"
