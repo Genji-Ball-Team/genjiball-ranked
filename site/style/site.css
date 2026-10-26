@@ -1,0 +1,404 @@
+/* The site's layout around @genji-ball-team/ui: the page frame, header, footer and phone chrome. The
+   look itself (type, surfaces, rows, chips, controls) comes from the library and its tokens; this
+   file only places things. A region is shown by its name (the switch, a grey chip), never a colour. */
+@import "@genji-ball-team/ui/base.css";
+@import "./share.css";
+@import "./tourneys.css";
+@import "./records.css";
+@import "./live.css";
+@import "./compare.css";
+@import "./match.css";
+@import "./ranked.css";
+
+html {
+  /* The scrollbar's room is kept on every page, so the layout doesn't shift sideways between a page
+     that scrolls and one that doesn't. */
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border) transparent;
+}
+/* The brand's green strip along the top, the same in every region (NA's used to be gold). */
+body { display: flex; flex-direction: column; border-top: 3px solid var(--green); }
+[hidden] { display: none !important; }
+::selection { background: color-mix(in oklab, var(--green) 35%, transparent); }
+/* Read by screen readers, not shown. */
+.sr { position: absolute; inset-block-start: 0; inset-inline-start: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* One column for every page, the header's and footer's contents lined up with it. */
+.top, main, .foot { width: 100%; max-width: 56rem; margin-inline: auto; padding-inline: 20px; }
+
+/* Banners above the header (shell.ts). The test server's says the ratings aren't real, in `down` with
+   its own line; a recompute is a quiet note. */
+.test-banner, .updating-banner { margin: 0; padding: 8px 20px; text-align: center; font-size: var(--body-size); }
+.test-banner { background: var(--raised); color: var(--fg); font-weight: 600; border-bottom: 2px solid var(--down); }
+.test-banner::before { content: "⚠ "; color: var(--down); }
+.updating-banner { background: var(--panel); color: var(--soft); border-bottom: 1px solid var(--line); }
+
+/* Header: a flat bar on `panel`. The wordmark and region switch on the left, the sections on the right. */
+.bar { background: var(--panel); border-bottom: 1px solid var(--line); }
+.top { display: flex; align-items: center; gap: 16px; min-height: 56px; }
+.mark {
+  display: flex; align-items: center; gap: 10px; flex: none; color: var(--fg); text-decoration: none;
+  font-size: var(--title-size); font-weight: 750; font-stretch: var(--heading-width); letter-spacing: 0.01em;
+  border-radius: var(--r-chip);
+}
+.mark span { color: var(--muted); font-weight: 600; }
+.mark img { width: 24px; height: 24px; }
+.regions { flex: none; }
+.top gb-nav { margin-inline-start: auto; min-width: 0; }
+
+main { flex: 1; padding-block: 32px 48px; }
+
+/* A page's heading, with what it's about (a grey region chip) beside it and its search on the right. */
+.headline { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; margin-block-end: 16px; }
+.headline h1 { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
+.find { width: 16rem; }
+
+.note { margin-block-start: 12px; color: var(--muted); font-size: var(--body-size); text-wrap: pretty; }
+.empty { padding: 24px 16px; color: var(--muted); list-style: none; text-align: center; }
+
+.num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+
+/* Leaderboard: the ladder. Rows straight on the page in tier bands, each band's heading pinned while
+   its tier scrolls by. */
+.headline h1 { font-size: var(--display-size); font-stretch: var(--display-width); }
+.cols, .entry {
+  display: grid; grid-template-columns: 3rem minmax(0, 1fr) 5.5rem 4.5rem 4.5rem 4.5rem 7rem; gap: 16px; align-items: center;
+}
+.cols {
+  margin-block-start: 24px; padding: 0 12px 4px 16px; color: var(--muted);
+  font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.cols > :nth-child(n + 3), .entry > :nth-child(n + 3) { text-align: end; }
+.ladder { list-style: none; margin: 0; padding: 0; }
+.ladder[data-loading] { display: grid; gap: 6px; }
+.ladder gb-skeleton { min-block-size: 52px; }
+.band {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
+  margin-block-start: 20px; padding: 8px 0 6px; background: var(--bg); color: var(--muted); font-size: 0.8rem;
+}
+.band:first-child { margin-block-start: 0; }
+.band::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+[data-tier="rookie"] { --tier: var(--t-rookie); }
+[data-tier="apprentice"] { --tier: var(--t-apprentice); }
+[data-tier="master"] { --tier: var(--t-master); }
+[data-tier="grandmaster"] { --tier: var(--t-grandmaster); }
+[data-tier="ascendant"] { --tier: var(--t-ascendant); }
+[data-tier="champion"] { --tier: var(--t-champion); }
+[data-tier="sovereign"] { --tier: var(--t-sovereign); }
+.entry {
+  position: relative; padding: 11px 12px 11px 16px; color: var(--fg); text-decoration: none;
+  border-radius: var(--r); -webkit-tap-highlight-color: transparent;
+}
+/* The tier bar: the tier's colour shows here and on the chip, never on text. */
+.entry::before {
+  content: ""; position: absolute; inset-inline-start: 0; inset-block: 8px; width: 3px; border-radius: 2px;
+  background: var(--tier, var(--border));
+}
+/* Hovered, a row steps up to `panel` with a hint of its tier, and its tier bar thickens. */
+a.entry:hover, a.entry:active { background: color-mix(in oklab, var(--tier, var(--panel)) 6%, var(--panel)); }
+a.entry:hover::before { width: 4px; }
+.entry .pos { color: var(--muted); font-size: 1.05rem; font-weight: 600; font-stretch: var(--heading-width); }
+.entry .pos.high { color: var(--fg); font-weight: 700; }
+.who { min-width: 0; }
+.who b {
+  display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere;
+  font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width);
+}
+.who small { display: block; color: var(--muted); font-size: 0.8rem; }
+.who .stats { display: none; }
+.entry .rating { font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); }
+.entry .rating.floor { color: var(--muted); font-weight: 400; }
+.entry.inactive .who b, .entry.inactive .rating { color: var(--muted); }
+.entry.inactive::before { opacity: 0.45; }
+.entry .played { font-size: 0.85rem; white-space: nowrap; }
+/* "This is me": a raised row with a label, so it shows without taking a colour. */
+a.entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
+.you {
+  padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted);
+  font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+#me { scroll-margin-block: 96px; }
+.board-tools { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.me-button { margin-inline-start: auto; }
+.pager { margin-block-start: 24px; }
+/* gb-search draws its shortcut hint even without a shortcut: hide the empty one (fix in genjiball-ui). */
+gb-search kbd:empty { display: none; }
+/* The page number stays in the middle on the first page, where "Previous" is hidden. */
+.pager > span { grid-column: 2; }
+.pager > a[rel="next"] { grid-column: 3; }
+
+/* Titles (titles.ts): God and Demigod keep their place and stand out there instead, the library's
+   title looks (brand.md, Colour) plus the ladder's own sparkles. God is white light: a white rim
+   running round the row, a glowing place and rating, a shimmering name, motes and sparkles. Demigod
+   is dark red: a slower red rim turning the other way and a red haze. Without motion, the rims and
+   glows stay and nothing moves. */
+@property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+a.entry.god, a.entry.demi { isolation: isolate; overflow: hidden; border: 1.5px solid transparent; }
+.entry.god > :not(.fx), .entry.demi > :not(.fx) { position: relative; z-index: 1; }
+a.entry.god::before, a.entry.demi::before { z-index: 2; inset-inline-start: 2px; width: 4px; }
+a.entry.god::before {
+  background: linear-gradient(var(--god-cream), var(--god));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--god-cream) 90%, transparent);
+}
+a.entry.demi::before {
+  background: linear-gradient(var(--demi-hi), var(--demi));
+  box-shadow: 0 0 8px color-mix(in oklab, var(--demi-hi) 75%, transparent);
+}
+.entry > .fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+a.entry.god {
+  --fill: var(--panel); margin-block: 4px;
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--god-cream) 14%, transparent), transparent 80%) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box,
+    conic-gradient(from var(--spin), var(--line) 0 55%, var(--god) 72%, var(--god-rim) 80%, var(--line) 92% 100%) border-box;
+  box-shadow: 0 0 18px color-mix(in oklab, var(--god-cream) 12%, transparent);
+}
+a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
+.entry.god .pos, .entry.god .rating { color: var(--god); text-shadow: 0 0 12px color-mix(in oklab, var(--god-rim) 80%, transparent); }
+.entry.god .name {
+  background: linear-gradient(110deg, var(--god) 0 35%, var(--god-rim) 45%, var(--god) 50%, var(--god-cream) 55%, var(--god) 65% 100%) 0 0 / 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.fx .mote {
+  position: absolute; width: var(--s); height: var(--s); border-radius: 50%; opacity: 0;
+  background: var(--god-cream); box-shadow: 0 0 6px 2px color-mix(in oklab, var(--god-rim) 60%, transparent);
+}
+.fx .spark {
+  position: absolute; width: 10px; height: 10px; opacity: 0; filter: drop-shadow(0 0 4px var(--god-rim));
+  background: radial-gradient(circle, var(--god) 0 18%, transparent 20%),
+    conic-gradient(transparent 0 40deg, var(--god) 45deg, transparent 50deg 130deg, var(--god) 135deg, transparent 140deg 220deg, var(--god) 225deg, transparent 230deg 310deg, var(--god) 315deg, transparent 320deg);
+  mask: radial-gradient(circle, #000 0 30%, transparent 70%);
+}
+a.entry.demi {
+  --fill: color-mix(in oklab, var(--demi-dark) 17%, var(--bg)); margin-block: 2px;
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--demi) 14%, transparent), transparent 70%) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box,
+    conic-gradient(from var(--spin), var(--demi-dark) 0 35%, var(--demi) 45%, var(--demi-hi) 50%, var(--demi-dark) 60% 85%, var(--demi-deep) 92%, var(--demi-dark) 100%) border-box;
+}
+a.entry.demi:hover, a.entry.demi:active { --fill: color-mix(in oklab, var(--demi-dark) 30%, var(--bg)); }
+.fx .haze { position: absolute; inset: -50% -20%; background: radial-gradient(40% 60% at 50% 50%, color-mix(in oklab, var(--demi) 18%, transparent), transparent 70%); }
+@media (prefers-reduced-motion: no-preference) {
+  a.entry.god { animation: title-spin 4s linear infinite; }
+  a.entry.demi { animation: title-spin 7s linear infinite reverse; }
+  .entry.god .name { animation: title-shimmer 3s linear infinite; }
+  .fx .mote { animation: title-mote var(--t) linear infinite; }
+  .fx .spark { animation: title-twinkle var(--t) ease-in-out infinite; }
+  .fx .haze { animation: title-drift 6s ease-in-out infinite alternate; }
+  @keyframes title-spin { to { --spin: 360deg; } }
+  @keyframes title-shimmer { to { background-position: -200% 0; } }
+  @keyframes title-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
+  @keyframes title-twinkle { 0%, 100% { opacity: 0; scale: 0.2; rotate: 0deg; } 50% { opacity: 1; scale: 1; rotate: 45deg; } }
+  @keyframes title-drift { from { transform: translateX(-30%); } to { transform: translateX(30%); } }
+  a.entry { transition: background-color 0.15s; }
+  .entry::before { transition: width 0.15s; }
+}
+
+/* Player: name, chips and seal, a line about them, their figures, then sections down the page. */
+.hero .headline { justify-content: start; gap: 8px 12px; margin-block-end: 0; }
+.tier:empty { display: none; }
+.lede { max-width: 38rem; margin-block: 8px 0; color: var(--soft); text-wrap: pretty; }
+.lede:empty { display: none; }
+.lede a, .note a { color: var(--fg); text-decoration-color: var(--green); text-underline-offset: 3px; }
+h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(--heading-weight); font-stretch: var(--heading-width); }
+.label, .figures dt, .rivals h3 {
+  color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.figures { display: flex; flex-wrap: wrap; gap: 16px 0; margin-block: 28px 0; }
+.figures:empty { display: none; }
+.figures div { padding-inline: 28px; border-inline-start: 1px solid var(--line); }
+.figures div:first-child { padding-inline-start: 0; border-inline-start: 0; }
+.figures dd { margin: 0; font-size: 2rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1.2; }
+/* How far the next tier is: the bar in this tier's colour. */
+.next-tier { max-width: 26rem; margin-block-start: 24px; }
+.track { height: 4px; border-radius: 2px; background: var(--raised); overflow: hidden; }
+.track span { display: block; height: 100%; border-radius: 2px; background: var(--tier, var(--muted)); }
+.next-tier p { display: flex; align-items: center; gap: 6px; margin-block: 8px 0; color: var(--muted); }
+.facts { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; color: var(--soft); }
+.facts b { color: var(--fg); font-stretch: var(--title-width); }
+.facts small { color: var(--muted); font-weight: 400; }
+.graph { margin-block-start: 16px; }
+.chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
+.chart-dates { display: flex; justify-content: space-between; margin: 4px 0 0; color: var(--muted); font-size: 0.8rem; }
+/* Form: a square a round, its place in it. A win is the only filled one. */
+.form { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0 0; padding: 0; }
+.form a {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r-chip); text-decoration: none;
+  background: var(--panel); color: var(--soft); font-stretch: var(--title-width);
+}
+.form a:hover { background: var(--raised); color: var(--fg); }
+.form a.won { background: var(--up); color: var(--bg); font-weight: 700; }
+/* Rivals: two short lists side by side. */
+.rivals { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 40px; }
+.rivals h3 { margin: 0 0 4px; }
+.rivals ol, .history { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.rivals li { display: grid; grid-template-columns: minmax(0, 1fr) auto 7rem auto; gap: 0 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.rivals li > a:first-child { color: var(--fg); font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width); text-decoration: none; overflow-wrap: anywhere; }
+.rivals li > a:first-child:hover { text-decoration: underline; }
+.rivals small { color: var(--muted); font-size: 0.85rem; text-align: end; white-space: nowrap; }
+.rivals .vs { color: var(--muted); font-size: 0.85rem; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.rivals .vs:hover { color: var(--green); }
+/* Recent matches: when, map, the rating after and its change. */
+.history[data-loading] { display: grid; gap: 6px; padding-block-start: 6px; border: 0; }
+.history gb-skeleton { min-block-size: 44px; }
+.history a {
+  display: grid; grid-template-columns: 9rem minmax(0, 1fr) 9rem 8rem; gap: 16px; align-items: baseline;
+  padding: 11px 8px; border-bottom: 1px solid var(--line); color: var(--fg); text-decoration: none;
+}
+.history a:hover, .history a:active { background: var(--panel); }
+.history .when small { margin-inline-start: 6px; color: var(--muted); }
+.history .map { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; color: var(--soft); overflow-wrap: anywhere; }
+.history .place { display: flex; align-items: baseline; gap: 8px; color: var(--soft); }
+.history .place b { min-width: 2.25rem; font-weight: 600; }
+.history .place b.won { color: var(--fg); font-weight: 700; }
+.history .place small { color: var(--muted); font-size: 0.85rem; }
+.more { display: flex; width: fit-content; margin: 16px auto 0; }
+.history .change { display: flex; justify-content: end; align-items: baseline; gap: 6px; font-size: 1.1rem; font-weight: 600; font-stretch: var(--title-width); }
+.history .change span, .history .change gb-delta { font-size: 0.9rem; font-weight: 400; }
+gb-chip.void { color: var(--down); }
+/* The matches page: when, map, who won, and the reader's own place (or how many played). */
+.feed a { grid-template-columns: 9rem minmax(0, 0.7fr) minmax(0, 1.3fr) 8rem; }
+.feed .podium { display: flex; flex-direction: column; min-width: 0; }
+.feed .podium b { font-weight: 600; overflow-wrap: anywhere; }
+.feed .podium small { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+.feed .side { display: flex; justify-content: end; align-items: baseline; gap: 8px; white-space: nowrap; }
+.feed .side b { font-weight: 600; color: var(--soft); }
+.feed .side b.won { color: var(--fg); font-weight: 700; }
+
+/* A titled profile: the hero in the title's frame, its rim turning, its seal on the right. */
+.seal { margin: 0 0 0 auto; text-align: end; font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase; }
+.seal b { display: block; color: var(--fg); font-size: 0.95rem; letter-spacing: 0.02em; text-transform: none; }
+.hero.god .seal { color: var(--god); }
+.hero.demi .seal { color: var(--demi-hi); }
+.hero.god, .hero.demi { position: relative; isolation: isolate; overflow: hidden; padding: 28px 20px 20px; border: 1.5px solid transparent; border-radius: var(--r); }
+.hero > :not(.fx) { position: relative; z-index: 1; }
+.hero.god {
+  background: radial-gradient(80% 140% at 50% 120%, color-mix(in oklab, var(--god-cream) 14%, transparent), transparent 60%) padding-box,
+    linear-gradient(var(--panel), var(--panel)) padding-box,
+    conic-gradient(from var(--spin), var(--line) 0 50%, var(--god) 68%, var(--god-rim) 78%, var(--line) 92% 100%) border-box;
+  box-shadow: 0 0 24px color-mix(in oklab, var(--god-cream) 10%, transparent);
+}
+.hero.god h1 {
+  background: linear-gradient(110deg, var(--god) 0 35%, var(--god-rim) 45%, var(--god) 50%, var(--god-cream) 55%, var(--god) 65% 100%) 0 0 / 200% 100%;
+  background-clip: text; color: transparent;
+}
+.hero.demi {
+  background: radial-gradient(90% 120% at 50% 130%, color-mix(in oklab, var(--demi) 22%, transparent), transparent 60%) padding-box,
+    linear-gradient(color-mix(in oklab, var(--demi-dark) 17%, var(--bg)), color-mix(in oklab, var(--demi-dark) 17%, var(--bg))) padding-box,
+    conic-gradient(from var(--spin), var(--demi-dark) 0 40%, var(--demi) 50%, var(--demi-hi) 55%, var(--demi) 60%, var(--demi-dark) 70% 100%) border-box;
+  box-shadow: 0 0 22px color-mix(in oklab, var(--demi) 15%, transparent);
+}
+.hero .fx { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.fx .mist {
+  position: absolute; bottom: -30%; width: var(--w); height: var(--w); border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, color-mix(in oklab, var(--demi) 28%, transparent), transparent 65%); filter: blur(10px);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero.god { animation: title-spin 5s linear infinite; }
+  .hero.demi { animation: title-spin 8s linear infinite reverse; }
+  .hero.god h1 { animation: title-shimmer 3s linear infinite; }
+  .fx .mist { animation: title-mist var(--t) ease-in infinite; }
+  @keyframes title-mist { 0% { transform: translate(0, 20%) scale(1); opacity: 0; } 30% { opacity: 0.8; } 100% { transform: translate(var(--dx), -60%) scale(1.6); opacity: 0; } }
+}
+
+/* Footer: one quiet line. */
+.foot {
+  display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
+  padding-block: 20px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem;
+}
+.foot-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.foot-links a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+.foot-links a:hover { color: var(--fg); }
+
+/* Phone chrome (shell.ts): bottom tab bar, search sheet and back button, only at phone widths. */
+/* A lobby is open: a plain foreground dot after Live, as on the Live page (never green or a region colour). */
+.live-dot { display: inline-block; width: 6px; height: 6px; margin-inline-start: 6px; border-radius: 50%; background: var(--fg); vertical-align: 0.15em; }
+.tabbar, .back, .sheet { display: none; }
+
+@media (max-width: 640px) {
+  .top, main, .foot { padding-inline: 16px; }
+  main { padding-block-start: 24px; }
+  body:has(.tabbar) { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  body:has(.tabbar) .top gb-nav, body:has(.tabbar) .find { display: none; }
+  body:has(.tabbar) .regions { margin-inline-start: auto; }
+  /* The tab bar: the nav's look (muted, the current one in `fg` with a green icon), in thumb reach. */
+  .tabbar {
+    position: fixed; inset: auto 0 0; z-index: 10; display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line);
+  }
+  .tabbar a {
+    display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; justify-content: center;
+    color: var(--muted); text-decoration: none; border-radius: var(--r); -webkit-tap-highlight-color: transparent;
+    font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .tabbar gb-icon { inline-size: 22px; block-size: 22px; }
+  .tabbar a.open-now { position: relative; }
+  .tabbar .live-dot { position: absolute; inset-block-start: 6px; inset-inline-start: calc(50% + 14px); margin: 0; }
+  .tabbar a[aria-current] { background: var(--raised); color: var(--fg); }
+  .tabbar a[aria-current] gb-icon { color: var(--green); }
+  /* The search sheet: the whole screen, the field at the top. */
+  .sheet[open] {
+    display: flex; flex-direction: column; position: fixed; inset: 0; width: 100%; height: 100%;
+    max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--bg); color: var(--fg);
+  }
+  .sheet::backdrop { background: var(--scrim); }
+  .sheet-bar {
+    display: flex; gap: 12px; align-items: center; padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .sheet-bar gb-search { flex: 1; min-width: 0; }
+  .sheet-bar button {
+    min-height: 40px; padding: 0 4px; border: 0; border-radius: var(--r); background: none; color: var(--green); cursor: pointer;
+  }
+  .back {
+    display: grid; place-items: center; width: 40px; height: 40px; margin-inline-start: -8px; padding: 0;
+    border: 0; border-radius: var(--r); background: none; color: var(--fg); cursor: pointer;
+  }
+  .back gb-icon { inline-size: 24px; block-size: 24px; }
+  .headline:has(.back) { justify-content: start; }
+  .headline h1 { font-size: 2rem; }
+  .entry { padding-block: 12px; }
+  .cols, .entry { grid-template-columns: 2.25rem minmax(0, 1fr) 4.5rem; gap: 12px; }
+  .who .stats gb-delta { font-size: inherit; }
+  .cols > :nth-child(n + 4), .entry > :nth-child(n + 4) { display: none; }
+  .who .stats { display: block; }
+  /* Three figures a row, so K/D doesn't wrap alone. */
+  .figures { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; }
+  .figures div { padding-inline: 16px; }
+  .figures div:nth-child(3n + 1) { padding-inline-start: 0; border-inline-start: 0; }
+  .figures dd { font-size: 1.6rem; }
+  .rivals { grid-template-columns: 1fr; }
+  .rivals li { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .rivals small { grid-column: 1; grid-row: 2; text-align: start; }
+  .rivals .vs { grid-column: 3; grid-row: 1 / 3; align-self: center; }
+  .history a { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
+  .history .when { grid-column: 1; }
+  .history .map { grid-column: 1; font-size: 0.85rem; }
+  .history .place { grid-column: 1; font-size: 0.85rem; }
+  .history .place b { min-width: 0; }
+  .history .change { grid-column: 2; grid-row: 1 / 4; align-self: center; }
+  .feed a { grid-template-columns: minmax(0, 1fr) auto; }
+  .feed .when, .feed .map, .feed .podium { grid-column: 1; }
+  .feed .map { order: 1; }
+  .feed .side { grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: 0.85rem; }
+  .seal { flex-basis: 100%; margin: 0; text-align: start; }
+}
+
+/* Motion, played once: a list that's just loaded rises in, the search sheet slides up and back down.
+   Off under reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  /* lib/load.ts numbers the first rows `--i`, one after another; the rest come in together. */
+  .appear > * { animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) backwards; animation-delay: calc(min(var(--i, 12), 12) * 25ms); }
+  @keyframes rise { from { opacity: 0; transform: translateY(4px); } }
+  @view-transition { navigation: auto; }
+  .tabbar { view-transition-name: tabbar; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.2s; }
+  .sheet[open] { animation: sheet-in 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  .sheet.closing { animation: sheet-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards; }
+  @keyframes sheet-in { from { transform: translateY(100%); } }
+  @keyframes sheet-out { to { transform: translateY(100%); } }
+}

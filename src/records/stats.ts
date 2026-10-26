@@ -15,6 +15,9 @@ export type RecordsConfig = Pick<
   | "recordsTopHosts"
   | "recordsMinPlayers"
   | "recordsMinRatedRounds"
+  | "recordsTop"
+  | "recordsTopScan"
+  | "recordsRatingScan"
   | "regions"
 >;
 
@@ -184,27 +187,41 @@ export interface CareerRecord {
   player: RecordPlayer;
 }
 
+/** Each record's holders, best first, each player once: at most `recordsTop`. */
 export interface Records {
-  roundDeflects: MatchRecord | null;
-  fastestDeflect: MatchRecord | null;
-  matchKills: MatchRecord | null;
-  matchWins: MatchRecord | null;
-  highestRating: MatchRecord | null;
-  winStreak: CareerRecord | null;
-  mostRounds: CareerRecord | null;
-  mostWins: CareerRecord | null;
+  roundDeflects: MatchRecord[];
+  fastestDeflect: MatchRecord[];
+  matchKills: MatchRecord[];
+  matchWins: MatchRecord[];
+  highestRating: MatchRecord[];
+  winStreak: CareerRecord[];
+  mostRounds: CareerRecord[];
+  mostWins: CareerRecord[];
 }
 
-export const noRecords: Records = {
-  roundDeflects: null,
-  fastestDeflect: null,
-  matchKills: null,
-  matchWins: null,
-  highestRating: null,
-  winStreak: null,
-  mostRounds: null,
-  mostWins: null,
-};
+/** The records set in a match, by name: the ones a match leaving the region's records can take away. */
+export const matchRecordNames = ["roundDeflects", "fastestDeflect", "matchKills", "matchWins", "highestRating"] as const;
+export type MatchRecordName = (typeof matchRecordNames)[number];
+
+/** The records set in matches this month (UTC): the match records, not the career ones. */
+export type MonthRecords = Pick<Records, MatchRecordName>;
+
+export const noMonthRecords: MonthRecords = { roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [], highestRating: [] };
+
+export const noRecords: Records = { ...noMonthRecords, winStreak: [], mostRounds: [], mostWins: [] };
+
+/** The first `top` of `records` (best first) by different players: each player at their best. */
+export function distinctHolders<R extends { player: RecordPlayer }>(records: readonly R[], top: number): R[] {
+  const seen = new Set<number>();
+  const kept: R[] = [];
+  for (const r of records) {
+    if (kept.length >= top) break;
+    if (seen.has(r.player.id)) continue;
+    seen.add(r.player.id);
+    kept.push(r);
+  }
+  return kept;
+}
 
 export interface ActivityDay {
   /** UTC, `2026-10-05`. */
@@ -216,6 +233,7 @@ export interface ActivityDay {
 
 export interface RecordsInput {
   records: Records;
+  month: MonthRecords;
   /** Days with a match, in any order. */
   days: readonly ActivityDay[];
   /** Different players over the whole window. */
@@ -223,6 +241,10 @@ export interface RecordsInput {
   topHosts: readonly { name: string; matches: number }[];
 }
 
+/** The first day of the month `now` is in (UTC): "this month" counts from it. */
+export function monthStart(now: Date): string {
+  return `${now.toISOString().slice(0, 7)}-01`;
+}
 
 /** The first day of the activity window: `recordsActivityDays` days, today (UTC) included. */
 export function activityStart(now: Date, days: number): string {
@@ -240,6 +262,7 @@ export function recordsView(input: RecordsInput, config: Pick<RecordsConfig, "re
   }
   return {
     records: input.records,
+    month: { since: monthStart(now), records: input.month },
     activity: {
       days: perDay.length,
       matches: perDay.reduce((n, d) => n + d.matches, 0),
@@ -253,25 +276,43 @@ export function recordsView(input: RecordsInput, config: Pick<RecordsConfig, "re
 
 export type RecordsBody = ReturnType<typeof recordsView>;
 
-/** The records set in a match, by name: the ones a match leaving the region's records can take away. */
-export const matchRecordNames = ["roundDeflects", "fastestDeflect", "matchKills", "matchWins", "highestRating"] as const;
+/** Every match the stored page names in a record, this month's included. */
+export function recordMatchIds(body: RecordsBody): number[] {
+  return [...new Set(matchRecordNames.flatMap((name) => [...body.records[name], ...body.month.records[name]].map((r) => r.matchId)))];
+}
 
-/** The stored page with each record's holder as they are now (`current` by stored id): merged players by who they were merged into. */
+/** Every player the stored page names as a record holder. */
+export function recordPlayerIds(body: RecordsBody): number[] {
+  const lists: { player: RecordPlayer }[][] = [...Object.values(body.records), ...Object.values(body.month.records)];
+  return [...new Set(lists.flat().map((r) => r.player.id))];
+}
+
+/** The page with `fix` applied to each record list, all time and this month. */
+function eachList(body: RecordsBody, fix: (name: keyof Records, list: (MatchRecord | CareerRecord)[]) => (MatchRecord | CareerRecord)[]): RecordsBody {
+  const fixAll = <T extends Partial<Records>>(records: T): T =>
+    Object.fromEntries(Object.entries(records).map(([name, list]) => [name, fix(name as keyof Records, list as MatchRecord[])])) as T;
+  return {
+    ...body,
+    records: fixAll(body.records),
+    month: { ...body.month, records: fixAll(body.month.records) },
+  };
+}
+
+/**
+ * The stored page with each player as they are now (`current` by stored id): merged players by who
+ * they were merged into. Two holders merged into one keep one place, the better.
+ */
 export function withPlayers(body: RecordsBody, current: ReadonlyMap<number, RecordPlayer>): RecordsBody {
-  const records = { ...body.records } as Record<keyof Records, MatchRecord | CareerRecord | null>;
-  for (const name of Object.keys(records) as (keyof Records)[]) {
-    const record = records[name];
-    if (record) records[name] = { ...record, player: current.get(record.player.id) ?? record.player };
-  }
-  return { ...body, records: records as unknown as Records };
+  const now = <R extends { player: RecordPlayer }>(list: R[]): R[] =>
+    distinctHolders(
+      list.map((r) => ({ ...r, player: current.get(r.player.id) ?? r.player })),
+      list.length,
+    );
+  return eachList(body, (_, list) => now(list));
 }
 
 /** The stored page without the match records whose match isn't in `publicIds` any more. */
 export function withoutMatches(body: RecordsBody, publicIds: ReadonlySet<number>): RecordsBody {
-  const records = { ...body.records };
-  for (const name of matchRecordNames) {
-    const record = records[name];
-    if (record && !publicIds.has(record.matchId)) records[name] = null;
-  }
-  return { ...body, records };
+  const isMatchRecord = (name: keyof Records) => (matchRecordNames as readonly string[]).includes(name);
+  return eachList(body, (name, list) => (isMatchRecord(name) ? list.filter((r) => publicIds.has((r as MatchRecord).matchId)) : list));
 }

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Use the data – Genji Ball Ranked</title>
+  <meta name="description" content="The Genji Ball ranked API: the leaderboard, players, matches and records as JSON, and the leaderboard as a CSV download.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/data.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main class="host data">
+    <div class="headline">
+      <h1>Use the data</h1>
+    </div>
+    <p class="lede">Everything on this site comes from a public JSON API. No key, any site may call it, and every answer says which region it's for.</p>
+    <div class="get-tool">
+      <gb-button id="csv" variant="primary">Download the leaderboard (CSV)</gb-button>
+      <span id="csv-state" class="muted" role="status"></span>
+    </div>
+
+    <h2>Endpoints</h2>
+    <dl id="endpoints" class="rules-list endpoints"></dl>
+    <p class="note">Every field, error and limit is in the <a href="https://github.com/Genji-Ball-Team/genjiball-ranked/blob/main/docs/api.md">API docs</a>.</p>
+
+    <h2>Examples</h2>
+    <div id="examples" class="examples"></div>
+
+    <h2>Play nice</h2>
+    <dl class="rules-list">
+      <dt>Caching</dt>
+      <dd id="caching">Answers are cached for a short while: asking again sooner gets the same answer.</dd>
+      <dt>New matches</dt>
+      <dd>Follow the match feed with its cursor instead of reading every match again.</dd>
+      <dt>Big jobs</dt>
+      <dd>Spread them out, and ask on <a href="https://discord.gg/sv9VVjh5pT">Discord</a> if you need something the API doesn't give.</dd>
+    </dl>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

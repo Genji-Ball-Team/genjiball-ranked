@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Host a lobby – Genji Ball Ranked</title>
+  <meta name="description" content="Host a ranked Genji Ball lobby: get the host tool, set it up once, copy the ranked code.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/host.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main class="host">
+    <div class="headline">
+      <h1>Host a lobby</h1>
+    </div>
+    <p class="lede">The host tool runs next to Overwatch. It builds the ranked code with everyone's rank tags, uploads your matches when they end and lists your lobby on Live.</p>
+    <div class="get-tool">
+      <a class="link-button primary" href="https://github.com/Genji-Ball-Team/genjiball-host-tool/releases/latest">Download the host tool</a>
+      <span class="muted">Windows · <span id="tool-version">latest release</span></span>
+    </div>
+
+    <h2>Set up once</h2>
+    <ol class="steps">
+      <li><b>Install it</b><span>Run the installer. Windows warns about an unknown app because the installer isn't code-signed: click "More info", then "Run anyway". The tool updates itself after that.</span></li>
+      <li><b>Get a host token</b><span>Ask an admin on <a href="https://discord.gg/sv9VVjh5pT">Discord</a>. It's a password for your uploads: don't share it.</span></li>
+      <li><b>Paste it in the tool</b><span>Settings → Account, "Check and save". Then pick the region you host in under Settings → Game.</span></li>
+      <li><b>Turn on the log file</b><span>In Overwatch: Options → Gameplay → General → Enable Workshop Inspector Log File. Without it nothing is uploaded.</span></li>
+    </ol>
+
+    <h2>Every time you host</h2>
+    <ol class="steps">
+      <li><b>Copy the ranked code</b><span>Home → Copy ranked code. The rank tags are as new as the code, so copy a fresh one each time.</span></li>
+      <li><b>Import it</b><span>Create a new custom game, open Settings and paste the code with "Import / paste settings".</span></li>
+      <li><b>Play</b><span>Matches upload when they end, and your lobby shows on <a href="/live">Live</a> while you play.</span></li>
+    </ol>
+
+    <h2>While you host</h2>
+    <dl class="rules-list">
+      <dt>Going AFK</dt>
+      <dd>Turn on AFK on Home: your rating stays out of the rounds that start while it's on, and everyone else still counts.</dd>
+      <dt>Spectating or a crash</dt>
+      <dd>Moving to spectator or Overwatch closing mid-match is fine: the tool uploads what's in the log once it stops growing.</dd>
+      <dt>Waiting for an admin</dt>
+      <dd>Until an admin makes you a trusted host, your matches wait for a check before they count.</dd>
+    </dl>
+    <p class="note">Tourney lobbies, the overlay and the upload list are in the <a href="https://github.com/Genji-Ball-Team/genjiball-host-tool/blob/main/docs/hosting.md">full hosting guide</a>.</p>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

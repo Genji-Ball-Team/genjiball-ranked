@@ -5,7 +5,7 @@ import type { Env } from "./env";
 import { fail } from "./http";
 import { clearStaleLobbies, handleHostLobby } from "./lobby/handler";
 import { createLogger, type Logger } from "./log";
-import { isPrivate, isPublicRead, isPublicWrite, isSameOrigin, preflight, signupRoute, withPrivateHeaders, withPublicHeaders } from "./public";
+import { isPrivate, isPublicRead, isPublicWrite, isSameOrigin, preflight, signupRoute, withEdgeCache, withPrivateHeaders } from "./public";
 import { updateRatings } from "./rating/update";
 import { updateRecords } from "./records/update";
 import { handleSite } from "./site/handler";
@@ -14,11 +14,12 @@ import { handleBotSignups } from "./tourney/botSignups";
 import { expireOld } from "./tourney/expiry";
 import { handleHostTourneyLobby, handleHostTourneys } from "./tourney/host";
 import { handleSignup } from "./tourney/signups";
+import { robotsTxt, sitemapXml } from "./site/robots";
 import { handleHostMatches, handleHostMe, handleUpload } from "./upload/handler";
 
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request, env, ctx): Promise<Response> {
     const config = loadConfig(env);
     const log = createLogger(config.logLevel);
     const url = new URL(request.url);
@@ -28,10 +29,11 @@ export default {
       if (!isSameOrigin(request)) return withPrivateHeaders(fail(403, "cross_origin", "Sign up from the site's own pages"));
       return withPrivateHeaders(await route(request, env, config, log, url));
     }
-    // Every public read route gets CORS and caching headers here, not in its handler (src/public.ts).
+    // Every public read route gets CORS and caching headers here, not in its handler, and goes through
+    // Cloudflare's cache (src/public.ts).
     if (isPublicRead(url.pathname)) {
       if (request.method === "OPTIONS") return preflight(config);
-      return withPublicHeaders(request, await route(request, env, config, log, url), config);
+      return withEdgeCache(request, ctx, config, () => route(request, env, config, log, url));
     }
     // Routes behind a token: never kept by a browser or a shared cache.
     if (isPrivate(url.pathname)) return withPrivateHeaders(await route(request, env, config, log, url));
@@ -119,6 +121,9 @@ async function route(request: Request, env: Env, config: Config, log: Logger, ur
     return Response.json({ error: "not_found" }, { status: 404 });
   }
 
+  if (url.pathname === "/robots.txt") return robotsTxt(config, url.origin);
+  if (url.pathname === "/sitemap.xml") return sitemapXml(config, url.origin);
+
   if (previewPages.includes(url.pathname)) return previewPage(request, env, config, log, url);
 
   log.debug("no asset or route", { path: url.pathname });
@@ -145,7 +150,7 @@ async function previewPage(request: Request, env: Env, config: Config, log: Logg
   return withPreview(page, preview, url);
 }
 
-/** The site's own 404 page (public/404.html), still with a 404 status, for a page that isn't there. */
+/** The site's own 404 page (site/html/404.html, built into public/), still with a 404 status, for a page that isn't there. */
 async function notFoundPage(request: Request, env: Env): Promise<Response> {
   const page = await env.ASSETS.fetch(new Request(new URL("/404", request.url), { method: request.method }));
   if (!page.ok) return new Response(null, { status: 404 });

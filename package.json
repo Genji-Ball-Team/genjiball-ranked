@@ -4,6 +4,8 @@
   "description": "Genji Ball Ranked: API, rating engine and website (Cloudflare Workers + D1)",
   "scripts": {
     "dev": "wrangler dev",
+    "build:site": "node scripts/build-site.mjs",
+    "dev:site": "node scripts/build-site.mjs --watch",
     "deploy": "wrangler d1 migrations apply DB --remote && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
@@ -15,9 +17,9 @@
     "tune:rating": "esbuild scripts/tune-rating.ts --bundle --platform=node --format=esm --log-level=warning --outfile=.wrangler/tune-rating.mjs && node .wrangler/tune-rating.mjs",
     "ratings:dry-run": "esbuild scripts/ratings-dry-run.ts --bundle --platform=node --format=esm --log-level=warning --outfile=.wrangler/ratings-dry-run.mjs && node .wrangler/ratings-dry-run.mjs",
     "cf-typegen": "wrangler types --include-runtime false",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p site",
     "lint": "eslint .",
-    "test": "vitest run && node --test test/*.node.mjs",
+    "test": "node scripts/build-site.mjs && vitest run && node --test test/*.node.mjs",
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "repository": {
@@ -33,6 +35,7 @@
     "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20261019.1",
     "@eslint/js": "^10.0.1",
+    "@genji-ball-team/ui": "^0.1.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.13.0",
     "typescript": "^6.0.3",

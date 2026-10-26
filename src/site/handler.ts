@@ -7,19 +7,21 @@ import { capacityOf } from "../tourney/code";
 import { screenshotUrl, isScreenshotKey } from "../tourney/screenshot";
 import { countSignups, listSignupNames } from "../tourney/signupStore";
 import { signupSummary } from "../tourney/signups";
-import { findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, type LobbyRow, type TourneyRow } from "../tourney/store";
-import { noRecords, recordsView, type RecordsConfig } from "../records/stats";
+import { countTourneyWins, findTourney, hasScreenshot, listLobbies, listPast, listUpcoming, readStandings, resolvePlayers, type LobbyRow, type TourneyRow } from "../tourney/store";
+import { noMonthRecords, noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
+import { displayRating } from "../rating/engine";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { fetchTitles, pickTitles } from "./titles";
-import { gameTiers, nextTier, standing } from "./standing";
+import { gameTiers, nextTier, standing, tierOf } from "./standing";
 import {
   findHeadToHead,
   findMatchDetail,
   findCanonicalIds,
   findCanonicalPlayer,
+  findEliminations,
   findPlayerStats,
   findRating,
   latestFeedSeq,
@@ -27,10 +29,12 @@ import {
   listFormRounds,
   listHistory,
   listLeaderboard,
+  listMatchTotals,
   listPlayerMatches,
   listRanked,
   listRatedRegions,
   listRatingsOf,
+  listRecentMatches,
   listRivals,
   listTagCandidates,
   rankOf,
@@ -49,7 +53,7 @@ import {
  * and the verify screenshots, `/api/screenshots/:key`. And the live lobbies (#11): `/api/lobbies`, cached
  * for `lobbiesCacheSeconds`. A player's rating history graph (#17), `/api/players/:id/history`, their
  * round stats for compare (#16), `/api/players/:id/stats`, and
- * the records page (#19), `/api/records`.
+ * the records page (#19), `/api/records`, the recent matches, `/api/recent`, and how ranked works, `/api/rules`.
  *
  * Regions (#47): the leaderboard, a player's rating, matches, rivals and history, head-to-head, the
  * records, the rank tags, the Tourneys page and the live lobbies show one region's, `?region=`, the
@@ -62,10 +66,12 @@ export type SiteConfig = RankTagsConfig &
   Pick<
     Config,
     | "leaderboardPageSize"
+    | "leaderboardChangeDays"
     | "titles"
     | "tiersMaxPlayers"
     | "matchFeedLimit"
     | "playerRecentMatches"
+    | "recentMatchesPageSize"
     | "playerRivalsLimit"
     | "playerSearchLimit"
     | "playerSearchMinLength"
@@ -77,6 +83,17 @@ export type SiteConfig = RankTagsConfig &
     | "regions"
     | "lobbyTtlSeconds"
     | "lobbiesCacheSeconds"
+    | "ratingMu"
+    | "ratingNewPlayerStart"
+    | "ratingMatchMaxChange"
+    | "displayCenter"
+    | "displayScale"
+    | "displayScaleAfter"
+    | "displayFloor"
+    | "tournamentWinnerBonus"
+    | "tournamentMaxGain"
+    | "tournamentMaxLoss"
+    | "tournamentMaxLossBands"
   >;
 
 /** Answers a site route, or returns null when the path isn't one. */
@@ -91,13 +108,13 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head"].includes(route ?? "");
+  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head", "recent"].includes(route ?? "");
   const asked = regional ? regionParam(url, config) : null;
   if (asked instanceof Response) return asked;
   const region = asked!;
   const id = positiveId(path[1]);
   const reads: Record<string, () => Promise<Response>> = {
-    leaderboard: async () => Response.json(await leaderboard(db, config, region, url.searchParams.get("page"), now)),
+    leaderboard: async () => Response.json(await leaderboard(db, config, region, url, now)),
     titles: async () => Response.json(await titled(db, config, region, bot, now)),
     tiers: async () => {
       const ids = playerIds(url.searchParams.get("players"), config.tiersMaxPlayers);
@@ -109,6 +126,7 @@ export async function handleSite(
       const ratingsUpdating = regionIds(config.regions).filter((id) => stale.includes(id));
       return Response.json({ testServer: config.testServer, regions: config.regions, ratingsUpdating });
     },
+    rules: async () => Response.json(rules(config)),
     "rank-tags": async () => cached(await tags(db, config, region, now), config.rankTagsCacheSeconds),
     players: async () => {
       const search = (url.searchParams.get("search") ?? "").trim();
@@ -127,6 +145,13 @@ export async function handleSite(
     },
     lobbies: async () => cached(await lobbies(db, config, region, now), config.lobbiesCacheSeconds),
     records: async () => Response.json(await records(db, config, region, now)),
+    recent: async () => {
+      const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
+      if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a match id");
+      const limit = url.searchParams.has("limit") ? pageNumber(url.searchParams.get("limit")) : config.recentMatchesPageSize;
+      if (limit === null) return fail(400, "bad_request", "limit must be a positive number");
+      return Response.json(await recent(db, region, before, Math.min(limit, config.recentMatchesPageSize)));
+    },
     "head-to-head": async () => {
       const a = positiveId(url.searchParams.get("a"));
       const b = positiveId(url.searchParams.get("b"));
@@ -139,6 +164,13 @@ export async function handleSite(
     tourneys: async () => Response.json(await tourneys(db, config, region, url.searchParams.get("page"))),
     "screenshots/:id": () => screenshot(db, proofs, path[1]!, config),
     "players/:id": async () => found(id === null ? null : await player(db, config, region, id, now), "No such player"),
+    "players/:id/matches": async () => {
+      const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
+      if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a match id");
+      const found = id === null ? null : await findCanonicalPlayer(db, id);
+      if (!found) return fail(404, "not_found", "No such player");
+      return Response.json({ region: region.id, ...(await playerMatches(db, config, region, found.id, before)) });
+    },
     "players/:id/history": async () => found(id === null ? null : await history(db, config, region, id), "No such player"),
     "players/:id/stats": async () => found(id === null ? null : await stats(db, region, id), "No such player"),
     "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match"),
@@ -164,18 +196,27 @@ function regionParam(url: URL, config: SiteConfig): Region | Response {
   return region ?? fail(400, "bad_request", notARegion(config.regions, "region"));
 }
 
-async function leaderboard(db: D1Database, config: SiteConfig, region: Region, pageParam: string | null, now: Date) {
-  const page = pageNumber(pageParam) ?? 1;
+async function leaderboard(db: D1Database, config: SiteConfig, region: Region, url: URL, now: Date) {
+  const page = pageNumber(url.searchParams.get("page")) ?? 1;
+  const active = url.searchParams.get("active") === "1";
   const size = config.leaderboardPageSize;
   const offset = (page - 1) * size;
+  const changeSince = isoSeconds(new Date(now.getTime() - config.leaderboardChangeDays * dayMs));
+  const activeSince = active ? isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * dayMs)) : null;
   // One more than a page, to know if there's a next one.
-  const rows = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset);
+  const rows = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset, changeSince, activeSince);
   return {
     region: region.id,
     page,
     pageSize: size,
+    active,
+    changeDays: config.leaderboardChangeDays,
     hasMore: rows.length > size,
-    players: rows.slice(0, size).map((row, i) => ({ rank: offset + i + 1, ...ratingView(row, config, now) })),
+    players: rows.slice(0, size).map((row, i) => ({
+      rank: offset + i + 1,
+      ...ratingView(row, config, now),
+      change: row.displayBefore === null ? null : Math.round(row.display - row.displayBefore),
+    })),
   };
 }
 
@@ -262,11 +303,12 @@ async function feed(db: D1Database, config: SiteConfig, region: Region | null, a
 async function player(db: D1Database, config: SiteConfig, region: Region, id: number, now: Date): Promise<object | null> {
   const found = await findCanonicalPlayer(db, id);
   if (!found) return null;
-  const [rating, matches, rated, rivals] = await Promise.all([
+  const [rating, recent, rated, rivals, tourneyWins] = await Promise.all([
     findRating(db, region.id, found.id),
-    listPlayerMatches(db, region.id, found.id, config.playerRecentMatches),
+    playerMatches(db, config, region, found.id, null),
     listRatedRegions(db, found.id, regionIds(config.regions)),
     listRivals(db, region.id, found.id, config.playerRivalsLimit),
+    countTourneyWins(db, region.id, found.id),
   ]);
   // An alt is rated, but has no place on the leaderboard.
   const ranked = rating !== null && rating.rounds >= config.minRankedRounds && !found.alt;
@@ -284,9 +326,48 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
         nextTier: nextTier(rating.display, config.tiers),
       },
     },
-    matches,
+    matches: recent.matches,
+    moreMatches: recent.hasMore,
     ...rivals,
+    tourneyWins,
   };
+}
+
+/**
+ * A page of a player's matches in the region, newest first, older than match `before` when given:
+ * each with their place in it (as on the match page: most rounds won, ties broken by kills, the
+ * same wins and kills sharing a place) and their rounds won, read from the matches' `match_players`.
+ */
+async function playerMatches(db: D1Database, config: SiteConfig, region: Region, playerId: number, before: number | null) {
+  const size = config.playerRecentMatches;
+  const rows = await listPlayerMatches(db, region.id, playerId, size + 1, before);
+  const page = rows.slice(0, size);
+  const totals = await listMatchTotals(db, page.map((m) => m.id));
+  const matches = page.map((m) => {
+    const inMatch = totals.filter((t) => t.matchId === m.id);
+    const mine = inMatch.find((t) => t.playerId === playerId);
+    return { ...m, place: mine ? placeIn(inMatch, mine) : null, roundWins: mine?.roundWins ?? 0 };
+  });
+  return { matches, hasMore: rows.length > size };
+}
+
+type Totals = { roundWins: number; kills: number };
+
+/** A player's place in a match, as on the match page: most rounds won, ties broken by kills, the same wins and kills sharing a place. */
+function placeIn(everyone: readonly Totals[], mine: Totals): number {
+  return 1 + everyone.filter((o) => o.roundWins > mine.roundWins || (o.roundWins === mine.roundWins && o.kills > mine.kills)).length;
+}
+
+/** A page of `size` of the region's newest matches, older than match `before` when given, each with its players in place order. */
+async function recent(db: D1Database, region: Region, before: number | null, size: number) {
+  const rows = await listRecentMatches(db, region.id, size + 1, before);
+  const matches = rows.slice(0, size).map((m) => ({
+    ...m,
+    players: m.players
+      .map((p) => ({ ...p, place: placeIn(m.players, p) }))
+      .sort((a, b) => a.place - b.place || a.name.localeCompare(b.name)),
+  }));
+  return { region: region.id, matches, hasMore: rows.length > size };
 }
 
 /**
@@ -301,8 +382,9 @@ async function headToHead(db: D1Database, region: Region, aId: number, bId: numb
   return {
     region: region.id,
     rounds: record.rounds,
-    a: { id: first.id, name: first.name, ahead: record.ahead, kills: record.kills },
-    b: { id: second.id, name: second.name, ahead: record.rounds - record.ahead, kills: record.deaths },
+    finals: record.finals,
+    a: { id: first.id, name: first.name, ahead: record.ahead, kills: record.kills, finalWins: record.finalWins },
+    b: { id: second.id, name: second.name, ahead: record.rounds - record.ahead, kills: record.deaths, finalWins: record.finals - record.finalWins },
   };
 }
 
@@ -325,7 +407,7 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
     player: { id: found.id, name: found.name },
     matches: rows.length,
     points: downsample(rows, config.ratingHistoryMaxPoints).map(point),
-    peak: peak && point(peak),
+    peak: peak && { ...point(peak), siteTier: tierOf(peak.rating, config.tiers) },
     streak: last?.streak ?? 0,
     bestStreak: last?.bestStreak ?? 0,
     form,
@@ -339,15 +421,22 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
 async function stats(db: D1Database, region: Region, requested: number) {
   const found = await findCanonicalPlayer(db, requested);
   if (!found) return null;
-  const totals = await findPlayerStats(db, region.id, found.id);
-  return { region: region.id, player: { id: found.id, name: found.name }, stats: totals };
+  const [totals, eliminations, tourneyWins] = await Promise.all([
+    findPlayerStats(db, region.id, found.id),
+    findEliminations(db, region.id, found.id),
+    countTourneyWins(db, region.id, found.id),
+  ]);
+  return { region: region.id, player: { id: found.id, name: found.name }, stats: { ...totals, eliminations, kd: kd(eliminations), tourneyWins } };
 }
+
+/** Kills on other players a death by one, to 2 decimals; with no death yet, the kills alone (#124). */
+const kd = ({ kills, deaths }: { kills: number; deaths: number }): number => Math.round((deaths ? kills / deaths : kills) * 100) / 100;
 
 /** The region's records page, as the cron last stored it; empty before the first refresh. */
 async function records(db: D1Database, config: SiteConfig, region: Region, now: Date) {
   const stored = await readRecords(db, region.id);
   if (stored) return { region: region.id, updatedAt: stored.refreshedAt, ...stored.body };
-  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, days: [], players: 0, topHosts: [] }, config, now) };
+  return { region: region.id, updatedAt: null, ...recordsView({ records: noRecords, month: noMonthRecords, days: [], players: 0, topHosts: [] }, config, now) };
 }
 
 /**
@@ -504,10 +593,11 @@ async function tourney(db: D1Database, config: SiteConfig, id: number) {
  */
 async function tourneyViews(db: D1Database, config: SiteConfig, list: TourneyRow[], withNames = false) {
   const ids = list.map((t) => t.id);
-  const [lobbies, signups, names] = await Promise.all([
+  const [lobbies, signups, names, winners] = await Promise.all([
     listLobbies(db, ids),
     countSignups(db, ids),
     withNames && list.length === 1 ? listSignupNames(db, list[0]!.id) : null,
+    resolvePlayers(db, list.flatMap((t) => (t.status === "done" && t.winnerId !== null ? [t.winnerId] : []))),
   ]);
   const standings = await readStandings(
     db,
@@ -530,7 +620,9 @@ async function tourneyViews(db: D1Database, config: SiteConfig, list: TourneyRow
     const own = lobbies.filter((l) => l.tourneyId === t.id).map(lobbyView);
     const capacity = own.reduce((sum, l) => sum + l.capacity, 0);
     const summary = signupSummary(t.status, signups.get(t.id) ?? 0, capacity);
-    return { ...t, capacity, signups: names ? { ...summary, names } : summary, lobbies: own };
+    const { winnerId, ...shown } = t;
+    const winner = t.status === "done" && winnerId !== null ? (winners.get(winnerId) ?? null) : null;
+    return { ...shown, winner, capacity, signups: names ? { ...summary, names } : summary, lobbies: own };
   });
 }
 
@@ -546,6 +638,28 @@ async function screenshot(db: D1Database, proofs: R2Bucket | undefined, key: str
       ETag: object.httpEtag,
     },
   });
+}
+
+/**
+ * How ranked works, for its page: the tiers, the titles and the numbers it explains, straight from
+ * the config so the page never says something the server doesn't do.
+ */
+function rules(config: SiteConfig) {
+  return {
+    tiers: config.tiers.map((tier) => ({ label: tier.label, color: tier.color, threshold: tier.threshold, siteOnly: tier.siteOnly === true })),
+    titles: config.titles,
+    minRankedRounds: config.minRankedRounds,
+    inactiveAfterDays: config.inactiveAfterDays,
+    // What a new player's starting rating shows as (the display curve eases it up from below the center).
+    newPlayerRating: displayRating({ mu: config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale }, config),
+    matchMaxChange: config.ratingMatchMaxChange,
+    floor: config.displayFloor,
+    tournament: {
+      maxGain: config.tournamentMaxGain,
+      winnerBonus: config.tournamentWinnerBonus,
+      maxLoss: [...config.tournamentMaxLossBands, { below: null, maxLoss: config.tournamentMaxLoss }],
+    },
+  };
 }
 
 /** An answer kept for its own lifetime. Without one, src/public.ts gives `publicCacheSeconds`. */

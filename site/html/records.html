@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Records – Genji Ball Ranked</title>
+  <meta name="description" content="Genji Ball's ranked records, how much is played, and the hosts who host the most.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/records.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records" aria-current="page">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main>
+    <div class="headline">
+      <h1>Records</h1>
+      <gb-segmented id="period" label="Period" hidden><button value="all">All time</button><button value="month">This month</button></gb-segmented>
+    </div>
+    <p id="updated" class="lede"></p>
+    <ol id="records" class="records" aria-busy="true" aria-label="Records" data-loading>
+      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
+    </ol>
+    <section id="activity-section" hidden>
+      <h2 id="activity-title">Activity</h2>
+      <div id="activity-figures" class="activity-figures"></div>
+      <gb-panel class="activity-chart" label="Rated rounds a day" level="3"><gb-bar-chart id="activity" label="Rated rounds a day" height="140"></gb-bar-chart></gb-panel>
+    </section>
+    <section id="hosts-section" hidden>
+      <h2>Top hosts of all time</h2>
+      <ol id="hosts" class="hosts"></ol>
+    </section>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

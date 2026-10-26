@@ -34,6 +34,9 @@ export type RatingConfig = Pick<
   | "tournamentMaxGain"
 >;
 
+/** What turns mu into the leaderboard number. */
+export type DisplayConfig = Pick<RatingConfig, "ratingMu" | "displayCenter" | "displayScale" | "displayScaleAfter" | "displayFloor">;
+
 /** A match as the engine needs it. Player ids are `players.id`, not per-match log ids. */
 export interface RatingMatch {
   id: number;
@@ -323,12 +326,12 @@ export function recompute(matches: readonly RatingMatch[], config: RatingConfig)
  * of falling without end. Sigma doesn't count: a number that took off z·sigma would rise as sigma
  * shrinks, so players would climb by playing more, not by getting better.
  */
-export function displayRating(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRating, "scaleBaseMu">>, config: RatingConfig): number {
+export function displayRating(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRating, "scaleBaseMu">>, config: DisplayConfig): number {
   return Math.max(config.displayFloor, Math.round(displayExact(rating, config)));
 }
 
 /** `displayRating` before rounding. */
-function displayExact(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRating, "scaleBaseMu">>, config: RatingConfig): number {
+function displayExact(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRating, "scaleBaseMu">>, config: DisplayConfig): number {
   const x = straightDisplay(rating.mu, rating.scaleBaseMu ?? null, config);
   if (x >= 0) return config.displayCenter + x;
   const room = config.displayCenter - config.displayFloor;
@@ -339,7 +342,7 @@ function displayExact(rating: Pick<PlayerRating, "mu"> & Partial<Pick<PlayerRati
  * Display points over `displayCenter` before the curve: mu up to `scaleBaseMu` at `displayScale`,
  * and the change since at `displayScaleAfter` (all of it at `displayScale` with no `scaleBaseMu`).
  */
-function straightDisplay(mu: number, scaleBaseMu: number | null, config: RatingConfig): number {
+function straightDisplay(mu: number, scaleBaseMu: number | null, config: DisplayConfig): number {
   const base = scaleBaseMu ?? mu;
   return config.displayScale * (base - config.ratingMu) + config.displayScaleAfter * (mu - base);
 }

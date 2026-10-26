@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tourney – Genji Ball Ranked</title>
+  <meta name="description" content="A Genji Ball tourney: its lobbies, standings and results.">
+  <!-- Link previews. The Worker fills in a player's, match's or players' own for a crawler (src/site/preview.ts). -->
+  <meta property="og:site_name" content="Genji Ball Ranked">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Tourney – Genji Ball Ranked">
+  <meta property="og:description" content="A Genji Ball tourney: its lobbies, standings and results.">
+  <meta property="og:url" content="https://genjiball.us/tourney">
+  <meta property="og:image" content="https://genjiball.us/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/tourney.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys" aria-current="page">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main class="tourneys">
+    <div class="headline"><h1 id="name">&nbsp;</h1><span id="flags" class="flags"></span></div>
+    <ul id="facts" class="facts"></ul>
+    <p id="notes" class="lede"></p>
+    <section id="signup-section" class="signup" hidden>
+      <h2>Sign-ups</h2>
+      <gb-panel>
+        <div id="signup-count" class="signup-count"></div>
+        <form id="signup-form" class="signup-form" hidden>
+          <gb-field id="signup-field" label="Your in-game name"><input id="signup-name" name="name" maxlength="64" autocomplete="nickname" autocapitalize="off" spellcheck="false" required></gb-field>
+          <gb-button id="signup-button" type="submit" variant="primary">Sign up</gb-button>
+        </form>
+        <p id="signup-closed" class="note" hidden>Sign-ups closed when the tourney started.</p>
+        <p id="signup-hint" class="note" hidden>Signing up isn't binding: it tells the admins how many lobbies to set up.</p>
+        <ol id="signup-names" class="signups"></ol>
+      </gb-panel>
+    </section>
+    <div id="lobbies" aria-busy="true" data-loading>
+      <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
+    </div>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

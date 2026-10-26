@@ -7,3 +7,8 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .claude/settings.local.json
+
+# The website build (scripts/build-site.mjs), made by wrangler before dev and deploy.
+public/build/
+public/_headers
+public/*.html

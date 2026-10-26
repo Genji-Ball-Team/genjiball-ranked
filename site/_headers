@@ -1,0 +1,12 @@
+# Response headers for the files in public/ (Cloudflare Workers static assets), copied to
+# public/_headers by scripts/build-site.mjs, which adds each page's module preloads after these. The
+# rest keep the default: the browser checks back each time and gets a 304 when nothing changed.
+
+# The built scripts and styles (scripts/build-site.mjs): their names have a hash of their contents, so
+# a changed one is a new file, and the pages name the new one. Kept for a year without asking again.
+/build/chunks/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Saira, by name so the pages can preload it. It only changes with a new @genji-ball-team/ui.
+/build/fonts/*
+  Cache-Control: public, max-age=604800

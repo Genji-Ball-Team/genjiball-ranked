@@ -321,8 +321,12 @@ export const defaults = {
   inactiveAfterDays: 30,
   /** Players per leaderboard page. */
   leaderboardPageSize: 50,
+  /** Days back the leaderboard's rating change counts from: each row's rating now against its rating then. */
+  leaderboardChangeDays: 7,
   /** Matches on a player page, newest first. */
   playerRecentMatches: 20,
+  /** Matches a page of the recent matches (`/api/recent`), newest first. */
+  recentMatchesPageSize: 20,
   /**
    * Most names in the rank tags (`/api/rank-tags`), the best ones. Each costs Workshop elements;
    * GenjiBall-CE docs/rank-tags.md asks for under about 500.
@@ -349,6 +353,12 @@ export const defaults = {
    * default for every public GET route that doesn't set its own (`src/public.ts`).
    */
   publicCacheSeconds: 60,
+  /**
+   * Public reads also go through Cloudflare's cache in each data centre (`src/public.ts`): visitors
+   * asking for the same URL within its `Cache-Control` lifetime share one answer, and one set of D1
+   * reads. `PUBLIC_EDGE_CACHE = "false"` turns it off (the tests do, so each sees its own data).
+   */
+  publicEdgeCache: true,
 
   /**
    * Link previews: a link to a player, match or compare page posted in Discord, X and the like shows
@@ -371,7 +381,7 @@ export const defaults = {
     "Cardyb",
     "Applebot",
   ] as string[],
-  /** Players a compare page shows at most (site.js's `compareMax`): its link preview names as many. */
+  /** Players a compare page shows at most (`compareMax` in site/pages/compare.ts): its link preview names as many. */
   compareMaxPlayers: 3,
 
   /**
@@ -397,7 +407,7 @@ export const defaults = {
   lobbyBodyMaxBytes: 1024,
   /**
    * How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. The Lobbies page
-   * asks again this often (`lobbiesRefreshMs` in public/site.js): change both.
+   * asks again this often (`lobbiesRefreshMs` in site/pages/live.ts): change both.
    */
   lobbiesCacheSeconds: 15,
   /**
@@ -449,6 +459,18 @@ export const defaults = {
    */
   recordsMinPlayers: 4,
   recordsMinRatedRounds: 5,
+  /** Holders shown per record, best first, each player once (at their best). */
+  recordsTop: 5,
+  /**
+   * The best matches read per match record to find `recordsTop` different players: a player who holds
+   * several of the top matches takes one place. Rows read per record and period.
+   */
+  recordsTopScan: 50,
+  /**
+   * The most `rating_history` rows read for the highest ratings, per period: rows from the top down to
+   * the `recordsTop`-th best current rating (a player's peak is at least their rating now), at most this.
+   */
+  recordsRatingScan: 250,
 };
 
 export type Config = typeof defaults;
@@ -509,6 +531,7 @@ export function loadConfig(env: Partial<Env>): Config {
     config.logLevel = logLevel as LogLevel;
   }
   if (env.TEST_SERVER !== undefined) config.testServer = env.TEST_SERVER.trim().toLowerCase() === "true";
+  if (env.PUBLIC_EDGE_CACHE !== undefined) config.publicEdgeCache = env.PUBLIC_EDGE_CACHE.trim().toLowerCase() !== "false";
   const matchesPerRun = Number(env.RATING_MATCHES_PER_RUN);
   if (Number.isInteger(matchesPerRun) && matchesPerRun > 0) config.ratingMatchesPerRun = matchesPerRun;
   return config;

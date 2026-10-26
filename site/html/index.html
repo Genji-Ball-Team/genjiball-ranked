@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Leaderboard – Genji Ball Ranked</title>
+  <meta name="description" content="Ratings and tiers of every ranked Genji Ball player.">
+  <!-- Link previews. The Worker fills in a player's, match's or players' own for a crawler (src/site/preview.ts). -->
+  <meta property="og:site_name" content="Genji Ball Ranked">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Leaderboard – Genji Ball Ranked">
+  <meta property="og:description" content="Ratings and tiers of every ranked Genji Ball player.">
+  <meta property="og:url" content="https://genjiball.us/">
+  <meta property="og:image" content="https://genjiball.us/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/leaderboard.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/" aria-current="page">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main>
+    <div class="headline">
+      <h1>Leaderboard</h1>
+      <gb-search class="find" data-players label="Find a player" hide-label placeholder="Find a player" shortcut="/" min-length="2" delay="250"></gb-search>
+    </div>
+    <div class="board-tools">
+      <gb-segmented id="who" label="Players"><a id="who-all" href="?">Everyone</a><a id="who-active" href="?active=1">Active</a></gb-segmented>
+      <gb-button id="jump" variant="ghost" hidden>Jump to me</gb-button>
+    </div>
+    <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span id="change-days">7 days</span><span>Rounds</span><span>Win rate</span><span>Last played</span></div>
+    <ol id="list" class="ladder" aria-busy="true" aria-label="Leaderboard" data-loading>
+      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
+    </ol>
+    <p id="floor-note" class="note" hidden>A rating of – is still at the bottom of the scale: it starts climbing as the player wins rounds.</p>
+    <gb-pager id="pager" class="pager"></gb-pager>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

@@ -1,5 +1,8 @@
 import {
-  matchRecordNames,
+  distinctHolders,
+  monthStart,
+  recordMatchIds,
+  recordPlayerIds,
   withoutMatches,
   withPlayers,
   type CareerRecord,
@@ -7,7 +10,6 @@ import {
   type MatchCounts,
   type MatchRecord,
   type MatchStatsRow,
-  type Records,
   type RecordsBody,
   type RecordsConfig,
   type RecordsInput,
@@ -229,68 +231,121 @@ export async function readRecordsState(db: D1Database, regions: readonly string[
   return results;
 }
 
+/** The rows of an ordered subquery selecting `x` (a JSON object) as one JSON array. */
+const jsonRows = (subquery: string) => `(SELECT json_group_array(json(x)) FROM (${subquery}))`;
+
 /**
- * A match record: the top of its `match_stats` index, its player looked up by log id. Only a match
- * with `?3` players and `?4` rated rounds (`recordsMinPlayers`, `recordsMinRatedRounds`) sets one.
+ * A match record's best matches: the top `?6` (`recordsTopScan`) of its `match_stats` index, each
+ * player looked up by log id. Only a match with `?3` players and `?4` rated rounds
+ * (`recordsMinPlayers`, `recordsMinRatedRounds`) sets one. `month`: only matches since `?5`, read
+ * by date (this month's matches) rather than down the record's index.
  */
-function matchRecord(column: string, round: string | null): string {
-  return `(SELECT json_object('value', s.${column}, 'round', ${round ? `s.${round}` : "NULL"}, 'matchId', s.match_id,
-      'playedAt', s.played_at, 'playerId', mp.player_id, 'name', p.name)
-    FROM match_stats s JOIN matches m ON m.id = s.match_id
+function matchRecords(column: string, round: string | null, month: boolean): string {
+  return jsonRows(`SELECT json_object('value', s.${column}, 'round', ${round ? `s.${round}` : "NULL"}, 'matchId', s.match_id,
+      'playedAt', s.played_at, 'playerId', mp.player_id, 'name', p.name) AS x
+    FROM match_stats s ${month ? "INDEXED BY match_stats_played" : ""} JOIN matches m ON m.id = s.match_id
       JOIN match_players mp ON mp.match_id = s.match_id AND mp.log_id = s.${column}_by JOIN players p ON p.id = mp.player_id
-    WHERE s.region = ?1 AND ${counted} AND s.${column} IS NOT NULL AND s.players >= ?3 AND s.rated_rounds >= ?4 ORDER BY s.${column} DESC, s.played_at, s.match_id LIMIT 1)`;
+    WHERE s.region = ?1 AND ${counted} AND s.${column} IS NOT NULL AND s.players >= ?3 AND s.rated_rounds >= ?4
+      ${month ? "AND s.played_at >= ?5" : ""}
+    ORDER BY s.${column} DESC, s.played_at, s.match_id LIMIT ?6`);
 }
 
-/** A career record: the region's best `ratings` row for the column (one read per rated player). */
-function careerRecord(column: string): string {
-  return `(SELECT json_object('value', r.${column}, 'playerId', r.player_id, 'name', p.name)
+/**
+ * The highest ratings reached in matches since `since` ('' for all time): `rating_history` rows from
+ * the top down to the `?7`-th (`recordsTop`) best current rating of the players who played since
+ * then, at most `?8` (`recordsRatingScan`). Each of those players has a row at least that high.
+ */
+function ratingRecords(since: string): string {
+  return jsonRows(`SELECT json_object('value', h.display, 'matchId', h.match_id, 'playedAt', h.played_at, 'playerId', h.player_id, 'name', p.name) AS x
+    FROM rating_history h JOIN matches m ON m.id = h.match_id JOIN players p ON p.id = h.player_id
+    WHERE h.board = ?1 AND m.status = 'accepted' AND m.region = ?1 AND h.played_at >= ${since}
+      AND h.display >= coalesce((SELECT display FROM ratings WHERE board = ?1 AND last_played_at >= ${since}
+        ORDER BY display DESC LIMIT 1 OFFSET ?7 - 1), -1e308)
+    ORDER BY h.display DESC, h.played_at, h.match_id LIMIT ?8`);
+}
+
+/** A career record: the region's best `?7` (`recordsTop`) `ratings` rows for the column (one read per rated player). */
+function careerRecords(column: string): string {
+  return jsonRows(`SELECT json_object('value', r.${column}, 'playerId', r.player_id, 'name', p.name) AS x
     FROM ratings r JOIN players p ON p.id = r.player_id
-    WHERE r.board = ?1 AND r.${column} > 0 ORDER BY r.${column} DESC, r.player_id LIMIT 1)`;
+    WHERE r.board = ?1 AND r.${column} > 0 ORDER BY r.${column} DESC, r.player_id LIMIT ?7`);
 }
 
 type RawRecord = { value: number; round: number | null; matchId: number; playedAt: string; playerId: number; name: string };
 
-const toMatchRecord = (raw: string | null, withRound: boolean): MatchRecord | null => {
-  if (raw === null) return null;
-  const r = JSON.parse(raw) as RawRecord;
-  return { value: r.value, player: { id: r.playerId, name: r.name }, matchId: r.matchId, playedAt: r.playedAt, ...(withRound ? { round: r.round } : {}) };
-};
+/** A JSON array of raw records, in the query's order (best first; sorted again, as the aggregate's order isn't promised). */
+function rawRecords(json: string | null | undefined, order: (a: RawRecord, b: RawRecord) => number): RawRecord[] {
+  return (JSON.parse(json ?? "[]") as RawRecord[]).sort(order);
+}
 
-const toCareerRecord = (raw: string | null): CareerRecord | null => {
-  if (raw === null) return null;
-  const r = JSON.parse(raw) as RawRecord;
-  return { value: r.value, player: { id: r.playerId, name: r.name } };
-};
+const byMatch = (a: RawRecord, b: RawRecord) => b.value - a.value || a.playedAt.localeCompare(b.playedAt) || a.matchId - b.matchId;
+
+function toMatchRecords(json: string | null | undefined, withRound: boolean, top: number): MatchRecord[] {
+  const records = rawRecords(json, byMatch).map((r) => ({
+    value: r.value,
+    player: { id: r.playerId, name: r.name },
+    matchId: r.matchId,
+    playedAt: r.playedAt,
+    ...(withRound ? { round: r.round } : {}),
+  }));
+  return distinctHolders(records, top);
+}
+
+function toCareerRecords(json: string | null | undefined, top: number): CareerRecord[] {
+  const records = rawRecords(json, (a, b) => b.value - a.value || a.playerId - b.playerId);
+  return records.slice(0, top).map((r) => ({ value: r.value, player: { id: r.playerId, name: r.name } }));
+}
 
 /**
- * Everything the records page shows, for one region: the records, the activity since `since` (a
- * UTC date; bots aren't players) and the top hosts. Three queries, in one batch. Only matches accepted in the region now count.
+ * Everything the records page shows, for one region: the records (all time and since the month
+ * started), the activity since `since` (a UTC date; bots aren't players) and the top hosts. Three
+ * queries, in one batch. Only matches accepted in the region now count.
  */
 export async function readRecordsInput(
   db: D1Database,
   region: string,
   since: string,
-  config: Pick<RecordsConfig, "recordsTopHosts" | "recordsMinPlayers" | "recordsMinRatedRounds">,
+  now: Date,
+  config: Pick<
+    RecordsConfig,
+    | "recordsTopHosts"
+    | "recordsMinPlayers"
+    | "recordsMinRatedRounds"
+    | "recordsTop"
+    | "recordsTopScan"
+    | "recordsRatingScan"
+  >,
 ): Promise<RecordsInput> {
   const [records, days, hosts] = await db.batch([
     db
       .prepare(
-        `SELECT ${matchRecord("round_deflects", "round_deflects_round")} AS roundDeflects,
-           ${matchRecord("fastest_deflect", "fastest_deflect_round")} AS fastestDeflect,
-           ${matchRecord("match_kills", null)} AS matchKills,
-           ${matchRecord("match_wins", null)} AS matchWins,
-           (SELECT json_object('value', h.display, 'matchId', h.match_id, 'playedAt', h.played_at, 'playerId', h.player_id, 'name', p.name)
-            FROM rating_history h JOIN matches m ON m.id = h.match_id JOIN players p ON p.id = h.player_id
-            WHERE h.board = ?1 AND m.status = 'accepted' AND m.region = ?1
-            ORDER BY h.display DESC, h.played_at, h.match_id LIMIT 1) AS highestRating,
-           ${careerRecord("best_streak")} AS winStreak,
-           ${careerRecord("rounds")} AS mostRounds,
-           ${careerRecord("wins")} AS mostWins,
+        `SELECT ${matchRecords("round_deflects", "round_deflects_round", false)} AS roundDeflects,
+           ${matchRecords("fastest_deflect", "fastest_deflect_round", false)} AS fastestDeflect,
+           ${matchRecords("match_kills", null, false)} AS matchKills,
+           ${matchRecords("match_wins", null, false)} AS matchWins,
+           ${ratingRecords("''")} AS highestRating,
+           ${careerRecords("best_streak")} AS winStreak,
+           ${careerRecords("rounds")} AS mostRounds,
+           ${careerRecords("wins")} AS mostWins,
+           ${matchRecords("round_deflects", "round_deflects_round", true)} AS monthRoundDeflects,
+           ${matchRecords("fastest_deflect", "fastest_deflect_round", true)} AS monthFastestDeflect,
+           ${matchRecords("match_kills", null, true)} AS monthMatchKills,
+           ${matchRecords("match_wins", null, true)} AS monthMatchWins,
+           ${ratingRecords("?5")} AS monthHighestRating,
            (SELECT COUNT(DISTINCT mp.player_id) FROM match_stats s JOIN matches m ON m.id = s.match_id
               JOIN match_players mp ON mp.match_id = s.match_id JOIN players p ON p.id = mp.player_id
             WHERE s.region = ?1 AND ${counted} AND s.played_at >= ?2 AND p.bot = 0) AS players`,
       )
-      .bind(region, since, config.recordsMinPlayers, config.recordsMinRatedRounds),
+      .bind(
+        region,
+        since,
+        config.recordsMinPlayers,
+        config.recordsMinRatedRounds,
+        monthStart(now),
+        config.recordsTopScan,
+        config.recordsTop,
+        config.recordsRatingScan,
+      ),
     db
       .prepare(
         `WITH days AS (
@@ -315,17 +370,25 @@ export async function readRecordsInput(
       )
       .bind(region, config.recordsTopHosts),
   ]);
-  const row = records!.results[0] as Record<keyof Records, string | null> & { players: number };
+  const row = records!.results[0] as Record<string, string | null> & { players: number };
+  const top = config.recordsTop;
   return {
     records: {
-      roundDeflects: toMatchRecord(row.roundDeflects, true),
-      fastestDeflect: toMatchRecord(row.fastestDeflect, true),
-      matchKills: toMatchRecord(row.matchKills, false),
-      matchWins: toMatchRecord(row.matchWins, false),
-      highestRating: toMatchRecord(row.highestRating, false),
-      winStreak: toCareerRecord(row.winStreak),
-      mostRounds: toCareerRecord(row.mostRounds),
-      mostWins: toCareerRecord(row.mostWins),
+      roundDeflects: toMatchRecords(row.roundDeflects, true, top),
+      fastestDeflect: toMatchRecords(row.fastestDeflect, true, top),
+      matchKills: toMatchRecords(row.matchKills, false, top),
+      matchWins: toMatchRecords(row.matchWins, false, top),
+      highestRating: toMatchRecords(row.highestRating, false, top),
+      winStreak: toCareerRecords(row.winStreak, top),
+      mostRounds: toCareerRecords(row.mostRounds, top),
+      mostWins: toCareerRecords(row.mostWins, top),
+    },
+    month: {
+      roundDeflects: toMatchRecords(row.monthRoundDeflects, true, top),
+      fastestDeflect: toMatchRecords(row.monthFastestDeflect, true, top),
+      matchKills: toMatchRecords(row.monthMatchKills, false, top),
+      matchWins: toMatchRecords(row.monthMatchWins, false, top),
+      highestRating: toMatchRecords(row.monthHighestRating, false, top),
     },
     days: days!.results as RecordsInput["days"],
     players: row.players,
@@ -370,9 +433,11 @@ export async function readRecords(db: D1Database, region: string): Promise<{ bod
     .first<{ body: string; refreshedAt: string; outdated: number }>();
   if (!row) return null;
   const body = JSON.parse(row.body) as RecordsBody;
+  // A page stored before the records had top lists (no `month`) waits for its rebuild (migration 0027).
+  if (!("month" in body)) return null;
   if (row.outdated !== 1) return { body, refreshedAt: row.refreshedAt };
-  const ids = matchRecordNames.map((name) => body.records[name]?.matchId).filter((id): id is number => id !== undefined);
-  const holders = Object.values(body.records).flatMap((record) => (record ? [record.player.id] : []));
+  const ids = recordMatchIds(body);
+  const holders = recordPlayerIds(body);
   const [publicMatches, players] = await db.batch([
     db.prepare(`SELECT m.id FROM matches m WHERE m.id IN (SELECT value FROM json_each(?2)) AND ${counted}`).bind(region, JSON.stringify(ids)),
     // Each holder's player now: the end of their merge chain (#8).
@@ -384,7 +449,7 @@ export async function readRecords(db: D1Database, region: string): Promise<{ bod
            SELECT c.start, p.id, p.merged_into FROM players p JOIN chain c ON p.id = c.merged_into
          ) SELECT c.start, c.id, p.name FROM chain c JOIN players p ON p.id = c.id WHERE c.merged_into IS NULL`,
       )
-      .bind(JSON.stringify([...new Set(holders)])),
+      .bind(JSON.stringify(holders)),
   ]);
   const current = new Map((players!.results as { start: number; id: number; name: string }[]).map((p) => [p.start, { id: p.id, name: p.name }]));
   const shown = withoutMatches(body, new Set((publicMatches!.results as { id: number }[]).map((r) => r.id)));

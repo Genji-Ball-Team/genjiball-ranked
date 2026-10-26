@@ -110,6 +110,32 @@ describe("leaderboard", () => {
     expect(board.players.find((p) => p.id === alpha)!.inactiveSince).toBe("2020-01-01T00:00:00Z");
   });
 
+  it("with ?active=1, leaves out inactive players and counts only the active ones in the places", async () => {
+    await playMatches(matchesToRank);
+    const before = (await get<Board>("leaderboard")).players;
+    const top = before[0]!;
+    await db().prepare("UPDATE ratings SET last_played_at = '2020-01-01T00:00:00Z' WHERE player_id = ?").bind(top.id).run();
+    const board = await get<Board & { active: boolean }>("leaderboard?active=1");
+    expect(board.active).toBe(true);
+    expect(board.players.map((p) => p.id)).toEqual(before.slice(1).map((p) => p.id));
+    expect(board.players.map((p) => p.rank)).toEqual([1, 2, 3]);
+    expect((await get<Board & { active: boolean }>("leaderboard")).active).toBe(false);
+  });
+
+  it("gives each row its rating change over leaderboardChangeDays, null for a player who had no rating before", async () => {
+    await playMatches(matchesToRank);
+    type Changed = { id: number; rating: number; change: number | null };
+    // Every match is from the last day: no one had a rating a week ago.
+    expect((await get<{ players: Changed[] }>("leaderboard")).players.every((p) => p.change === null)).toBe(true);
+    const alpha = await playerId("Alpha");
+    await db()
+      .prepare("INSERT INTO rating_history (board, player_id, match_id, mu, sigma, display, played_at) VALUES ('eu', ?1, ?2, 25, 8, 900, '2020-01-01T00:00:00Z')")
+      .bind(alpha, await matchId("000000000001"))
+      .run();
+    const row = (await get<{ players: Changed[] }>("leaderboard")).players.find((p) => p.id === alpha)!;
+    expect(row.change).toBe(Math.round(row.rating - 900));
+  });
+
   it("gives Rookie as the site tier only: the game's tier, which the host tool colours the top 10 by, stays null", async () => {
     await playMatches(matchesToRank);
     const [alpha, bravo] = [await playerId("Alpha"), await playerId("Bravo")];
@@ -178,6 +204,31 @@ describe("player", () => {
     expect(matches.at(-1)!.ratingBefore).toBeNull();
     expect(matches[0]!.ratingBefore).toBe(matches[1]!.ratingAfter);
     expect(matches[0]!.ratingAfter).toBe(player.rating.rating);
+  });
+
+  it("has their place and rounds won in each match, as the match page has them", async () => {
+    await playMatches(1);
+    const alpha = await playerId("Alpha");
+    const { matches } = await get<{ matches: { id: number; place: number | null; roundWins: number }[] }>(`players/${alpha}`);
+    const { match } = await get<{ match: { players: { id: number; place: number; roundWins: number }[] } }>(`matches/${matches[0]!.id}`);
+    const there = match.players.find((p) => p.id === alpha)!;
+    expect(matches[0]).toMatchObject({ place: there.place, roundWins: 1 });
+    expect(there.roundWins).toBe(1);
+  });
+
+  it("pages through older matches with before", async () => {
+    await playMatches(3);
+    const alpha = await playerId("Alpha");
+    type Page = { matches: { id: number }[]; moreMatches?: boolean; hasMore?: boolean };
+    const config = { ...defaults, playerRecentMatches: 2 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Page;
+    const first = await read(`players/${alpha}`);
+    expect(first.matches).toHaveLength(2);
+    expect(first.moreMatches).toBe(true);
+    const rest = await read(`players/${alpha}/matches?before=${first.matches[1]!.id}`);
+    expect(rest).toMatchObject({ hasMore: false });
+    expect(rest.matches.map((m) => m.id)).toEqual([await matchId("000000000001")]);
+    expect((await handleSite(new Request(`https://example.com/api/players/${alpha}/matches?before=x`), db(), config))!.status).toBe(400);
   });
 
   it("marks an alt account, rated but with no rank", async () => {
@@ -289,6 +340,66 @@ describe("player search", () => {
   });
 });
 
+describe("how ranked works", () => {
+  it("answers the tiers and numbers from the config", async () => {
+    const body = await get<{ tiers: { label: string; threshold: number; siteOnly: boolean }[]; minRankedRounds: number; tournament: { maxLoss: { below: number | null }[] } }>("rules");
+    expect(body.tiers.map((t) => [t.label, t.threshold, t.siteOnly])).toEqual(defaults.tiers.map((t) => [t.label, t.threshold, t.siteOnly === true]));
+    expect(body.minRankedRounds).toBe(defaults.minRankedRounds);
+    expect(body.tournament.maxLoss.at(-1)!.below).toBeNull();
+  });
+});
+
+describe("recent matches", () => {
+  type Recent = {
+    region: string;
+    hasMore: boolean;
+    matches: { id: number; void: boolean; players: { id: number; name: string; place: number; roundWins: number; ratingBefore: number | null; ratingAfter: number | null }[] }[];
+  };
+
+  it("lists the region's public matches, newest first, with each player's place as on the match page", async () => {
+    await playMatches(3);
+    const ids = [await matchId("000000000003"), await matchId("000000000002"), await matchId("000000000001")];
+    await db().prepare("UPDATE matches SET status = 'void' WHERE id = ?").bind(ids[1]).run();
+    await db().prepare("UPDATE matches SET status = 'review' WHERE id = ?").bind(ids[2]).run();
+    const body = await get<Recent>("recent?region=eu");
+    expect(body).toMatchObject({ region: "eu", hasMore: false });
+    expect(body.matches.map((m) => [m.id, m.void])).toEqual([
+      [ids[0], false],
+      [ids[1], true],
+    ]);
+
+    const { match } = await get<{ match: { players: { id: number; place: number; roundWins: number }[] } }>(`matches/${ids[0]}`);
+    const shown = body.matches[0]!.players;
+    expect(shown.map((p) => p.place)).toEqual([...shown.map((p) => p.place)].sort((a, b) => a - b));
+    expect(shown).toHaveLength(match.players.length);
+    for (const p of shown) expect(p).toMatchObject({ place: match.players.find((o) => o.id === p.id)!.place, roundWins: match.players.find((o) => o.id === p.id)!.roundWins });
+    expect(shown.find((p) => p.name === "Alpha")!.ratingAfter).toEqual(expect.any(Number));
+    expect((await get<Recent>("recent?region=na")).matches).toEqual([]);
+  });
+
+  it("pages with before", async () => {
+    await playMatches(3);
+    const config = { ...defaults, recentMatchesPageSize: 2 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Recent;
+    const first = await read("recent");
+    expect(first.matches).toHaveLength(2);
+    expect(first.hasMore).toBe(true);
+    const rest = await read(`recent?before=${first.matches[1]!.id}`);
+    expect(rest).toMatchObject({ hasMore: false });
+    expect(rest.matches.map((m) => m.id)).toEqual([await matchId("000000000001")]);
+    expect((await handleSite(new Request("https://example.com/api/recent?before=x"), db(), config))!.status).toBe(400);
+  });
+
+  it("asks for fewer with limit, never more than a page", async () => {
+    await playMatches(3);
+    const config = { ...defaults, recentMatchesPageSize: 2 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Recent;
+    expect(await read("recent?limit=1")).toMatchObject({ hasMore: true, matches: [{ id: await matchId("000000000003") }] });
+    expect((await read("recent?limit=50")).matches).toHaveLength(2);
+    expect((await handleSite(new Request("https://example.com/api/recent?limit=0"), db(), config))!.status).toBe(400);
+  });
+});
+
 describe("match", () => {
   type MatchBody = {
     match: {
@@ -333,13 +444,13 @@ describe("match", () => {
 
 describe("pages", () => {
   it.each([
-    ["/", "data-page=\"leaderboard\""],
-    ["/player?id=1", "data-page=\"player\""],
-    ["/match?id=1", "data-page=\"match\""],
+    ["/", /src="\/build\/chunks\/leaderboard-[A-Z0-9]{8}\.js"/],
+    ["/player?id=1", /src="\/build\/chunks\/player-[A-Z0-9]{8}\.js"/],
+    ["/match?id=1", /src="\/build\/chunks\/match-[A-Z0-9]{8}\.js"/],
   ])("serves %s", async (path, marker) => {
     const res = await SELF.fetch(`https://example.com${path}`);
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain(marker);
+    expect(await res.text()).toMatch(marker);
   });
 });
 

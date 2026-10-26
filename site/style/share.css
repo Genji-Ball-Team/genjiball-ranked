@@ -1,0 +1,42 @@
+/* Share (share.ts): the button in a page's headline, and the sheet it opens with the drawn card.
+   The sheet is a <gb-dialog>, so its frame, scrim and shadow come from the library. */
+.share-button gb-icon { margin-inline-end: 0; }
+
+.share-sheet { --gap: 8px; }
+.share-sheet > gb-segmented { align-self: flex-start; margin-block-end: var(--gap); }
+.share-preview {
+  position: relative; display: grid; place-items: center; min-height: 10rem; padding: 12px;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--panel);
+}
+.share-preview img { display: block; max-width: 100%; max-height: 40vh; border-radius: var(--r-chip); box-shadow: var(--shadow-float); }
+.share-preview img:not([src]) { display: none; }
+.share-preview[aria-busy="true"] img { opacity: 0.35; }
+.share-preview[aria-busy="true"]::after {
+  content: "Drawing…"; position: absolute; color: var(--muted);
+  font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+/* The styles: a small preview of each, the picked one ringed in the brand's green. */
+.share-styles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--gap); margin-block-start: var(--gap); }
+.share-styles button {
+  display: grid; gap: 4px; justify-items: center; align-content: start; min-width: 0; padding: 4px 4px 6px;
+  border: 1px solid var(--line); border-radius: var(--r-chip); background: var(--panel); color: var(--soft); cursor: pointer;
+  font: inherit; font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.share-styles button:hover { border-color: var(--control-border); color: var(--fg); }
+.share-styles button:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.share-styles button[aria-pressed="true"] { border-color: var(--green); color: var(--fg); box-shadow: inset 0 0 0 1px var(--green); }
+.share-styles img { display: block; inline-size: 100%; aspect-ratio: 1200 / 630; border-radius: 3px; background: var(--raised); object-fit: cover; }
+.share-styles[data-format="story"] img { aspect-ratio: 1080 / 1920; max-block-size: 5.5rem; inline-size: auto; }
+.share-styles span { max-inline-size: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.share-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr)); gap: var(--gap); margin-block-start: var(--gap); }
+.share-actions gb-button { display: block; }
+
+@media (max-width: 640px) {
+  .share-label { display: none; }
+  .share-preview img { max-height: 36vh; }
+  .share-styles { gap: 4px; }
+  .share-styles button { letter-spacing: 0; font-size: 0.6875rem; }
+}

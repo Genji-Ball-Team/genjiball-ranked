@@ -12,7 +12,7 @@ import type { Config } from "./config";
  * routes behind a token (`privateRoutes`) never get CORS headers, and are never cached.
  */
 
-export type PublicConfig = Pick<Config, "publicCacheSeconds" | "corsMaxAgeSeconds">;
+export type PublicConfig = Pick<Config, "publicCacheSeconds" | "corsMaxAgeSeconds" | "publicEdgeCache">;
 
 /**
  * First path segments of the public read routes: `/api/<segment>` and everything under it. A new
@@ -30,6 +30,8 @@ export const publicReadRoutes: readonly string[] = [
   "lobbies",
   "head-to-head",
   "records",
+  "recent",
+  "rules",
   "rank-tags",
   "screenshots",
 ];
@@ -123,6 +125,64 @@ export async function withPublicHeaders(request: Request, response: Response, co
     return new Response(null, { status: 304, headers });
   }
   return new Response(body, init);
+}
+
+/**
+ * A public read through Cloudflare's cache in this data centre (`publicEdgeCache`): the first `GET` of
+ * a URL runs `answer`, and every visitor's `GET` of it until its `Cache-Control` lifetime ends gets
+ * that copy, with no D1 read. Keyed by the URL alone: no public route reads a request header. Only a
+ * `200` that's `public` with a `max-age` is kept, never an error. A copy is answered with what's left
+ * of its lifetime as its `max-age`, so a browser keeps it no longer than the first visitor's. (The
+ * zone's Browser Cache TTL rewrites the `Cache-Control` of anything from the cache, and the edge sets
+ * its own `Date`: the copy carries its lifetime and when it was made in headers of its own.) Then the
+ * public headers as for any public read, a `304` included.
+ */
+export async function withEdgeCache(
+  request: Request,
+  ctx: ExecutionContext,
+  config: PublicConfig,
+  answer: () => Promise<Response>,
+): Promise<Response> {
+  if (!config.publicEdgeCache || request.method !== "GET") return withPublicHeaders(request, await answer(), config);
+  const key = new Request(request.url, { method: "GET" });
+  const cache = caches.default;
+  const kept = await cache.match(key).catch(() => undefined);
+  const copy = kept && fromEdge(kept);
+  if (copy) return withPublicHeaders(request, copy, config);
+
+  const fresh = await withPublicHeaders(key, await answer(), config);
+  const lifetime = edgeLifetime(fresh);
+  if (lifetime) {
+    const stored = new Response(fresh.clone().body, fresh);
+    stored.headers.set(edgeMade, String(Date.now()));
+    stored.headers.set(edgeLifetimeHeader, String(lifetime));
+    ctx.waitUntil(cache.put(key, stored).catch(() => {}));
+  }
+  return withPublicHeaders(request, fresh, config);
+}
+
+const edgeMade = "GB-Edge-Made";
+const edgeLifetimeHeader = "GB-Edge-Lifetime";
+
+/** How long Cloudflare's cache may keep this answer, in seconds: a `200`, `public`, with a `max-age` above 0. */
+function edgeLifetime(response: Response): number | null {
+  const control = response.headers.get("Cache-Control") ?? "";
+  const maxAge = Number(/\bmax-age=(\d+)/.exec(control)?.[1] ?? 0);
+  if (response.status !== 200 || !/\bpublic\b/.test(control) || /no-store|private/.test(control) || maxAge <= 0) return null;
+  return maxAge;
+}
+
+/** A copy from the cache, with `max-age` what's left of its lifetime; null for one without its own headers. */
+function fromEdge(kept: Response): Response | null {
+  const made = Number(kept.headers.get(edgeMade));
+  const lifetime = Number(kept.headers.get(edgeLifetimeHeader));
+  if (!made || !lifetime) return null;
+  const headers = new Headers(kept.headers);
+  headers.delete(edgeMade);
+  headers.delete(edgeLifetimeHeader);
+  const left = Math.max(0, lifetime - Math.floor((Date.now() - made) / 1000));
+  headers.set("Cache-Control", `public, max-age=${left}`);
+  return new Response(kept.body, { status: kept.status, statusText: kept.statusText, headers });
 }
 
 /** A weak ETag from the body's SHA-256: the same answer gets the same tag. */

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Match – Genji Ball Ranked</title>
+  <meta name="description" content="Every round of a ranked Genji Ball match: who won, the kills and deflects, and the rating changes.">
+  <!-- Link previews. The Worker fills in a player's, match's or players' own for a crawler (src/site/preview.ts). -->
+  <meta property="og:site_name" content="Genji Ball Ranked">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Match – Genji Ball Ranked">
+  <meta property="og:description" content="Every round of a ranked Genji Ball match: who won, the kills and deflects, and the rating changes.">
+  <meta property="og:url" content="https://genjiball.us/match">
+  <meta property="og:image" content="https://genjiball.us/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/match.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main>
+    <div id="headline" class="headline"><h1 id="name"><gb-skeleton style="inline-size: 7ch"></gb-skeleton></h1><span id="flags" class="flags"></span></div>
+    <ul id="facts" class="facts match-facts"><li><gb-skeleton style="inline-size: 22rem; max-inline-size: 100%"></gb-skeleton></li></ul>
+    <div id="summary" class="recap" aria-busy="true" data-loading>
+      <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
+    </div>
+    <section id="rounds-section">
+      <h2>Rounds</h2>
+      <div id="result" class="recap" aria-busy="true" data-loading>
+        <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
+      </div>
+      <p id="notes" class="note"></p>
+    </section>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

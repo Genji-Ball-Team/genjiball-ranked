@@ -1,11 +1,14 @@
 /* global URL, URLSearchParams */
-// Run the actual head script with a pending server request: pages use site.region immediately.
+// Run the actual head script (site/head.ts, bundled here as the build does) with a pending server
+// request: pages use site.region immediately.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import { buildSync } from "esbuild";
 
-const script = readFileSync(new URL("../public/region.js", import.meta.url), "utf8");
+const entry = fileURLToPath(new URL("../site/head.ts", import.meta.url));
+const script = buildSync({ entryPoints: [entry], bundle: true, format: "iife", write: false }).outputFiles[0].text;
 const regions = [{ id: "eu", label: "Europe" }, { id: "na", label: "North America" }];
 
 function load({ query = "", stored = {}, timeZone = "Europe/Amsterdam" } = {}) {
@@ -14,11 +17,11 @@ function load({ query = "", stored = {}, timeZone = "Europe/Amsterdam" } = {}) {
   const redirects = [];
   let resolve, reject;
   const response = new Promise((yes, no) => { resolve = yes; reject = no; });
-  const site = runInNewContext(`${script}\nsite;`, {
+  const site = runInNewContext(`var window = globalThis;\n${script}\nwindow.gbSite;`, {
     URL, URLSearchParams,
     Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone }) }) },
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    location: { search: query, href: `https://example.com/${query}`, replace: (url) => redirects.push(url) },
+    location: { pathname: "/", search: query, href: `https://example.com/${query}`, replace: (url) => redirects.push(url) },
     document: { documentElement: { dataset }, addEventListener() {}, querySelector: () => null },
     fetch: () => response,
   });

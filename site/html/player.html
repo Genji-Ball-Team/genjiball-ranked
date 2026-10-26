@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="theme-color" content="#0f1314">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Player – Genji Ball Ranked</title>
+  <meta name="description" content="A Genji Ball player's ranked rating, tier, form and recent matches.">
+  <!-- Link previews. The Worker fills in a player's, match's or players' own for a crawler (src/site/preview.ts). -->
+  <meta property="og:site_name" content="Genji Ball Ranked">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Player – Genji Ball Ranked">
+  <meta property="og:description" content="A Genji Ball player's ranked rating, tier, form and recent matches.">
+  <meta property="og:url" content="https://genjiball.us/player">
+  <meta property="og:image" content="https://genjiball.us/og.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/build/fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <script src="/build/head.js"></script>
+  <link rel="stylesheet" href="/build/site.css">
+  <script type="module" src="/build/player.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <div class="top">
+      <a class="mark" href="/"><img src="/favicon.svg" alt="" width="24" height="24">Genji Ball <span>Ranked</span></a>
+      <gb-segmented id="regions" class="regions" label="Region" hidden></gb-segmented>
+      <gb-nav aria-label="Main"><a href="/">Leaderboard</a><a href="/matches">Matches</a><a href="/live">Live</a><a href="/records">Records</a><a href="/tourneys">Tourneys</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a></gb-nav>
+    </div>
+  </header>
+  <main>
+    <div id="hero" class="hero">
+      <div id="headline" class="headline">
+        <h1 id="name"><gb-skeleton style="inline-size: 8ch"></gb-skeleton></h1>
+        <gb-chip id="alt" hidden>Alt</gb-chip>
+        <span id="tier" class="tier"></span>
+        <p id="seal" class="seal" hidden></p>
+      </div>
+      <p id="about" class="lede"></p>
+      <dl id="stats" class="figures" aria-busy="true" aria-label="Figures"><div><dt><gb-skeleton style="inline-size: 4rem"></gb-skeleton></dt><dd><gb-skeleton style="inline-size: 3.5rem"></gb-skeleton></dd></div><div><dt><gb-skeleton style="inline-size: 4rem"></gb-skeleton></dt><dd><gb-skeleton style="inline-size: 3.5rem"></gb-skeleton></dd></div><div><dt><gb-skeleton style="inline-size: 4rem"></gb-skeleton></dt><dd><gb-skeleton style="inline-size: 3.5rem"></gb-skeleton></dd></div><div><dt><gb-skeleton style="inline-size: 4rem"></gb-skeleton></dt><dd><gb-skeleton style="inline-size: 3.5rem"></gb-skeleton></dd></div><div><dt><gb-skeleton style="inline-size: 4rem"></gb-skeleton></dt><dd><gb-skeleton style="inline-size: 3.5rem"></gb-skeleton></dd></div></dl>
+    </div>
+    <div id="next-tier" class="next-tier"></div>
+    <section id="history" hidden>
+      <h2>Rating over time</h2>
+      <div class="chart-head">
+        <p id="history-facts" class="facts"></p>
+        <gb-segmented id="range" label="Range"><button value="7">7 days</button><button value="30">30 days</button><button value="all">All</button></gb-segmented>
+      </div>
+      <gb-rating-chart id="graph" class="graph"></gb-rating-chart>
+      <p id="graph-dates" class="chart-dates num"></p>
+      <h2>Form</h2>
+      <p id="form-facts" class="facts"></p>
+      <ol id="form" class="form"></ol>
+    </section>
+    <section id="rivals-section" hidden>
+      <h2>Rivals</h2>
+      <div class="rivals">
+        <div><h3>Eliminated most</h3><ol id="eliminated"></ol></div>
+        <div><h3>Eliminated by most</h3><ol id="eliminated-by"></ol></div>
+      </div>
+    </section>
+    <p class="note"><a id="compare-link" hidden>Compare with another player</a></p>
+    <h2>Recent matches</h2>
+    <ol id="matches" class="history" aria-busy="true" aria-label="Recent matches" data-loading>
+      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
+    </ol>
+    <gb-button id="more-matches" class="more" variant="secondary" hidden>Show more</gb-button>
+  </main>
+  <footer class="foot">
+    <span>Genji Ball · an Overwatch Workshop game mode</span>
+    <nav class="foot-links" aria-label="More"><a href="/ranked">How ranked works</a><a href="/host">Host a lobby</a><a href="/data">Use the data</a><a href="https://discord.gg/sv9VVjh5pT">Discord</a><a href="https://github.com/Genji-Ball-Team">GitHub</a></nav>
+  </footer>
+</body>
+</html>

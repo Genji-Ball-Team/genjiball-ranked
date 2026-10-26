@@ -171,6 +171,8 @@ describe("admin: tourneys", () => {
         capacity: 0,
         signups: { open: true, count: 0, full: false },
         lobbies: [],
+        winnerId: null,
+        winner: null,
       },
     ]);
 
@@ -557,7 +559,71 @@ describe("site: tourneys", () => {
   });
 
   it("serves the Tourneys pages", async () => {
-    expect(await (await SELF.fetch("https://example.com/tourneys")).text()).toContain('data-page="tourneys"');
-    expect(await (await SELF.fetch("https://example.com/tourney?id=1")).text()).toContain('data-page="tourney"');
+    expect(await (await SELF.fetch("https://example.com/tourneys")).text()).toMatch(/src="\/build\/chunks\/tourneys-[A-Z0-9]{8}\.js"/);
+    expect(await (await SELF.fetch("https://example.com/tourney?id=1")).text()).toMatch(/src="\/build\/chunks\/tourney-[A-Z0-9]{8}\.js"/);
+  });
+});
+
+describe("tourney winners (#124)", () => {
+  const newPlayer = async (name: string, mergedInto: number | null = null) =>
+    (await db().prepare("INSERT INTO players (name, merged_into) VALUES (?, ?) RETURNING id").bind(name, mergedInto).first<{ id: number }>())!.id;
+  const wins = async (id: number, region = "eu") =>
+    (await get<{ tourneyWins: number }>(`players/${id}?region=${region}`)).tourneyWins;
+
+  it("sets and clears a done tourney's winner, and refuses one on any other", async () => {
+    const alpha = await newPlayer("Alpha");
+    const cup = await newTourney();
+    expect((await admin(`tourneys/${cup}`, { body: { winnerId: alpha } })).status).toBe(400);
+    expect((await admin("tourneys", { body: { name: "Cup", region: "eu", startsAt: "2026-10-10T19:00:00Z", winnerId: alpha } })).status).toBe(400);
+    await adminOk(`tourneys/${cup}`, { body: { status: "done" } });
+    expect((await admin(`tourneys/${cup}`, { body: { winnerId: "Alpha" } })).status).toBe(400);
+    expect((await admin(`tourneys/${cup}`, { body: { winnerId: 0 } })).status).toBe(400);
+    expect((await admin(`tourneys/${cup}`, { body: { winnerId: 999 } })).status).toBe(404);
+
+    const { tourney } = await adminOk<{ tourney: { winnerId: number; winner: unknown } }>(`tourneys/${cup}`, { body: { winnerId: alpha } });
+    expect(tourney).toMatchObject({ winnerId: alpha, winner: { id: alpha, name: "Alpha" } });
+    expect((await get<{ tourney: { winner: unknown } }>(`tourneys/${cup}`)).tourney.winner).toEqual({ id: alpha, name: "Alpha" });
+    expect((await get<{ past: { winner: unknown }[] }>("tourneys?region=eu")).past[0]!.winner).toEqual({ id: alpha, name: "Alpha" });
+    expect(await wins(alpha)).toBe(1);
+
+    // Leaving done needs the winner cleared in the same edit.
+    expect((await admin(`tourneys/${cup}`, { body: { status: "live" } })).status).toBe(400);
+    await adminOk(`tourneys/${cup}`, { body: { status: "live", winnerId: null } });
+    expect((await get<{ upcoming: { winner: unknown }[] }>("tourneys?region=eu")).upcoming[0]!.winner).toBeNull();
+    expect(await wins(alpha)).toBe(0);
+
+    const { results } = await db().prepare("SELECT detail FROM admin_actions WHERE action = 'tourney_edit' ORDER BY id").all<{ detail: string }>();
+    expect(results.map((r) => JSON.parse(r.detail).winnerId).filter(Boolean)).toEqual([
+      { from: null, to: alpha },
+      { from: alpha, to: null },
+    ]);
+  });
+
+  it("counts a region's wins on its own, and a merged winner's for who they went into", async () => {
+    const alpha = await newPlayer("Alpha");
+    const alfa = await newPlayer("Alfa");
+    const eu = await newTourney({ status: "done" });
+    const na = await newTourney({ region: "na", status: "done" });
+    await adminOk(`tourneys/${eu}`, { body: { winnerId: alfa } });
+    await adminOk(`tourneys/${na}`, { body: { winnerId: alpha } });
+    expect([await wins(alpha), await wins(alpha, "na"), await wins(alfa)]).toEqual([0, 1, 1]);
+
+    // A merge leaves the column as it is: reads follow merged_into, so an undo needs nothing.
+    await db().prepare("UPDATE players SET merged_into = ? WHERE id = ?").bind(alpha, alfa).run();
+    expect([await wins(alpha), await wins(alpha, "na")]).toEqual([1, 1]);
+    expect((await get<{ tourney: { winner: unknown } }>(`tourneys/${eu}`)).tourney.winner).toEqual({ id: alpha, name: "Alpha" });
+    const { tourneys } = await adminOk<{ tourneys: { id: number; winnerId: number; winner: unknown }[] }>("tourneys");
+    expect(tourneys.find((t) => t.id === eu)).toMatchObject({ winnerId: alfa, winner: { id: alpha, name: "Alpha" } });
+
+    await db().prepare("UPDATE players SET merged_into = NULL WHERE id = ?").bind(alfa).run();
+    expect([await wins(alpha), await wins(alfa)]).toEqual([0, 1]);
+  });
+
+  it("puts the K/D and tourney wins in the stats for the bot", async () => {
+    const alpha = await newPlayer("Alpha");
+    const cup = await newTourney({ status: "done" });
+    await adminOk(`tourneys/${cup}`, { body: { winnerId: alpha } });
+    const { stats } = await get<{ stats: Record<string, unknown> }>(`players/${alpha}/stats?region=eu`);
+    expect(stats).toMatchObject({ eliminations: { kills: 0, deaths: 0 }, kd: 0, tourneyWins: 1 });
   });
 });

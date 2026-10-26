@@ -47,6 +47,12 @@ export function nextTier(display: number, tiers: readonly Tier[]): TierView | nu
   return next ? tierView(next) : null;
 }
 
+/** The site tier a display rating is in, whatever the player's rounds (a peak's). Null below the first. */
+export function tierOf(display: number, tiers: readonly Tier[]): TierView | null {
+  const tier = tierFor(display, tiers);
+  return tier && tierView(tier);
+}
+
 /** The tiers with a rank tag in game: all but the site-only ones (`siteOnly` in the config). */
 export function gameTiers(tiers: readonly Tier[]): Tier[] {
   return tiers.filter((tier) => !tier.siteOnly);

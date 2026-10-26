@@ -1,0 +1,20 @@
+/* Live lobbies (pages/live.ts): a row for each open lobby. */
+.lobbies { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 6px; }
+.lobbies gb-skeleton { min-block-size: 64px; }
+.lobbies li {
+  display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-radius: var(--r); background: var(--panel);
+}
+.lobbies li:has(gb-empty), .lobbies li:has(gb-skeleton), .lobbies li.empty { display: block; padding: 0; background: none; }
+/* Open now: a plain foreground dot, never green (that's for interactive) or a region colour. */
+.lobbies .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg); }
+.lobbies .what { flex: 1; min-width: 0; }
+.lobbies .what b { display: block; font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width); overflow-wrap: anywhere; }
+.lobbies small { display: block; color: var(--muted); font-size: 0.8rem; }
+.lobbies .figure { flex: none; min-width: 4rem; text-align: end; }
+.lobbies .figure b { display: block; font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1.2; }
+.lobbies:has(gb-empty) + .note { text-align: center; }
+@media (max-width: 40rem) {
+  .lobbies li { flex-wrap: wrap; gap: 8px 12px; }
+  .lobbies .what { flex-basis: calc(100% - 24px); }
+  .lobbies .figure { text-align: start; }
+}

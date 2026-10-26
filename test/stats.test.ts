@@ -1,6 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import migration from "../migrations/0017_match_stats.sql?raw";
+import finalsMigration from "../migrations/0025_head_to_head_finals.sql?raw";
 import { handleAdmin } from "../src/admin/handler";
 import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
@@ -110,11 +111,12 @@ async function ids(): Promise<Record<string, number>> {
 interface HeadToHead {
   region: string;
   rounds: number;
-  a: { id: number; name: string; ahead: number; kills: number };
-  b: { id: number; name: string; ahead: number; kills: number };
+  finals: number;
+  a: { id: number; name: string; ahead: number; kills: number; finalWins: number };
+  b: { id: number; name: string; ahead: number; kills: number; finalWins: number };
 }
 
-const pairColumns = "region, player_id AS playerId, opponent_id AS opponentId, rounds, ahead, kills, deaths";
+const pairColumns = "region, player_id AS playerId, opponent_id AS opponentId, rounds, ahead, kills, deaths, finals, final_wins AS finalWins";
 
 async function pairStats() {
   const { results } = await db().prepare(`SELECT ${pairColumns} FROM pair_stats ORDER BY region, player_id, opponent_id`).all();
@@ -126,7 +128,7 @@ async function expectTotalsMatchPairs() {
   const { results } = await db()
     .prepare(
       `SELECT m.region, p.player_id AS playerId, p.opponent_id AS opponentId, sum(p.rounds) AS rounds, sum(p.ahead) AS ahead,
-         sum(p.kills) AS kills, sum(p.deaths) AS deaths
+         sum(p.kills) AS kills, sum(p.deaths) AS deaths, sum(p.finals) AS finals, sum(p.final_wins) AS finalWins
        FROM match_pairs p JOIN matches m ON m.id = p.match_id WHERE m.status = 'accepted'
        GROUP BY m.region, p.player_id, p.opponent_id HAVING sum(p.rounds) + sum(p.kills) + sum(p.deaths) > 0
        ORDER BY m.region, p.player_id, p.opponent_id`,
@@ -224,16 +226,43 @@ describe("match stats (#15)", () => {
 describe("head-to-head (#18)", () => {
   it("answers two players' record in a region, and zeros when they never met", async () => {
     await upload(statsLog("000000000001"), 2);
-    const { Alpha, Bravo } = await ids();
+    const { Alpha, Bravo, Charlie } = await ids();
     expect(await get<HeadToHead>(`head-to-head?a=${Alpha}&b=${Bravo}`)).toEqual({
       region: "eu",
       rounds: 4,
-      a: { id: Alpha, name: "Alpha", ahead: 3, kills: 3 },
+      // Rounds 1 and 3 ended with the two of them left, Alpha winning.
+      finals: 2,
+      a: { id: Alpha, name: "Alpha", ahead: 3, kills: 3, finalWins: 2 },
       // Bravo's kill between rounds counts: every KILL line.
-      b: { id: Bravo, name: "Bravo", ahead: 1, kills: 1 },
+      b: { id: Bravo, name: "Bravo", ahead: 1, kills: 1, finalWins: 0 },
     });
+    // Round 2 ended with Bravo and Charlie, Bravo winning.
+    expect(await get<HeadToHead>(`head-to-head?a=${Charlie}&b=${Bravo}`)).toMatchObject({ finals: 1, a: { finalWins: 0 }, b: { finalWins: 1 } });
     expect(await get<HeadToHead>(`head-to-head?a=${Bravo}&b=${Alpha}&region=eu`)).toMatchObject({ a: { ahead: 1, kills: 1 }, b: { ahead: 3, kills: 3 } });
     expect(await get<HeadToHead>(`head-to-head?a=${Alpha}&b=${Bravo}&region=na`)).toMatchObject({ region: "na", rounds: 0, a: { kills: 0 }, b: { kills: 0 } });
+  });
+
+  it("fills the finals of what was stored as an upload counts them (migration 0025)", async () => {
+    await upload(statsLog("000000000001"), 4);
+    await upload(statsLog("000000000002", { extra: true }), 3, "na");
+    await upload(statsLog("000000000003"), 2);
+    expect((await admin(`matches/${await matchId("000000000003")}/void`)).status).toBe(200);
+    const [pairs, totals] = [
+      (await db().prepare("SELECT match_id, player_id, opponent_id, finals, final_wins FROM match_pairs ORDER BY 1, 2, 3").all()).results,
+      await pairStats(),
+    ];
+    expect(pairs.some((r) => (r.finals as number) > 0)).toBe(true);
+    await db().batch([db().prepare("UPDATE match_pairs SET finals = 0, final_wins = 0"), db().prepare("UPDATE pair_stats SET finals = 0, final_wins = 0")]);
+    const backfills = finalsMigration
+      .replaceAll("\r\n", "\n")
+      .split(";\n")
+      .map((s) => s.split("\n").filter((line) => !line.startsWith("--")).join("\n").trim())
+      .filter((s) => s.startsWith("UPDATE "));
+    expect(backfills).toHaveLength(2);
+    await db().batch(backfills.map((s) => db().prepare(s)));
+    expect((await db().prepare("SELECT match_id, player_id, opponent_id, finals, final_wins FROM match_pairs ORDER BY 1, 2, 3").all()).results).toEqual(pairs);
+    expect(await pairStats()).toEqual(totals);
+    await expectTotalsMatchPairs();
   });
 
   it("keeps a pair with kills but no rated round together, until its match stops counting", async () => {
@@ -261,29 +290,37 @@ describe("head-to-head (#18)", () => {
   it("lists a player's most eliminated and most eliminated by, in the region", async () => {
     await upload(statsLog("000000000001"), 2);
     const { Alpha, Bravo, Charlie } = await ids();
-    type Rivals = { region: string; mostEliminated: { id: number; kills: number; rounds: number }[]; mostEliminatedBy: { id: number; kills: number }[] };
+    type Rivals = {
+      region: string;
+      mostEliminated: { id: number; kills: number; rounds: number }[];
+      mostEliminatedBy: { id: number; kills: number }[];
+      eliminations: { kills: number; deaths: number };
+    };
     const alpha = await get<Rivals>(`players/${Alpha}`);
     expect(alpha.mostEliminated).toEqual([
       { id: Bravo, name: "Bravo", kills: 3, rounds: 4 },
       { id: Charlie, name: "Charlie", kills: 2, rounds: 4 },
     ]);
     expect(alpha.mostEliminatedBy).toEqual([{ id: Bravo, name: "Bravo", kills: 1, rounds: 4 }]);
+    // The K/D's counts, over every opponent: round 2's death had no attacker, so it isn't one.
+    expect(alpha.eliminations).toEqual({ kills: 5, deaths: 1 });
     const charlie = await get<Rivals>(`players/${Charlie}`);
     expect(charlie.mostEliminated).toEqual([]);
     // A tie: the lower player id first.
     expect(charlie.mostEliminatedBy.map((r) => [r.id, r.kills])).toEqual([[Alpha, 2], [Bravo, 2]]);
+    expect(charlie.eliminations).toEqual({ kills: 0, deaths: 4 });
     const na = await get<Rivals>(`players/${Alpha}?region=na`);
-    expect(na).toMatchObject({ region: "na", mostEliminated: [], mostEliminatedBy: [] });
+    expect(na).toMatchObject({ region: "na", mostEliminated: [], mostEliminatedBy: [], eliminations: { kills: 0, deaths: 0 } });
   });
 
   it("totals a player's rated rounds for compare (#16): kills, deflects, touches and average place", async () => {
     await upload(statsLog("000000000001"), 2);
     const { Alpha, Bravo } = await ids();
-    type Stats = { player: { id: number }; stats: Record<string, number | null> };
-    expect((await get<Stats>(`players/${Alpha}/stats`)).stats).toEqual({ rounds: 4, kills: 5, deflectRounds: 4, deflects: 3, touches: 3, averagePosition: 1.5 });
+    type Stats = { player: { id: number }; stats: Record<string, unknown> };
+    expect((await get<Stats>(`players/${Alpha}/stats`)).stats).toMatchObject({ rounds: 4, kills: 5, deflectRounds: 4, deflects: 3, touches: 3, averagePosition: 1.5 });
     // Bravo's kill between rounds isn't in a round. Touches: 2 deflects, eliminated by Alpha's ball 3 times.
-    expect((await get<Stats>(`players/${Bravo}/stats`)).stats).toEqual({ rounds: 4, kills: 2, deflectRounds: 4, deflects: 2, touches: 5, averagePosition: 2 });
-    expect((await get<Stats>(`players/${Alpha}/stats?region=na`)).stats).toEqual({ rounds: 0, kills: 0, deflectRounds: 0, deflects: 0, touches: 0, averagePosition: null });
+    expect((await get<Stats>(`players/${Bravo}/stats`)).stats).toMatchObject({ rounds: 4, kills: 2, deflectRounds: 4, deflects: 2, touches: 5, averagePosition: 2 });
+    expect((await get<Stats>(`players/${Alpha}/stats?region=na`)).stats).toEqual({ rounds: 0, kills: 0, deflectRounds: 0, deflects: 0, touches: 0, averagePosition: null, eliminations: { kills: 0, deaths: 0 }, kd: 0, tourneyWins: 0 });
     expect(await get("players/99999/stats", 404)).toMatchObject({ error: "not_found" });
     // A void match doesn't count, as in the head-to-head.
     expect((await admin(`matches/${await matchId("000000000001")}/void`)).status).toBe(200);
@@ -610,7 +647,7 @@ describe("head-to-head and player merges (#8)", () => {
     "ROUND_START|2.00|1|1,2", "ELIM|3.00|1|2|1|2", "KILL|3.00|Alpha|Bravo|1|2", "ROUND_END|3.00|1|1|WIN",
   ]);
   const matchPairs = async () =>
-    (await db().prepare("SELECT match_id, player_id, opponent_id, rounds, ahead, kills, deaths FROM match_pairs ORDER BY 1, 2, 3").all()).results;
+    (await db().prepare("SELECT match_id, player_id, opponent_id, rounds, ahead, kills, deaths, finals, final_wins FROM match_pairs ORDER BY 1, 2, 3").all()).results;
   /** match_pairs as a fresh derivation from the rounds and events gives, and pair_stats as their sum. */
   async function expectAsRederived() {
     await expectTotalsMatchPairs();

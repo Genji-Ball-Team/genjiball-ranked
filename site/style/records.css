@@ -1,0 +1,36 @@
+/* Records (pages/records.ts): the records as tiles, the value in gold (earned prestige, brand.md) beside
+   who set it and the next best below, the activity as tiles and a bar chart, the top hosts as a list. */
+.records, .hosts { list-style: none; margin: 24px 0 0; padding: 0; }
+.records { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: 8px; }
+.records > li { display: flex; flex-direction: column; padding: 16px 16px 12px; border-radius: var(--r); background: var(--panel); }
+.records > li:has(gb-empty), .records > li.empty { grid-column: 1 / -1; display: block; padding: 0; background: none; }
+.records > li:has(gb-skeleton) { display: block; padding: 0; background: none; }
+.records gb-skeleton { min-block-size: 220px; }
+.records .what {
+  color: var(--muted); font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+.records .best { display: flex; align-items: baseline; gap: 12px; margin-block: 10px 2px; min-width: 0; }
+.records .value { color: var(--gold); font-size: 2.4rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1; }
+.records .who {
+  min-width: 0; color: var(--fg); font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width);
+  overflow-wrap: anywhere; text-decoration-color: var(--green); text-underline-offset: 3px;
+}
+.records .where { color: var(--muted); font-size: 0.8rem; }
+.records .where a { color: var(--soft); }
+.records .runners {
+  display: grid; gap: 2px; margin: 14px 0 0; padding: 10px 0 0;
+  border-top: 1px solid var(--line); list-style: none; counter-reset: place 1; font-size: 0.875rem;
+}
+.records .runners li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto; gap: 6px; align-items: baseline; padding-block: 2px; counter-increment: place; }
+.records .runners li::before { content: counter(place); color: var(--muted); font-weight: 600; }
+.records .runners a { color: var(--fg); text-decoration-color: var(--green); text-underline-offset: 3px; overflow-wrap: anywhere; justify-self: start; }
+.records .runners .num { color: var(--soft); }
+
+.activity-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 8px; }
+.activity-chart { margin-block-start: 8px; }
+
+.hosts { margin-block-start: 0; border-top: 1px solid var(--line); }
+.hosts li { display: grid; grid-template-columns: 2rem minmax(0, 1fr) auto; gap: 12px; align-items: baseline; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.hosts .pos { color: var(--muted); font-weight: 600; font-stretch: var(--heading-width); }
+.hosts b { font-weight: 600; font-stretch: var(--title-width); overflow-wrap: anywhere; }
