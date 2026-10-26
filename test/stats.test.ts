@@ -2,6 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import migration from "../migrations/0017_match_stats.sql?raw";
 import finalsMigration from "../migrations/0025_head_to_head_finals.sql?raw";
+import afkMigration from "../migrations/0029_afk_head_to_head.sql?raw";
 import { handleAdmin } from "../src/admin/handler";
 import { defaults } from "../src/config";
 import { parseLegacyLog } from "../src/parser/legacy";
@@ -45,13 +46,13 @@ beforeEach(async () => {
  * 3. Alpha deflects and eliminates Charlie, then Bravo: Alpha, Bravo, Charlie.
  * 4. Alpha eliminates Bravo, then Charlie: Alpha, Charlie, Bravo.
  * `extra` adds a fifth round (a longer copy): Charlie wins, eliminating both. `lateKill`: Delta (4)
- * joins after the rounds and kills Alpha, so they never share a round.
+ * joins after the rounds and kills Alpha, so they never share a round. `host`: Alpha hosts.
  */
-function statsLog(key: string, { extra = false, lateKill = false } = {}): string {
+function statsLog(key: string, { extra = false, lateKill = false, host = false } = {}): string {
   const lines = [
     `GBR|1.00|1|1.3.3R|${key}`,
     "MATCH_START|1.00|workshop-island-night|Default|0|",
-    "JOIN|1.00|1|Alpha",
+    host ? "JOIN|1.00|1|Alpha|1" : "JOIN|1.00|1|Alpha",
     "JOIN|1.00|2|Bravo",
     "JOIN|1.00|3|Charlie",
     "ROUND_START|2.00|1|1,2,3",
@@ -263,6 +264,50 @@ describe("head-to-head (#18)", () => {
     expect((await db().prepare("SELECT match_id, player_id, opponent_id, finals, final_wins FROM match_pairs ORDER BY 1, 2, 3").all()).results).toEqual(pairs);
     expect(await pairStats()).toEqual(totals);
     await expectTotalsMatchPairs();
+  });
+
+  /** Alpha AFK in round 4: the round, and Alpha's kills of Bravo and Charlie in it, don't count. */
+  async function expectAlphaAfkInRound4() {
+    const { Alpha, Bravo, Charlie } = await ids();
+    expect(await get<HeadToHead>(`head-to-head?a=${Alpha}&b=${Bravo}`)).toMatchObject({
+      rounds: 3,
+      a: { ahead: 2, kills: 2 },
+      b: { ahead: 1, kills: 1 },
+    });
+    expect(await get<HeadToHead>(`head-to-head?a=${Alpha}&b=${Charlie}`)).toMatchObject({ rounds: 3, a: { ahead: 2, kills: 1 }, b: { kills: 0 } });
+    // Bravo and Charlie both finished round 4: it's in their record.
+    expect(await get<HeadToHead>(`head-to-head?a=${Bravo}&b=${Charlie}`)).toMatchObject({ rounds: 4 });
+    await expectTotalsMatchPairs();
+  }
+
+  it("leaves out the rounds a player was AFK in, and the kills in them by or of them", async () => {
+    await uploadLog(statsLog("000000000001", { host: true }), token, hoursAgo(2), { "X-Host-Afk": "000000000001:4" });
+    await expectAlphaAfkInRound4();
+  });
+
+  it("derives again the pairs of matches with AFK rounds, as an upload counts them (migration 0029)", async () => {
+    await upload(statsLog("000000000001"), 3);
+    await upload(statsLog("000000000002"), 2);
+    // Round 4 of the first match marked AFK by hand after the upload, as Fealthy's old rounds were.
+    await db()
+      .prepare(
+        `UPDATE round_players SET afk = 1, position = NULL
+         WHERE player_id = ?1 AND round_id = (SELECT id FROM rounds WHERE match_id = ?2 AND number = 4)`,
+      )
+      .bind((await ids()).Alpha, await matchId("000000000001"))
+      .run();
+    const statements = afkMigration
+      .replaceAll("\r\n", "\n")
+      .split(";\n")
+      .map((s) => s.split("\n").filter((line) => !line.startsWith("--")).join("\n").trim())
+      .filter((s) => s.length > 0);
+    expect(statements).toHaveLength(18);
+    await db().batch(statements.map((s) => db().prepare(s)));
+    // Only the first match moved: the second still counts all four rounds.
+    const { Alpha, Bravo } = await ids();
+    expect(await get<HeadToHead>(`head-to-head?a=${Alpha}&b=${Bravo}`)).toMatchObject({ rounds: 7, a: { ahead: 5, kills: 5 }, b: { kills: 2 } });
+    await db().prepare("DELETE FROM matches WHERE id = ?").bind(await matchId("000000000002")).run();
+    await expectAlphaAfkInRound4();
   });
 
   it("keeps a pair with kills but no rated round together, until its match stops counting", async () => {
