@@ -285,6 +285,14 @@ describe("head-to-head (#18)", () => {
     await expectAlphaAfkInRound4();
   });
 
+  it("leaves out a kill between rounds after a round the player was AFK in", async () => {
+    // AFK in round 1 too: Bravo's kill of Alpha after it, between rounds, doesn't count either.
+    await uploadLog(statsLog("000000000001", { host: true }), token, hoursAgo(2), { "X-Host-Afk": "000000000001:1,4" });
+    const { Alpha, Bravo } = await ids();
+    expect(await get<HeadToHead>(`head-to-head?a=${Alpha}&b=${Bravo}`)).toMatchObject({ rounds: 2, a: { ahead: 1, kills: 1 }, b: { ahead: 1, kills: 0 } });
+    await expectTotalsMatchPairs();
+  });
+
   it("derives again the pairs of matches with AFK rounds, as an upload counts them (migration 0029)", async () => {
     await upload(statsLog("000000000001"), 3);
     await upload(statsLog("000000000002"), 2);
@@ -301,7 +309,7 @@ describe("head-to-head (#18)", () => {
       .split(";\n")
       .map((s) => s.split("\n").filter((line) => !line.startsWith("--")).join("\n").trim())
       .filter((s) => s.length > 0);
-    expect(statements).toHaveLength(18);
+    expect(statements).toHaveLength(19);
     await db().batch(statements.map((s) => db().prepare(s)));
     // Only the first match moved: the second still counts all four rounds.
     const { Alpha, Bravo } = await ids();

@@ -10,7 +10,8 @@
  * `match_pairs`: rated rounds both finished, rounds ahead, finals (rated rounds the two finished 1st and
  * 2nd) and finals won, and `KILL` lines between them both ways
  * (a self-kill or the kill of a player with no id isn't one). A `KILL` in a round where either of the
- * two was AFK (`round_players.afk`, the host's AFK rounds) isn't counted, as that round isn't. A bot (`players.bot`) has no pairs:
+ * two was AFK (`round_players.afk`, the host's AFK rounds) isn't counted, as that round isn't, nor one
+ * between rounds after such a round (they're still AFK). A bot (`players.bot`) has no pairs:
  * kills by and of one aren't counted. Reads each match's rounds and events once, by key.
  */
 export function matchPairsInsert(matchIds: string): string {
@@ -32,7 +33,8 @@ export function matchPairsInsert(matchIds: string): string {
       WHERE e.type = 'KILL' AND e.match_id IN (${matchIds})
         AND NOT EXISTS (
           SELECT 1 FROM rounds r JOIN round_players rp ON rp.round_id = r.id
-          WHERE r.match_id = e.match_id AND r.number = e.round AND rp.afk = 1 AND rp.log_id IN (e.actor_id, e.target_id)
+          WHERE r.match_id = e.match_id AND rp.afk = 1 AND rp.log_id IN (e.actor_id, e.target_id)
+            AND r.number = coalesce(e.round, (SELECT max(p.number) FROM rounds p WHERE p.match_id = e.match_id AND p.start_time <= e.time))
         )
     )
     WHERE player_id NOT IN (SELECT id FROM players WHERE bot = 1) AND opponent_id NOT IN (SELECT id FROM players WHERE bot = 1)
