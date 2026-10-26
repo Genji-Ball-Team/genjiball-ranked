@@ -13,6 +13,7 @@ import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
 import { displayRating } from "../rating/engine";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
+import { isOpen, parseBoardFilter, tierRanges, type BoardFilter } from "./boardFilter";
 import { rankTags, type RankTagsConfig } from "./rankTags";
 import { fetchTitles, pickTitles } from "./titles";
 import { gameTiers, nextTier, standing, tierOf } from "./standing";
@@ -67,6 +68,7 @@ export type SiteConfig = RankTagsConfig &
     Config,
     | "leaderboardPageSize"
     | "leaderboardChangeDays"
+    | "leaderboardFilterMaxDays"
     | "titles"
     | "tiersMaxPlayers"
     | "matchFeedLimit"
@@ -114,7 +116,11 @@ export async function handleSite(
   const region = asked!;
   const id = positiveId(path[1]);
   const reads: Record<string, () => Promise<Response>> = {
-    leaderboard: async () => Response.json(await leaderboard(db, config, region, url, now)),
+    leaderboard: async () => {
+      const filter = parseBoardFilter(url.searchParams, config);
+      if (typeof filter === "string") return fail(400, "bad_request", filter);
+      return Response.json(await leaderboard(db, config, region, url, filter, now));
+    },
     titles: async () => Response.json(await titled(db, config, region, bot, now)),
     tiers: async () => {
       const ids = playerIds(url.searchParams.get("players"), config.tiersMaxPlayers);
@@ -196,24 +202,34 @@ function regionParam(url: URL, config: SiteConfig): Region | Response {
   return region ?? fail(400, "bad_request", notARegion(config.regions, "region"));
 }
 
-async function leaderboard(db: D1Database, config: SiteConfig, region: Region, url: URL, now: Date) {
+/** A leaderboard page, of the players `filter` picks (src/site/boardFilter.ts), each at their place on the whole board. */
+async function leaderboard(db: D1Database, config: SiteConfig, region: Region, url: URL, filter: BoardFilter, now: Date) {
   const page = pageNumber(url.searchParams.get("page")) ?? 1;
-  const active = url.searchParams.get("active") === "1";
   const size = config.leaderboardPageSize;
   const offset = (page - 1) * size;
-  const changeSince = isoSeconds(new Date(now.getTime() - config.leaderboardChangeDays * dayMs));
-  const activeSince = active ? isoSeconds(new Date(now.getTime() - config.inactiveAfterDays * dayMs)) : null;
+  const daysAgo = (days: number) => isoSeconds(new Date(now.getTime() - days * dayMs));
+  const where = isOpen(filter)
+    ? null
+    : {
+        tierRanges: filter.tiers.length ? tierRanges(filter.tiers, config.tiers) : null,
+        playedSince: filter.played === null ? null : daysAgo(filter.played),
+        rounds: filter.rounds,
+        min: filter.min,
+        max: filter.max,
+      };
   // One more than a page, to know if there's a next one.
-  const rows = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset, changeSince, activeSince);
+  const changeSince = daysAgo(config.leaderboardChangeDays);
+  const { rows, matched } = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset, changeSince, where);
   return {
     region: region.id,
     page,
     pageSize: size,
-    active,
+    filter,
+    matched,
     changeDays: config.leaderboardChangeDays,
     hasMore: rows.length > size,
-    players: rows.slice(0, size).map((row, i) => ({
-      rank: offset + i + 1,
+    players: rows.slice(0, size).map((row) => ({
+      rank: row.rank,
       ...ratingView(row, config, now),
       change: row.displayBefore === null ? null : Math.round(row.display - row.displayBefore),
     })),

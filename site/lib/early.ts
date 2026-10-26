@@ -2,6 +2,8 @@
 // still loading, rather than once it runs. `api()` (lib/api.ts) takes the answer for the same path;
 // a path no page asks for (the region changed once /api/server answered) is only a wasted read.
 
+import { boardQuery } from "./boardFilter";
+
 /** At most this many players: the chart tells three lines apart by stroke, and a fourth would be one too many. */
 export const compareMax = 3;
 
@@ -21,7 +23,7 @@ export function earlyPaths(pathname: string, search: string, region: string): st
   const lobbies = `lobbies?${r}`;
   switch (name) {
     case "/leaderboard":
-      return [`leaderboard?${r}&page=${page}${query.get("active") === "1" ? "&active=1" : ""}`, `titles?${r}`, lobbies];
+      return [`leaderboard?${r}&page=${page}${boardQuery(query)}`, `titles?${r}`, lobbies];
     case "/player":
       return id ? [`players/${id}?${r}`, `players/${id}/history?${r}`, `titles?${r}`, lobbies] : [lobbies];
     case "/match":

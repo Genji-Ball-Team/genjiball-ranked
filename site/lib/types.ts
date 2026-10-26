@@ -35,13 +35,25 @@ export interface LeaderboardPlayer {
   inactiveSince: string | null;
 }
 
+/** `GET /api/leaderboard`'s filter (`?tier=`, `?played=`, `?rounds=`, `?min=`, `?max=`), null where it's not set. */
+export interface BoardFilter {
+  /** `none` for below the first tier, then tiers lowest first, by lowercase label. */
+  tiers: string[];
+  played: number | null;
+  rounds: number | null;
+  min: number | null;
+  max: number | null;
+}
+
 /** `GET /api/leaderboard`. */
 export interface Leaderboard {
   region: string;
   page: number;
   pageSize: number;
-  /** Only the active players, ranked among themselves (`?active=1`). */
-  active: boolean;
+  /** Which players the page shows, as the API read it: each still at their place on the whole board. */
+  filter: BoardFilter;
+  /** How many players the filter picks in all; null without one. */
+  matched: number | null;
   /** Days back `change` counts from. */
   changeDays: number;
   hasMore: boolean;

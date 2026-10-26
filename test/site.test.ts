@@ -52,6 +52,11 @@ interface Board {
   players: { rank: number; id: number; name: string; rating: number; rounds: number; wins: number; inactiveSince: string | null }[];
 }
 
+interface Filtered extends Board {
+  filter: { tiers: string[]; played: number | null; rounds: number | null; min: number | null; max: number | null };
+  matched: number | null;
+}
+
 describe("standing", () => {
   const now = new Date("2026-10-03T00:00:00Z");
   const config = { ...defaults, minRankedRounds: 10, inactiveAfterDays: 30 };
@@ -110,16 +115,97 @@ describe("leaderboard", () => {
     expect(board.players.find((p) => p.id === alpha)!.inactiveSince).toBe("2020-01-01T00:00:00Z");
   });
 
-  it("with ?active=1, leaves out inactive players and counts only the active ones in the places", async () => {
+  it("with ?active=1 (played=inactiveAfterDays), leaves out inactive players, who still count in the places", async () => {
     await playMatches(matchesToRank);
     const before = (await get<Board>("leaderboard")).players;
     const top = before[0]!;
     await db().prepare("UPDATE ratings SET last_played_at = '2020-01-01T00:00:00Z' WHERE player_id = ?").bind(top.id).run();
-    const board = await get<Board & { active: boolean }>("leaderboard?active=1");
-    expect(board.active).toBe(true);
+    const board = await get<Filtered>("leaderboard?active=1");
+    expect(board.filter.played).toBe(defaults.inactiveAfterDays);
     expect(board.players.map((p) => p.id)).toEqual(before.slice(1).map((p) => p.id));
-    expect(board.players.map((p) => p.rank)).toEqual([1, 2, 3]);
-    expect((await get<Board & { active: boolean }>("leaderboard")).active).toBe(false);
+    expect(board.players.map((p) => p.rank)).toEqual([2, 3, 4]);
+    expect(board.matched).toBe(3);
+    const open = await get<Filtered>("leaderboard");
+    expect(open.filter).toEqual({ tiers: [], played: null, rounds: null, min: null, max: null });
+    expect(open.matched).toBeNull();
+  });
+
+  describe("filter", () => {
+    /** Four players at 2000, 1650, 1300 and 900 display, best first. */
+    async function spread() {
+      await playMatches(matchesToRank);
+      const ids = (await get<Board>("leaderboard")).players.map((p) => p.id);
+      const displays = [2000, 1650, 1300, 900];
+      await db().batch(ids.map((id, i) => db().prepare("UPDATE ratings SET display = ? WHERE player_id = ?").bind(displays[i], id)));
+      return ids;
+    }
+    const ranks = async (query: string) => (await get<Filtered>(`leaderboard?${query}`)).players.map((p) => [p.rank, p.rating]);
+
+    it("picks tiers, none for below the first, each player at their place on the whole board", async () => {
+      await spread();
+      expect(await ranks("tier=master")).toEqual([[2, 1650]]);
+      expect(await ranks("tier=Grandmaster,none")).toEqual([
+        [1, 2000],
+        [4, 900],
+      ]);
+      // A tier runs up to the next one's threshold, not into it.
+      expect(await ranks("tier=apprentice")).toEqual([[3, 1300]]);
+      expect(await ranks("tier=sovereign")).toEqual([]);
+    });
+
+    it("takes a rating from and to, both included", async () => {
+      await spread();
+      expect(await ranks("min=1300&max=1650")).toEqual([
+        [2, 1650],
+        [3, 1300],
+      ]);
+      expect(await ranks("max=1299")).toEqual([[4, 900]]);
+    });
+
+    it("takes a minimum of rated rounds, and the last played", async () => {
+      const [first, second] = await spread();
+      await db().prepare("UPDATE ratings SET rounds = 500 WHERE player_id = ?").bind(second).run();
+      expect(await ranks("rounds=100")).toEqual([[2, 1650]]);
+      await db().prepare("UPDATE ratings SET last_played_at = ? WHERE player_id = ?").bind(new Date(Date.now() - 10 * 86_400_000).toISOString(), first).run();
+      expect((await ranks("played=7")).map(([rank]) => rank)).toEqual([2, 3, 4]);
+      expect((await ranks("played=30")).map(([rank]) => rank)).toEqual([1, 2, 3, 4]);
+    });
+
+    it("pages the matches and counts them all, with every filter at once", async () => {
+      await spread();
+      const config = { ...defaults, leaderboardPageSize: 1 };
+      const page = async (n: number) => {
+        const res = await handleSite(new Request(`https://example.com/api/leaderboard?tier=grandmaster,master,none&min=1000&page=${n}`), db(), config);
+        return (await res!.json()) as Filtered;
+      };
+      const first = await page(1);
+      expect(first).toMatchObject({ matched: 2, hasMore: true, filter: { tiers: ["none", "master", "grandmaster"], min: 1000 } });
+      expect(first.players.map((p) => p.rank)).toEqual([1]);
+      const second = await page(2);
+      expect(second).toMatchObject({ matched: 2, hasMore: false });
+      expect(second.players.map((p) => p.rank)).toEqual([2]);
+    });
+
+    it("leaves alts out of the matches and the places", async () => {
+      const [first] = await spread();
+      await db().prepare("UPDATE players SET alt = 1 WHERE id = ?").bind(first).run();
+      expect(await ranks("tier=master")).toEqual([[1, 1650]]);
+    });
+
+    it.each([
+      ["tier=diamond", /tier/],
+      ["played=0", /played/],
+      [`played=${defaults.leaderboardFilterMaxDays + 1}`, /played/],
+      ["rounds=-3", /rounds/],
+      ["min=high", /min/],
+      ["max=1.5", /max/],
+    ])("answers 400 for %s", async (query, message) => {
+      const res = await SELF.fetch(`https://example.com/api/leaderboard?${query}`);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string; message: string };
+      expect(body.error).toBe("bad_request");
+      expect(body.message).toMatch(message);
+    });
   });
 
   it("gives each row its rating change over leaderboardChangeDays, null for a player who had no rating before", async () => {

@@ -18,9 +18,11 @@ const code = buildSync({
 const inContext = runInNewContext(`${code}; early`, { URLSearchParams });
 const earlyPaths = (...args) => [...inContext.earlyPaths(...args)];
 
-test("the leaderboard asks for its page, the active filter, titles and lobbies", () => {
+test("the leaderboard asks for its page, its filter, titles and lobbies", () => {
   assert.deepEqual(earlyPaths("/", "", "eu"), ["leaderboard?region=eu&page=1", "titles?region=eu", "lobbies?region=eu"]);
   assert.deepEqual(earlyPaths("/index.html", "?page=3&active=1", "na")[0], "leaderboard?region=na&page=3&active=1");
+  // In the order the page writes them, whatever the address has.
+  assert.deepEqual(earlyPaths("/", "?max=2000&tier=master,none&page=2&played=7&rounds=&min=1500", "eu")[0], "leaderboard?region=eu&page=2&tier=master,none&played=7&min=1500&max=2000");
 });
 
 test("a player page asks for the player and their history; without an id, only lobbies", () => {

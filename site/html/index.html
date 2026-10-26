@@ -34,9 +34,25 @@
       <gb-search class="find" data-players label="Find a player" hide-label placeholder="Find a player" shortcut="/" min-length="2" delay="250"></gb-search>
     </div>
     <div class="board-tools">
-      <gb-segmented id="who" label="Players"><a id="who-all" href="?">Everyone</a><a id="who-active" href="?active=1">Active</a></gb-segmented>
-      <gb-button id="jump" variant="ghost" hidden>Jump to me</gb-button>
+      <gb-popover class="filter">
+        <gb-button id="filter-open" variant="secondary">Filter<span id="filter-count" class="filter-count" hidden></span></gb-button>
+        <form id="filter" class="filter-box" aria-label="Filter players">
+          <fieldset><legend>Tier</legend><gb-chip-select id="filter-tier" label="Tier"></gb-chip-select></fieldset>
+          <fieldset><legend>Last played</legend>
+            <gb-segmented id="filter-played" label="Last played" value=""><button value="">Any time</button><button value="7">7 days</button><button value="30">30 days</button><button value="90">90 days</button></gb-segmented>
+          </fieldset>
+          <fieldset><legend>Rated rounds</legend><gb-field label="At least"><input id="filter-rounds" name="rounds" type="number" min="1" step="1" inputmode="numeric"></gb-field></fieldset>
+          <fieldset><legend>Rating</legend><div class="filter-range">
+            <gb-field label="From"><input id="filter-min" name="min" type="number" step="1" inputmode="numeric"></gb-field>
+            <gb-field label="To"><input id="filter-max" name="max" type="number" step="1" inputmode="numeric"></gb-field>
+          </div></fieldset>
+          <div class="filter-foot"><gb-button id="filter-clear" variant="ghost" type="button">Clear all</gb-button></div>
+        </form>
+      </gb-popover>
+      <div id="filter-pills" class="filter-pills"></div>
+      <gb-button id="jump" class="me-button" variant="ghost" hidden>Jump to me</gb-button>
     </div>
+    <p id="matched" class="matched" role="status" hidden></p>
     <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span id="change-days">7 days</span><span>Rounds</span><span>Win rate</span><span>Last played</span></div>
     <ol id="list" class="ladder" aria-busy="true" aria-label="Leaderboard" data-loading>
       <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
