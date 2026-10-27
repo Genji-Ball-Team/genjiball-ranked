@@ -16,6 +16,8 @@ interface Lobby {
   hostName: string;
   tourney: boolean;
   players: number;
+  /** The players' names, in the order they joined; null from a host tool that doesn't send them. */
+  names: string[] | null;
   openedAt: string;
 }
 
@@ -32,7 +34,8 @@ function openFor(iso: string): string {
 
 function lobbyRow(l: Lobby): Html {
   return html`<li><span class="dot" aria-hidden="true"></span>
-    <span class="what"><b>${l.name ?? `${l.hostName}'s lobby`}</b><small>Hosted by ${l.hostName}</small></span>
+    <span class="what"><b>${l.name ?? `${l.hostName}'s lobby`}</b><small>Hosted by ${l.hostName}</small>
+      ${l.names && l.names.length > 0 && html`<small class="names">${l.names.join(", ")}</small>`}</span>
     ${l.tourney && html`<gb-chip title="A tourney lobby: counts more on the leaderboard">Tourney</gb-chip>`}
     <span class="figure"><b class="num">${l.players}</b><small>${plural(l.players, "player")}</small></span>
     <span class="figure"><b class="num">${openFor(l.openedAt)}</b><small>open</small></span></li>`;

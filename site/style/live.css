@@ -10,6 +10,7 @@
 .lobbies .what { flex: 1; min-width: 0; }
 .lobbies .what b { display: block; font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width); overflow-wrap: anywhere; }
 .lobbies small { display: block; color: var(--muted); font-size: 0.8rem; }
+.lobbies .names { margin-block-start: 4px; color: var(--soft); font-size: 0.9rem; overflow-wrap: anywhere; }
 .lobbies .figure { flex: none; min-width: 4rem; text-align: end; }
 .lobbies .figure b { display: block; font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); line-height: 1.2; }
 .lobbies:has(gb-empty) + .note { text-align: center; }

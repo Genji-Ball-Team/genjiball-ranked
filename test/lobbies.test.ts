@@ -58,7 +58,7 @@ describe("PUT /api/host/lobby (heartbeat)", () => {
     const res = await heartbeat(tokens.eu, { players: 6, name: "  Kenzo's ranked  " });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      lobby: { region: "eu", name: "Kenzo's ranked", players: 6, openedAt: "2026-10-05T20:00:00Z", seenAt: "2026-10-05T20:00:00Z" },
+      lobby: { region: "eu", name: "Kenzo's ranked", players: 6, names: null, openedAt: "2026-10-05T20:00:00Z", seenAt: "2026-10-05T20:00:00Z" },
       heartbeatSeconds: defaults.lobbyHeartbeatSeconds,
       ttlSeconds: defaults.lobbyTtlSeconds,
     });
@@ -66,7 +66,7 @@ describe("PUT /api/host/lobby (heartbeat)", () => {
     expect(read.headers.get("Cache-Control")).toBe(`public, max-age=${defaults.lobbiesCacheSeconds}`);
     expect(body).toEqual({
       region: "eu",
-      lobbies: [{ hostName: "Kenzo", name: "Kenzo's ranked", players: 6, openedAt: "2026-10-05T20:00:00Z", seenAt: "2026-10-05T20:00:00Z", tourney: null }],
+      lobbies: [{ hostName: "Kenzo", name: "Kenzo's ranked", players: 6, names: null, openedAt: "2026-10-05T20:00:00Z", seenAt: "2026-10-05T20:00:00Z", tourney: null }],
     });
   });
 
@@ -145,6 +145,11 @@ describe("PUT /api/host/lobby (heartbeat)", () => {
       { players: defaults.lobbyPlayersMax + 1 },
       { players: 4, name: 7 },
       { players: 4, name: "x".repeat(defaults.lobbyNameMaxLength + 1) },
+      { players: 2, names: ["Tidal"] },
+      { players: 1, names: "Tidal" },
+      { players: 1, names: [7] },
+      { players: 1, names: ["  "] },
+      { players: 1, names: ["x".repeat(defaults.lobbyPlayerNameMaxLength + 1)] },
       JSON.stringify({ players: 4, name: "x".repeat(defaults.lobbyBodyMaxBytes) }),
     ];
     for (const body of bad) {
@@ -153,6 +158,29 @@ describe("PUT /api/host/lobby (heartbeat)", () => {
       expect(await res.json()).toMatchObject({ error: "bad_request" });
     }
     expect(await db().prepare("SELECT count(*) AS n FROM live_lobbies").first("n")).toBe(0);
+  });
+
+  it("lists the players' names, in the order sent", async () => {
+    const names = ["Sparrow", " Tidal ", "Mochi", "Ghost", "Ghost", "Ñandú_çà"];
+    const res = await heartbeat(tokens.eu, { players: 6, names });
+    expect(await res.json()).toMatchObject({ lobby: { players: 6, names: ["Sparrow", "Tidal", "Mochi", "Ghost", "Ghost", "Ñandú_çà"] } });
+    expect((await list()).body.lobbies).toMatchObject([{ players: 6, names: ["Sparrow", "Tidal", "Mochi", "Ghost", "Ghost", "Ñandú_çà"] }]);
+  });
+
+  it("takes a full lobby of the longest names", async () => {
+    const names = Array.from({ length: defaults.lobbyPlayersMax }, (_, i) => `${i}`.padEnd(defaults.lobbyPlayerNameMaxLength, "名"));
+    const res = await heartbeat(tokens.eu, { players: names.length, name: "x".repeat(defaults.lobbyNameMaxLength), names });
+    expect(res.status).toBe(200);
+  });
+
+  it("updates the names each heartbeat, and clears them when one sends none", async () => {
+    await heartbeat(tokens.eu, { players: 2, names: ["Sparrow", "Tidal"] });
+    await heartbeat(tokens.eu, { players: 3, names: ["Sparrow", "Tidal", "Nova"] }, later(60));
+    expect((await list("", later(60))).body.lobbies).toMatchObject([{ players: 3, names: ["Sparrow", "Tidal", "Nova"] }]);
+    await heartbeat(tokens.eu, { players: 0, names: [] }, later(120));
+    expect((await list("", later(120))).body.lobbies).toMatchObject([{ players: 0, names: [] }]);
+    await heartbeat(tokens.eu, { players: 3 }, later(180));
+    expect((await list("", later(180))).body.lobbies).toMatchObject([{ players: 3, names: null }]);
   });
 
   it("refreshes the lobby, keeping when it opened", async () => {
@@ -171,6 +199,7 @@ describe("PUT /api/host/lobby (heartbeat)", () => {
         region,
         name: null,
         players: 4,
+        names: ["Sparrow", "Tidal", "Mochi", "Ghost"],
         now: isoSeconds(now),
         staleBefore: secondsBefore(now, defaults.lobbyTtlSeconds),
         tooSoonAfter: secondsBefore(now, defaults.lobbyHeartbeatMinSeconds),
