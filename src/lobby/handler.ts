@@ -10,7 +10,8 @@ import { closeLobby, deleteStaleLobbies, upsertLobby } from "./store";
  * `Authorization: Bearer <host token>`, as for an upload.
  *
  * - `PUT`: a heartbeat, every `lobbyHeartbeatSeconds` while the lobby is open. Body
- *   `{ "players": 6, "name": "..." }` (`name` optional). `X-Region` as for an upload. One row written. At most one every
+ *   `{ "players": 6, "name": "...", "names": [...] }` (`name` and `names` optional; `names` lists the
+ *   `players`, in the order they joined). `X-Region` as for an upload. One row written. At most one every
  *   `lobbyHeartbeatMinSeconds` (429 otherwise), counted from the last heartbeat or close.
  * - `DELETE`: the lobby closed (the match ended, the game closed, the host switched it off). The row
  *   stays, marked closed, so closing and reopening can't get round the rate limit.
@@ -30,6 +31,7 @@ export type LobbyConfig = Pick<
   | "lobbyTtlSeconds"
   | "lobbyNameMaxLength"
   | "lobbyPlayersMax"
+  | "lobbyPlayerNameMaxLength"
   | "lobbyBodyMaxBytes"
 >;
 
@@ -75,11 +77,14 @@ export async function clearStaleLobbies(db: D1Database, config: Pick<Config, "lo
   if (deleted) log.debug("stale lobbies deleted", { deleted });
 }
 
-/** The heartbeat's `{ players, name }`, or what's wrong with it. */
-async function readHeartbeat(request: Request, config: LobbyConfig): Promise<{ players: number; name: string | null } | string> {
-  const body = await readJsonObject(request, config.lobbyBodyMaxBytes, "{ players, name? }");
+/** The heartbeat's `{ players, name, names }`, or what's wrong with it. */
+async function readHeartbeat(
+  request: Request,
+  config: LobbyConfig,
+): Promise<{ players: number; name: string | null; names: string[] | null } | string> {
+  const body = await readJsonObject(request, config.lobbyBodyMaxBytes, "{ players, name?, names? }");
   if (typeof body === "string") return body;
-  const { players, name } = body;
+  const { players, name, names } = body;
   if (!Number.isInteger(players) || (players as number) < 0 || (players as number) > config.lobbyPlayersMax) {
     return `players must be a whole number from 0 to ${config.lobbyPlayersMax}`;
   }
@@ -88,5 +93,25 @@ async function readHeartbeat(request: Request, config: LobbyConfig): Promise<{ p
   if (trimmed !== null && [...trimmed].length > config.lobbyNameMaxLength) {
     return `name is longer than ${config.lobbyNameMaxLength} characters`;
   }
-  return { players: players as number, name: trimmed };
+  const list = readNames(names, players as number, config);
+  if (typeof list === "string") return list;
+  return { players: players as number, name: trimmed, names: list };
+}
+
+/**
+ * The heartbeat's `names`: one per player, so the list and the count never disagree. Left out or
+ * null: `null` (a host tool from before names were sent), and the site shows only the count.
+ */
+function readNames(names: unknown, players: number, config: LobbyConfig): string[] | null | string {
+  if (names === undefined || names === null) return null;
+  if (!Array.isArray(names) || names.length !== players) return "names must list one name for each of the players";
+  const trimmed: string[] = [];
+  for (const name of names) {
+    if (typeof name !== "string" || !name.trim()) return "each of names must be a name";
+    if ([...name.trim()].length > config.lobbyPlayerNameMaxLength) {
+      return `a name in names is longer than ${config.lobbyPlayerNameMaxLength} characters`;
+    }
+    trimmed.push(name.trim());
+  }
+  return trimmed;
 }

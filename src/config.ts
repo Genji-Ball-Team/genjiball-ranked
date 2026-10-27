@@ -405,8 +405,10 @@ export const defaults = {
   lobbyNameMaxLength: 64,
   /** Most players a heartbeat can report: an Overwatch custom game holds 12. */
   lobbyPlayersMax: 12,
-  /** Largest heartbeat body, in bytes. The JSON is a few dozen. */
-  lobbyBodyMaxBytes: 1024,
+  /** Longest player name a heartbeat can list, in characters. A BattleTag name is at most 12; console names a little more. */
+  lobbyPlayerNameMaxLength: 32,
+  /** Largest heartbeat body, in bytes. With the players' names, at most about 1 KB. */
+  lobbyBodyMaxBytes: 2048,
   /**
    * How long a browser may keep the live lobby list (`/api/lobbies`), in seconds. The Lobbies page
    * asks again this often (`lobbiesRefreshMs` in site/pages/live.ts): change both.

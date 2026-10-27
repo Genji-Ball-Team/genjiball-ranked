@@ -10,6 +10,8 @@ export interface LiveLobby {
   region: string;
   name: string | null;
   players: number;
+  /** The players' names, in the order they joined; null when the heartbeat sent none. */
+  names: string[] | null;
   openedAt: string;
   seenAt: string;
 }
@@ -19,6 +21,7 @@ export interface Heartbeat {
   region: string;
   name: string | null;
   players: number;
+  names: string[] | null;
   /** ISO, the heartbeat's time. */
   now: string;
   /** ISO: a lobby last seen at or before this is gone, and this heartbeat opens a new one. */
@@ -27,7 +30,13 @@ export interface Heartbeat {
   tooSoonAfter: string;
 }
 
-const returning = "RETURNING region, name, players, opened_at AS openedAt, seen_at AS seenAt";
+const returning = "RETURNING region, name, players, names, opened_at AS openedAt, seen_at AS seenAt";
+
+/** `names` is stored as JSON text. */
+type Stored<T extends { names: string[] | null }> = Omit<T, "names"> & { names: string | null };
+
+const parsed = <T extends { names: string[] | null }>(row: Stored<T>): T =>
+  ({ ...row, names: row.names === null ? null : (JSON.parse(row.names) as string[]) }) as T;
 
 /**
  * Opens or refreshes the host's lobby, and the rows D1 billed as written. `lobby` null, and nothing
@@ -41,28 +50,30 @@ const returning = "RETURNING region, name, players, opened_at AS openedAt, seen_
  * too soon.
  */
 export async function upsertLobby(db: D1Database, h: Heartbeat): Promise<{ lobby: LiveLobby | null; rowsWritten: number }> {
+  const names = h.names === null ? null : JSON.stringify(h.names);
   const refreshed = await db
     .prepare(
-      `UPDATE live_lobbies SET name = ?3, players = ?4, seen_at = ?5
+      `UPDATE live_lobbies SET name = ?3, players = ?4, seen_at = ?5, names = ?8
        WHERE host_id = ?1 AND region = ?2 AND closed_at IS NULL AND seen_at > ?6 AND seen_at <= ?7
        ${returning}`,
     )
-    .bind(h.hostId, h.region, h.name, h.players, h.now, h.staleBefore, h.tooSoonAfter)
-    .run<LiveLobby>();
-  if (refreshed.results.length) return { lobby: refreshed.results[0]!, rowsWritten: refreshed.meta.rows_written };
+    .bind(h.hostId, h.region, h.name, h.players, h.now, h.staleBefore, h.tooSoonAfter, names)
+    .run<Stored<LiveLobby>>();
+  if (refreshed.results.length) return { lobby: parsed(refreshed.results[0]!), rowsWritten: refreshed.meta.rows_written };
   const opened = await db
     .prepare(
-      `INSERT INTO live_lobbies (host_id, region, name, players, opened_at, seen_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+      `INSERT INTO live_lobbies (host_id, region, name, players, opened_at, seen_at, names)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?7)
        ON CONFLICT (host_id) DO UPDATE SET
-         region = excluded.region, name = excluded.name, players = excluded.players,
+         region = excluded.region, name = excluded.name, players = excluded.players, names = excluded.names,
          opened_at = excluded.opened_at, seen_at = excluded.seen_at, closed_at = NULL
        WHERE coalesce(live_lobbies.closed_at, live_lobbies.seen_at) <= ?6
        ${returning}`,
     )
-    .bind(h.hostId, h.region, h.name, h.players, h.now, h.tooSoonAfter)
-    .run<LiveLobby>();
-  return { lobby: opened.results[0] ?? null, rowsWritten: refreshed.meta.rows_written + opened.meta.rows_written };
+    .bind(h.hostId, h.region, h.name, h.players, h.now, h.tooSoonAfter, names)
+    .run<Stored<LiveLobby>>();
+  const lobby = opened.results[0];
+  return { lobby: lobby ? parsed(lobby) : null, rowsWritten: refreshed.meta.rows_written + opened.meta.rows_written };
 }
 
 /** Closes the host's lobby, keeping the row. Whether one was open (stale or not). */
@@ -87,6 +98,7 @@ export interface LiveLobbyRow {
   hostName: string;
   name: string | null;
   players: number;
+  names: string[] | null;
   openedAt: string;
   seenAt: string;
 }
@@ -95,12 +107,12 @@ export interface LiveLobbyRow {
 export async function listLiveLobbies(db: D1Database, region: string, staleBefore: string): Promise<LiveLobbyRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT h.name AS hostName, l.name, l.players, l.opened_at AS openedAt, l.seen_at AS seenAt
+      `SELECT h.name AS hostName, l.name, l.players, l.names, l.opened_at AS openedAt, l.seen_at AS seenAt
        FROM live_lobbies l JOIN hosts h ON h.id = l.host_id
        WHERE l.region = ?1 AND l.seen_at > ?2 AND l.closed_at IS NULL AND h.trust <> 'revoked'
        ORDER BY l.opened_at, l.host_id`,
     )
     .bind(region, staleBefore)
-    .all<LiveLobbyRow>();
-  return results;
+    .all<Stored<LiveLobbyRow>>();
+  return results.map(parsed);
 }
