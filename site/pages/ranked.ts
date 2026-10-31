@@ -28,11 +28,17 @@ function tiers(r: Rules): Html {
   </section>`;
 }
 
+/** The start, then each region that starts elsewhere: "914 · NA 1000". */
+function newPlayerStart(r: Rules): string {
+  const others = Object.entries(r.newPlayerRatingByRegion ?? {}).map(([region, start]) => `${region.toUpperCase()} ${num(start)}`);
+  return [num(r.newPlayerRating), ...others].join(" · ");
+}
+
 function rating(r: Rules): Html {
   return html`<section>
     <h2>Your rating</h2>
     <div class="rule-stats">
-      ${stat("New players start at", num(r.newPlayerRating))}${stat("Most one match moves you", `±${num(r.matchMaxChange)}`)}${stat(
+      ${stat("New players start at", newPlayerStart(r))}${stat("Most one match moves you", `±${num(r.matchMaxChange)}`)}${stat(
         "Rated rounds to show on the board",
         num(r.minRankedRounds),
       )}${stat("Inactive after", count(r.inactiveAfterDays, "day"))}

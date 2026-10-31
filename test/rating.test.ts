@@ -8,6 +8,7 @@ import {
   rateMatch,
   rateRound,
   recompute,
+  regionRatingConfig,
   tierFor,
   tournamentMaxLoss,
   tournamentStandings,
@@ -250,6 +251,18 @@ describe("new players", () => {
     expect(on.ratings.get(3)!.mu).toBeLessThan(was.ratings.get(3)!.mu);
     // Player 2 lost to a weaker-looking player, so lost more.
     expect(on.ratings.get(2)!.mu).toBeLessThan(was.ratings.get(2)!.mu);
+  });
+
+  it("start at a region's own start when it has one, and EU uses the config as it is", () => {
+    expect(regionRatingConfig(config, "eu")).toBe(config);
+    expect(regionRatingConfig(config, "toString")).toBe(config);
+    const na = regionRatingConfig(config, "na");
+    expect(na).toEqual({ ...config, ratingNewPlayerStart: 1000 });
+    // From the switch on an NA newcomer starts at mu = ratingMu (1000 shown), as everyone did before it.
+    expect(newRating(na, after).mu).toBe(config.ratingMu);
+    expect(displayRating(newRating(na, after), na)).toBe(config.displayCenter);
+    expect(newRating(na, before)).toEqual(newRating(config, before));
+    expect(newRating(regionRatingConfig(config, "eu"), after).mu).toBeCloseTo(lowerMu, 10);
   });
 
   it("leave a recompute of the matches before the switch exactly as it was without it", () => {

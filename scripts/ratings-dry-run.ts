@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import { defaults } from "../src/config";
 import type { PlayerDiff } from "../src/rating/diff";
 import { countedMatches, dryRunDiff, dryRunSql, sqlRegion } from "../src/rating/dryRun";
+import { regionRatingConfig } from "../src/rating/engine";
 import type { StoredRating } from "../src/rating/plan";
 import type { CandidateRow, KillRow, RoundRow } from "../src/rating/store";
 
@@ -138,7 +139,7 @@ if (!read.steady) {
   if (!read.steady) die("The ratings changed while reading, twice (a cron run or an admin action). Run it again in a minute.");
 }
 const { state: stale, accepted, counted, rounds, kills, stored } = read;
-const diff = dryRunDiff(counted, rounds, kills, stored, defaults);
+const diff = dryRunDiff(counted, rounds, kills, stored, regionRatingConfig(defaults, region));
 
 const names = new Map<number, string>();
 for (let i = 0; i < diff.players.length; i += chunk) {

@@ -35,6 +35,8 @@ A player new to the board starts at `ratingNewPlayerStart` (800) on the straight
 
 It only applies to players first rated in a match played from `ratingNewPlayerStartFrom` (the deploy, 2026-10-24) on. Everyone rated before keeps starting at `ratingMu`, so a recompute gives the board it had, and the switch needed none. OpenSkill only cares about the gaps between ratings: starting everyone lower from the first match would change nothing but the numbers shown.
 
+A region can start its new players elsewhere: `ratingNewPlayerStartByRegion` (`regionRatingConfig` gives the rating code a region's config). NA starts at 1000 (mu = `ratingMu`), as everyone did before the 800 start: it has no regulars yet for newcomers to feed and plays tourneys, so its players climb from the middle of the board like EU's first players. EU isn't listed and is exactly as before. NA had no match from `ratingNewPlayerStartFrom` on when this was set (its 7 matches are all older), so nothing needed re-rating.
+
 ## Recompute
 
 Ratings are always rebuildable from scratch: `recompute` rates the matches that count (accepted, not void, legacy included) in play order (`played_at`, then id), starting everyone at `ratingMu` ± `ratingSigma` (or `ratingNewPlayerStart`, above). The same matches always give the same ratings. Rating a new match as it arrives (`rateMatch`) gives exactly what a recompute would, as long as it's the newest match. A void or a late upload of an older match needs a recompute.

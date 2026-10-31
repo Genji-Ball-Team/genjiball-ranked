@@ -125,6 +125,15 @@ export const defaults = {
   /** ISO 8601: the moment `ratingNewPlayerStart` took effect (the deploy). Set it once, never move it. */
   ratingNewPlayerStartFrom: "2026-10-24T13:30:00Z",
   /**
+   * A region whose new players start somewhere else than `ratingNewPlayerStart`, by region id, also
+   * only from `ratingNewPlayerStartFrom` on. A region not listed (EU) uses `ratingNewPlayerStart`.
+   * NA starts at 1000, the middle of the board: it has no regulars yet for newcomers to feed, and it
+   * plays tourneys, so its players should climb into the board from where EU's first players did
+   * (docs/rating.md, "New players"). NA had no match from `ratingNewPlayerStartFrom` on when this was
+   * set, so no one there was rated with the 800 start and nothing needed re-rating.
+   */
+  ratingNewPlayerStartByRegion: { na: 1000 } as Record<string, number>,
+  /**
    * Damping: one round moves mu about 1/N as far as a full rated game would (sigma isn't damped).
    * Higher is a steadier leaderboard but a slower one to learn: a player keeps climbing toward their
    * real level for longer. 1 rates every round as a full game. On the v1.3.2 logs, 4 predicts rounds
