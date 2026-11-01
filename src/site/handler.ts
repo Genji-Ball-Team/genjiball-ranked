@@ -87,6 +87,7 @@ export type SiteConfig = RankTagsConfig &
     | "lobbiesCacheSeconds"
     | "ratingMu"
     | "ratingNewPlayerStart"
+    | "ratingNewPlayerStartByRegion"
     | "ratingMatchMaxChange"
     | "displayCenter"
     | "displayScale"
@@ -660,14 +661,22 @@ async function screenshot(db: D1Database, proofs: R2Bucket | undefined, key: str
  * How ranked works, for its page: the tiers, the titles and the numbers it explains, straight from
  * the config so the page never says something the server doesn't do.
  */
+/** What a new player's start (`ratingNewPlayerStart`, straight scale) shows as: the display curve eases it up from below the center. */
+function startDisplay(start: number, config: SiteConfig): number {
+  return displayRating({ mu: config.ratingMu + (start - config.displayCenter) / config.displayScale }, config);
+}
+
 function rules(config: SiteConfig) {
   return {
     tiers: config.tiers.map((tier) => ({ label: tier.label, color: tier.color, threshold: tier.threshold, siteOnly: tier.siteOnly === true })),
     titles: config.titles,
     minRankedRounds: config.minRankedRounds,
     inactiveAfterDays: config.inactiveAfterDays,
-    // What a new player's starting rating shows as (the display curve eases it up from below the center).
-    newPlayerRating: displayRating({ mu: config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale }, config),
+    newPlayerRating: startDisplay(config.ratingNewPlayerStart, config),
+    // Regions whose new players start somewhere else, by region id.
+    newPlayerRatingByRegion: Object.fromEntries(
+      Object.entries(config.ratingNewPlayerStartByRegion).map(([region, start]) => [region, startDisplay(start, config)]),
+    ),
     matchMaxChange: config.ratingMatchMaxChange,
     floor: config.displayFloor,
     tournament: {

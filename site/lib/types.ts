@@ -248,6 +248,8 @@ export interface Rules {
   minRankedRounds: number;
   inactiveAfterDays: number;
   newPlayerRating: number;
+  /** Regions whose new players start elsewhere, by region id. */
+  newPlayerRatingByRegion: Record<string, number>;
   matchMaxChange: number;
   floor: number;
   tournament: { maxGain: number; winnerBonus: number; maxLoss: { below: number | null; maxLoss: number }[] };
