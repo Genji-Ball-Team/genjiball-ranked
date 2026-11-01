@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { defaults, findRegion } from "../src/config";
 import { handleAdmin } from "../src/admin/handler";
 import { createLogger } from "../src/log";
-import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
+import { displayRating, recompute, regionRatingConfig, type RatingMatch } from "../src/rating/engine";
 import { ratingMatches, readKills, readRounds, readState } from "../src/rating/store";
 import { markMatchesChanged, updateRatings } from "../src/rating/update";
 import { sha256 } from "../src/bytes";
@@ -60,9 +60,10 @@ async function regionRatings(region: string) {
   const candidates = matches.map((m) => ({ ...m, complete: true, rated: true, tournament: m.tournament === 1 }));
   const rounds = await readRounds(db(), matches.map((m) => m.id));
   const input: RatingMatch[] = ratingMatches(candidates, rounds, await readKills(db(), candidates));
-  const expected = [...recompute(input, defaults).ratings]
+  const config = regionRatingConfig(defaults, region);
+  const expected = [...recompute(input, config).ratings]
     .sort(([a], [b]) => a - b)
-    .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, defaults), rounds: r.rounds, wins: r.wins }));
+    .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, config), rounds: r.rounds, wins: r.wins }));
   return { stored, expected };
 }
 
@@ -123,6 +124,23 @@ describe("regions: ratings", () => {
     expect(na.stored).toEqual(naBefore.stored);
     expect(eu.stored).toHaveLength(4);
     expect(na.stored).toHaveLength(4);
+  });
+
+  it("starts new NA players at 1000 and new EU players at the 800 start, from the same match", async () => {
+    await uploadOk(matchLog({ key: "000000000001" }), tokens.eu, hoursAgo(5));
+    await uploadOk(matchLog({ key: "000000000002" }), tokens.na, hoursAgo(4));
+    const [eu, na] = [await regionRatings("eu"), await regionRatings("na")];
+    expect(eu.stored).toEqual(eu.expected);
+    expect(na.stored).toEqual(na.expected);
+    // OpenSkill only cares about gaps, so the same match moves everyone the same: NA is just higher by the starts' gap.
+    const gap = (defaults.ratingNewPlayerStartByRegion.na! - defaults.ratingNewPlayerStart) / defaults.displayScale;
+    expect(na.stored).toHaveLength(eu.stored.length);
+    eu.stored.forEach((e, i) => {
+      const n = na.stored[i]!;
+      expect(n.playerId).toBe(e.playerId);
+      expect(n.mu as number).toBeCloseTo((e.mu as number) + gap, 9);
+      expect(n.sigma as number).toBeCloseTo(e.sigma as number, 9);
+    });
   });
 
   it("marks only the changed match's region stale, and recomputes it", async () => {

@@ -5,7 +5,7 @@ import { playerIdColumns, writeMerge } from "../src/admin/playerStore";
 import { isStale } from "../src/admin/store";
 import { defaults } from "../src/config";
 import { createLogger } from "../src/log";
-import { displayRating, recompute, type RatingMatch } from "../src/rating/engine";
+import { displayRating, recompute, regionRatingConfig, type RatingMatch } from "../src/rating/engine";
 import { ratingMatches, readKills, readRounds, readState } from "../src/rating/store";
 import { updateRatings } from "../src/rating/update";
 import { listTagCandidates } from "../src/site/store";
@@ -96,9 +96,10 @@ async function expectRegionUpToDate(region: string) {
   const candidates = matches.map((m) => ({ ...m, complete: true, rated: true, tournament: m.tournament === 1 }));
   const rounds = await readRounds(db(), matches.map((m) => m.id));
   const input: RatingMatch[] = ratingMatches(candidates, rounds, await readKills(db(), candidates));
-  const expected = [...recompute(input, defaults).ratings]
+  const config = regionRatingConfig(defaults, region);
+  const expected = [...recompute(input, config).ratings]
     .sort(([a], [b]) => a - b)
-    .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, defaults), rounds: r.rounds, wins: r.wins }));
+    .map(([playerId, r]) => ({ playerId, mu: r.mu, sigma: r.sigma, display: displayRating(r, config), rounds: r.rounds, wins: r.wins }));
   expect(stored, region).toEqual(expected);
   expect((await readState(db(), region)).staleFrom, region).toBeNull();
 }

@@ -2,7 +2,7 @@ import type { QueryBudget } from "../budget";
 import { regionIds, type Config } from "../config";
 import type { Logger } from "../log";
 import { hourMs, isoSeconds } from "../time";
-import type { RatingConfig } from "./engine";
+import { regionRatingConfig, type RatingConfig } from "./engine";
 import { planRerate } from "./plan";
 import {
   compareRefs,
@@ -118,7 +118,7 @@ export async function rateNewMatches(
         history: [],
         ratings,
       },
-      config,
+      regionRatingConfig(config, region),
     );
     statements.push(...writeStatements(db, region, writes), ratedAtStatement(db, fresh.map((m) => m.id), stamp));
   }
@@ -172,7 +172,7 @@ export async function recomputeRatings(
       history,
       ratings,
     },
-    config,
+    regionRatingConfig(config, region),
   );
 
   const stamp = isoSeconds(now);

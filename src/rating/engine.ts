@@ -19,6 +19,7 @@ export type RatingConfig = Pick<
   | "ratingTau"
   | "ratingNewPlayerStart"
   | "ratingNewPlayerStartFrom"
+  | "ratingNewPlayerStartByRegion"
   | "ratingRoundsPerMatch"
   | "displayCenter"
   | "displayScale"
@@ -100,6 +101,15 @@ export function newRating(config: RatingConfig, playedAt?: string): PlayerRating
   // From `displayScaleAfterFrom` on, everything they gain or lose is at `displayScaleAfter`.
   const scaleAfter = playedAt !== undefined && Date.parse(playedAt) >= Date.parse(config.displayScaleAfterFrom);
   return { mu, sigma: config.ratingSigma, rounds: 0, wins: 0, streak: 0, bestStreak: 0, lastPlayedAt: null, scaleBaseMu: scaleAfter ? mu : null };
+}
+
+/**
+ * The config to rate one region with: its own `ratingNewPlayerStart` when
+ * `ratingNewPlayerStartByRegion` has one, else the config as it is. Everything else is the same.
+ */
+export function regionRatingConfig<T extends RatingConfig>(config: T, region: string): T {
+  const start = Object.hasOwn(config.ratingNewPlayerStartByRegion, region) ? config.ratingNewPlayerStartByRegion[region] : undefined;
+  return start === undefined ? config : { ...config, ratingNewPlayerStart: start };
 }
 
 /**
