@@ -104,23 +104,26 @@ describe("withHostAfk: the spec example, Sparrow (1) hosting", () => {
       "JOIN|1|1|Host|1",
       "JOIN|1|2|B|",
       "JOIN|1|3|C|",
-      "ROUND_START|2|1|1,2,3",
-      "ELIM|3|1|3|1|3",
-      "ELIM|4|1|2|1|2",
+      "JOIN|1|5|Host|",
+      "ROUND_START|2|1|1,2,3,5",
+      "ELIM|3|1|3|1|4",
+      "ELIM|3|1|2|1|3",
+      "ELIM|4|1|5|1|2",
       "ROUND_END|4|1|1|WIN",
       "LEAVE|5|1",
       "JOIN|6|4|Host|",
-      "ROUND_START|7|2|2,3,4",
-      "ELIM|8|2|3|4|3",
-      "ELIM|9|2|2|4|2",
+      "ROUND_START|7|2|2,3,4,5",
+      "ELIM|8|2|3|4|4",
+      "ELIM|8|2|2|4|3",
+      "ELIM|9|2|5|4|2",
       "ROUND_END|9|2|4|WIN",
     ];
     const match = parse(lines.join("\n"));
     expect([...hostPlayerIds(match)]).toEqual([1, 4]);
     const afk = withHostAfk(match, [1, 2]);
     expect(afk.rounds.map((r) => [r.finishingOrder, r.afkIds])).toEqual([
-      [[2, 3], [1]],
-      [[2, 3], [4]],
+      [[5, 2, 3], [1]],
+      [[5, 2, 3], [4]],
     ]);
   });
 

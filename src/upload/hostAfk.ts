@@ -5,7 +5,7 @@ import type { ParsedMatch } from "../parser/types";
  * Host AFK: the host tool's AFK button. Every round that starts while it's on, the host is dropped
  * from the rating like a leaver (GenjiBall-CE `docs/ranked-log.md`, "Host AFK"; docs/rating.md).
  * The log doesn't say: the host tool sends the rounds with the upload (`X-Host-Afk`), and the host
- * is the player whose `JOIN` has `host` `1`. Pure: no D1.
+ * is the player whose `JOIN` has `host` `1`, or who rejoined under that name (`hostPlayerIds`). Pure: no D1.
  */
 
 /** AFK rounds by `matchKey`: `ROUND_START` numbers, ascending, no repeats. */
