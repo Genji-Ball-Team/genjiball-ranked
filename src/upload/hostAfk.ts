@@ -5,7 +5,7 @@ import type { ParsedMatch } from "../parser/types";
  * Host AFK: the host tool's AFK button. Every round that starts while it's on, the host is dropped
  * from the rating like a leaver (GenjiBall-CE `docs/ranked-log.md`, "Host AFK"; docs/rating.md).
  * The log doesn't say: the host tool sends the rounds with the upload (`X-Host-Afk`), and the host
- * is the player whose `JOIN` has `host` `1`. Pure: no D1.
+ * is the player whose `JOIN` has `host` `1`, or who rejoined under that name (`hostPlayerIds`). Pure: no D1.
  */
 
 /** AFK rounds by `matchKey`: `ROUND_START` numbers, ascending, no repeats. */
@@ -62,7 +62,7 @@ export function dropsHost(match: ParsedMatch, rounds: readonly number[]): boolea
  * parse isn't changed: a new match is returned when a round is.
  */
 export function withHostAfk(match: ParsedMatch, afkRounds: readonly number[]): ParsedMatch {
-  const hostIds = new Set(match.players.filter((p) => p.host).map((p) => p.id));
+  const hostIds = hostPlayerIds(match);
   if (!hostIds.size || !afkRounds.length) return match;
   const afk = new Set(afkRounds);
   let changed = false;
@@ -76,6 +76,21 @@ export function withHostAfk(match: ParsedMatch, afkRounds: readonly number[]): P
     return { ...round, afkIds, finishingOrder };
   });
   return changed ? { ...match, rounds } : match;
+}
+
+/**
+ * The ids of the host: those whose `JOIN` says `host`, and a later id with a host id's name that
+ * joined after it left. A host who drops and rejoins isn't always marked `host` again (the game can
+ * hand the lobby to someone else meanwhile), but they're still the one who sent the AFK rounds.
+ */
+export function hostPlayerIds(match: ParsedMatch): Set<number> {
+  const hosts = match.players.filter((p) => p.host);
+  const ids = new Set(hosts.map((p) => p.id));
+  for (const p of match.players) {
+    if (ids.has(p.id)) continue;
+    if (hosts.some((h) => h.name === p.name && h.leaveTime !== null && p.joinTime >= h.leaveTime)) ids.add(p.id);
+  }
+  return ids;
 }
 
 function clip(text: string): string {
