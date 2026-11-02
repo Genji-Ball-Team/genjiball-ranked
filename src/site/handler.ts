@@ -269,7 +269,7 @@ function playerIds(param: string | null, max: number): number[] | null {
  */
 async function tiers(db: D1Database, config: SiteConfig, ids: number[], now: Date) {
   const canonical = await findCanonicalIds(db, ids);
-  const rows = canonical.size ? await listRatingsOf(db, [...new Set(canonical.values())]) : [];
+  const rows = canonical.size ? await listRatingsOf(db, [...new Set(canonical.values())], regionIds(config.regions)) : [];
   return {
     players: [...canonical].map(([id, playerId]) => {
       const mine = rows.filter((row) => row.playerId === playerId);

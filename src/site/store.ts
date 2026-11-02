@@ -183,22 +183,32 @@ export async function findCanonicalIds(db: D1Database, ids: readonly number[]): 
   return new Map(results.map((r) => [r.asked, r.id]));
 }
 
-/** Every rating of these players, in any region (`board`). */
-export async function listRatingsOf(db: D1Database, ids: readonly number[]): Promise<(RatingRow & { board: string })[]> {
+/**
+ * Every rating of these players in these regions (`boards`, ids). Naming the boards makes each a
+ * primary-key seek: `ratings` is keyed (board, player_id), so `player_id` alone scans the table.
+ */
+export async function listRatingsOf(db: D1Database, ids: readonly number[], boards: readonly string[]): Promise<(RatingRow & { board: string })[]> {
   const { results } = await db
-    .prepare(`SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.player_id IN (SELECT value FROM json_each(?1))`)
-    .bind(JSON.stringify(ids))
+    .prepare(
+      `SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board IN (SELECT value FROM json_each(?2)) AND r.player_id IN (SELECT value FROM json_each(?1))`,
+    )
+    .bind(JSON.stringify(ids), JSON.stringify(boards))
     .all<RatingRow & { board: string }>();
   return results;
 }
 
-/** These players' ratings on one board with their place on its leaderboard, as `rankOf` counts it. Those not on it (alts too) are left out. */
+/**
+ * These players' ratings on one board with their place on its leaderboard, as `rankOf` counts it. Those not on it (alts too) are left out.
+ * `o.display >= r.display` stays spelled out: without it SQLite scans the whole board for each player (the
+ * correlated `OR` hides the range from it), with it it walks `ratings_board_display` from the top down to them.
+ */
 export async function listRanked(db: D1Database, board: string, ids: readonly number[], minRounds: number): Promise<(RatingRow & { rank: number })[]> {
   const { results } = await db
     .prepare(
       `SELECT ${ratingColumns},
-         (SELECT COUNT(*) + 1 FROM ratings o WHERE o.board = ?1 AND o.rounds >= ?3
-           AND (o.display > r.display OR (o.display = r.display AND o.player_id < r.player_id)) AND ${notAlt("o.player_id")}) AS rank
+         (SELECT COUNT(*) + 1 FROM ratings o WHERE o.board = ?1 AND o.display >= r.display AND o.rounds >= ?3
+           AND (o.display > r.display OR o.player_id < r.player_id) AND ${notAlt("o.player_id")}) AS rank
        FROM ratings r JOIN players p ON p.id = r.player_id
        WHERE r.board = ?1 AND r.rounds >= ?3 AND p.alt = 0 AND r.player_id IN (SELECT value FROM json_each(?2))`,
     )

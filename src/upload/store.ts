@@ -233,6 +233,8 @@ export async function writeUpload(
     // Players: a name seen for the first time is a new player with that name as their alias. Every
     // player who isn't merged into another (#8) has at least one alias, so the players without one
     // are the ones just inserted. A bot's name makes a `bot` player, left out of head-to-head and records.
+    // Those get ids above every player with an alias: `p.id >` that seeks them by rowid, where joining
+    // on the unindexed `players.name` alone read every player on each upload.
     db
       .prepare(
         `INSERT INTO players (name, created_at, bot)
@@ -245,7 +247,8 @@ export async function writeUpload(
         `INSERT INTO aliases (player_id, name, name_key, first_seen_at, last_seen_at)
          SELECT p.id, p.name, e.value ->> 'key', ?2, ?2
          FROM players p JOIN json_each(?1) e ON e.value ->> 'name' = p.name
-         WHERE p.merged_into IS NULL AND NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
+         WHERE p.id > (SELECT coalesce(max(player_id), 0) FROM aliases)
+           AND p.merged_into IS NULL AND NOT EXISTS (SELECT 1 FROM aliases a WHERE a.player_id = p.id)`,
       )
       .bind(JSON.stringify(w.rows.names), w.playedAt),
     // Known names: last seen, and the spelling seen most recently becomes the display name, unless
