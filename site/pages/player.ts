@@ -281,7 +281,7 @@ async function playerPage(): Promise<void> {
     byId("alt").hidden = !p.alt;
     render(byId("tier"), html`${r && tierChip(r.siteTier)}`);
     render(byId("about"), about(p));
-    render(byId("stats"), r ? figures(r, eliminations, tourneyWins) : html``);
+    loaded(byId("stats"), r ? figures(r, eliminations, tourneyWins) : html``);
     const next = byId("next-tier");
     if (r?.rank && r.nextTier) render(next, progress(r, r.nextTier));
     else next.hidden = true;
@@ -310,7 +310,7 @@ async function playerPage(): Promise<void> {
     else retryHistory(askHistory, showHistory);
   } catch (error) {
     byId("name").textContent = error instanceof NotFound ? "Player not found" : "Player";
-    render(byId("stats"), html``);
+    loaded(byId("stats"), html``);
     showError(byId("matches"), error, "player");
   }
 }
