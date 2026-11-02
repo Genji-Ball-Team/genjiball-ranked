@@ -8,7 +8,7 @@ import type { GbPager } from "@genji-ball-team/ui/pager.js";
 import { api, inRegion } from "../lib/api";
 import { count, title } from "../lib/format";
 import { byId, html, render, type Html } from "../lib/html";
-import { loaded, showError } from "../lib/load";
+import { loaded, pastEnd, showError } from "../lib/load";
 import { site } from "../lib/site";
 import {
   cup,
@@ -83,6 +83,8 @@ async function tourneysPage(): Promise<void> {
       past,
       list.past.length
         ? html`${list.past.map(pastItem)}`
+        : page > 1
+        ? pastEnd(page, `?${inRegion()}`)
         : html`<li><gb-empty>No ${short} tourney has been played yet.</gb-empty></li>`,
     );
     const pager = byId<GbPager>("pager");

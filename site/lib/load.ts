@@ -18,6 +18,10 @@ export function loaded(box: HTMLElement, content: Html): void {
   box.removeAttribute("data-loading");
 }
 
+/** A list's row for a page past its end (`?page=` too high), with a link back to its first page. */
+export const pastEnd = (page: number, first: string): Html =>
+  html`<li><gb-empty>There's no page ${page}.<a slot="action" href="${first}">Back to page 1</a></gb-empty></li>`;
+
 /** Says in `box` that `what` ("leaderboard", "player") didn't load, or doesn't exist. */
 export function showError(box: HTMLElement, error: unknown, what: string): void {
   const line =
