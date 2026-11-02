@@ -17,7 +17,7 @@ import { api, inRegion, playerLink } from "../lib/api";
 import { boardParams, boardQuery } from "../lib/boardFilter";
 import { ago, date, num, rating, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, raw, render, type Html } from "../lib/html";
-import { loaded, showError } from "../lib/load";
+import { loaded, pastEnd, showError } from "../lib/load";
 import { me } from "../lib/me";
 import { site } from "../lib/site";
 import type { BoardFilter, Leaderboard, PlayerPage, TitleName, Titles } from "../lib/types";
@@ -178,12 +178,15 @@ async function leaderboardPage(): Promise<void> {
     const mine = ++asked;
     try {
       const board = await api<Leaderboard>(`leaderboard?${inRegion()}&page=${page}${filter}`);
-      // A later change asked again: its answer is the one to show.
+      const titled = await titles;
+      // A later change asked again: its answer is the one to show. Checked after every wait.
       if (mine !== asked) return;
       loaded(
         box,
         board.players.length
-          ? ladder(board.players, await titles, board.changeDays)
+          ? ladder(board.players, titled, board.changeDays)
+          : page > 1
+          ? pastEnd(page, `?${inRegion()}${filter}`)
           : html`<li><gb-empty>${
               board.matched === null ? "No one has enough rated rounds for the leaderboard yet." : "No players match this filter."
             }</gb-empty></li>`,

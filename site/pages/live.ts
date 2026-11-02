@@ -38,7 +38,15 @@ function lobbyRow(l: Lobby): Html {
       ${l.names && l.names.length > 0 && html`<small class="names">${l.names.join(", ")}</small>`}</span>
     ${l.tourney && html`<gb-chip title="A tourney lobby: counts more on the leaderboard">Tourney</gb-chip>`}
     <span class="figure"><b class="num">${l.players}</b><small>${plural(l.players, "player")}</small></span>
-    <span class="figure"><b class="num">${openFor(l.openedAt)}</b><small>open</small></span></li>`;
+    <span class="figure"><b class="num" data-opened="${l.openedAt}">${openFor(l.openedAt)}</b><small>open</small></span></li>`;
+}
+
+/** Brings the "open" times up to date in place, touching only the ones that changed. */
+function updateTimes(box: HTMLElement): void {
+  for (const time of box.querySelectorAll<HTMLElement>("[data-opened]")) {
+    const text = openFor(time.dataset.opened!);
+    if (time.textContent !== text) time.textContent = text;
+  }
 }
 
 function lobbyRows(lobbies: Lobby[]): Html {
@@ -54,6 +62,9 @@ async function livePage(): Promise<void> {
   // Each ask is numbered: an answer that comes back after a newer ask started is dropped, and only
   // the newest ask sets the next timer, so there's never more than one.
   let asked = 0;
+  // What the list shows: the lobbies as JSON, or "error". The list is a live region, so it's only
+  // replaced when that changes, not on every ask.
+  let shown: string | undefined;
   const refresh = async (): Promise<void> => {
     clearTimeout(timer);
     const ask = ++asked;
@@ -62,11 +73,15 @@ async function livePage(): Promise<void> {
       if (ask !== asked) return;
       // The count in the tab's title, to see from another tab when a lobby opens.
       title(`${lobbies.length ? `(${lobbies.length}) ` : ""}${short} live lobbies`);
-      loaded(box, lobbyRows(lobbies));
+      const now = JSON.stringify(lobbies);
+      if (now === shown) updateTimes(box);
+      else loaded(box, lobbyRows(lobbies));
+      shown = now;
       byId("checked").textContent = `Checked ${new Date().toLocaleTimeString(undefined, { timeStyle: "short" })}.`;
     } catch (error) {
       if (ask !== asked) return;
-      showError(box, error, "lobby list");
+      if (shown !== "error") showError(box, error, "lobby list");
+      shown = "error";
     }
     // Only while the page is in view: a background tab doesn't ask.
     if (!document.hidden) timer = setTimeout(() => void refresh(), lobbiesRefreshMs);
