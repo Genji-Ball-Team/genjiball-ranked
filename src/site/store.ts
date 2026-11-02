@@ -183,11 +183,17 @@ export async function findCanonicalIds(db: D1Database, ids: readonly number[]): 
   return new Map(results.map((r) => [r.asked, r.id]));
 }
 
-/** Every rating of these players, in any region (`board`). */
-export async function listRatingsOf(db: D1Database, ids: readonly number[]): Promise<(RatingRow & { board: string })[]> {
+/**
+ * Every rating of these players in these regions (`boards`, ids). Naming the boards makes each a
+ * primary-key seek: `ratings` is keyed (board, player_id), so `player_id` alone scans the table.
+ */
+export async function listRatingsOf(db: D1Database, ids: readonly number[], boards: readonly string[]): Promise<(RatingRow & { board: string })[]> {
   const { results } = await db
-    .prepare(`SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id WHERE r.player_id IN (SELECT value FROM json_each(?1))`)
-    .bind(JSON.stringify(ids))
+    .prepare(
+      `SELECT r.board, ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+       WHERE r.board IN (SELECT value FROM json_each(?2)) AND r.player_id IN (SELECT value FROM json_each(?1))`,
+    )
+    .bind(JSON.stringify(ids), JSON.stringify(boards))
     .all<RatingRow & { board: string }>();
   return results;
 }
