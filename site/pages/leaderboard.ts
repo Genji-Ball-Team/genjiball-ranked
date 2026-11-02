@@ -178,12 +178,13 @@ async function leaderboardPage(): Promise<void> {
     const mine = ++asked;
     try {
       const board = await api<Leaderboard>(`leaderboard?${inRegion()}&page=${page}${filter}`);
-      // A later change asked again: its answer is the one to show.
+      const titled = await titles;
+      // A later change asked again: its answer is the one to show. Checked after every wait.
       if (mine !== asked) return;
       loaded(
         box,
         board.players.length
-          ? ladder(board.players, await titles, board.changeDays)
+          ? ladder(board.players, titled, board.changeDays)
           : html`<li><gb-empty>${
               board.matched === null ? "No one has enough rated rounds for the leaderboard yet." : "No players match this filter."
             }</gb-empty></li>`,
