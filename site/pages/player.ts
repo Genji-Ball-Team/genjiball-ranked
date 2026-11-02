@@ -249,10 +249,25 @@ function history(h: History, r: PlayerRating | null): void {
   render(byId("form"), formList(f));
 }
 
+/** A rating history that didn't load: a button that asks again, until it does. */
+function retryHistory(ask: () => Promise<History | null>, show: (h: History) => void): void {
+  const button = byId<GbButton>("history-retry");
+  button.hidden = false;
+  button.addEventListener("click", async () => {
+    button.busy = true;
+    const h = await ask();
+    button.busy = false;
+    if (!h) return;
+    button.hidden = true;
+    show(h);
+  });
+}
+
 async function playerPage(): Promise<void> {
   const id = encodeURIComponent(idParam());
   // The rating history and the titles are their own requests: the page shows without them if they fail.
-  const historyAnswer = api<History>(`players/${id}/history?${inRegion()}`).catch(() => null);
+  const askHistory = () => api<History>(`players/${id}/history?${inRegion()}`).catch(() => null);
+  const historyAnswer = askHistory();
   const titles = api<Titles>(`titles?${inRegion()}`).then(
     (t) => t.titles,
     () => [],
@@ -286,11 +301,13 @@ async function playerPage(): Promise<void> {
     const headline = byId("headline");
     if (!p.alt) meButton(headline, p.id);
     attach(headline, shareCard(p, crown, null));
-    const h = await historyAnswer;
-    if (h) {
+    const showHistory = (h: History) => {
       history(h, r);
       attach(headline, shareCard(p, crown, h));
-    }
+    };
+    const h = await historyAnswer;
+    if (h) showHistory(h);
+    else retryHistory(askHistory, showHistory);
   } catch (error) {
     byId("name").textContent = error instanceof NotFound ? "Player not found" : "Player";
     render(byId("stats"), html``);
