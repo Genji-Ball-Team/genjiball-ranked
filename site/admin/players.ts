@@ -120,7 +120,8 @@ export const playerView: View = async (view, [id]) => {
         danger: true,
         submit: async ({ into }) => {
           if (!into) throw new Error("Pick the player to merge into.");
-          return { into, res: await post<{ ratingsStale?: boolean }>(`players/${p.id}/merge`, { into }) };
+          // The picker gives the id as text; the API wants a number.
+          return { into, res: await post<{ ratingsStale?: boolean }>(`players/${p.id}/merge`, { into: Number(into) }) };
         },
       });
       if (res) {
