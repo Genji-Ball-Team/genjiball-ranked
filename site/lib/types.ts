@@ -165,6 +165,8 @@ export interface HistoryPoint {
   matchId: number;
   playedAt: string;
   rating: number;
+  /** A duel (`/duels`), not a lobby match. */
+  duel?: boolean;
 }
 
 /** `GET /api/players/{id}/history`. */
@@ -253,4 +255,72 @@ export interface Rules {
   matchMaxChange: number;
   floor: number;
   tournament: { maxGain: number; winnerBonus: number; maxLoss: { below: number | null; maxLoss: number }[] };
+}
+
+/** A player's side of a duel (`GET /api/duels`). */
+export interface DuelSide {
+  id: number;
+  name: string;
+  /** Display ratings around the duel; null when it changed no rating. */
+  ratingBefore: number | null;
+  ratingAfter: number | null;
+}
+
+/** `GET /api/duels`: the region's 1v1s, newest first. */
+export interface Duels {
+  region: string;
+  hasMore: boolean;
+  duels: {
+    id: number;
+    playedAt: string;
+    winnerScore: number;
+    loserScore: number;
+    rated: boolean;
+    winner: DuelSide;
+    loser: DuelSide;
+  }[];
+}
+
+/** One of a player's duels, from their side. */
+export interface PlayerDuel {
+  id: number;
+  playedAt: string;
+  won: boolean;
+  score: number;
+  opponentScore: number;
+  opponent: { id: number; name: string };
+  ratingBefore: number | null;
+  ratingAfter: number | null;
+}
+
+/** An opponent in a player's duel stats. */
+export interface DuelOpponent {
+  id: number;
+  name: string;
+  wins: number;
+  losses: number;
+  score: number;
+  opponentScore: number;
+  change: number;
+  /** When they last dueled (ISO). */
+  lastPlayedAt: string;
+}
+
+/** `GET /api/players/{id}/duels` (`&vs=` for the duels with one opponent). */
+export interface PlayerDuels {
+  region: string;
+  player: { id: number; name: string };
+  vs?: { id: number; name: string };
+  duels: number;
+  wins: number;
+  losses: number;
+  score: number;
+  opponentScore: number;
+  ratingChange: number;
+  streak: { won: boolean; length: number } | null;
+  bestWin: { id: number; score: number; opponentScore: number; opponent: { id: number; name: string } } | null;
+  beatMost: Omit<DuelOpponent, "score" | "opponentScore" | "lastPlayedAt"> | null;
+  beatenByMost: Omit<DuelOpponent, "score" | "opponentScore" | "lastPlayedAt"> | null;
+  opponents: DuelOpponent[];
+  recent: PlayerDuel[];
 }

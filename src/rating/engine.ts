@@ -33,6 +33,11 @@ export type RatingConfig = Pick<
   | "tournamentMaxLoss"
   | "tournamentMaxLossBands"
   | "tournamentMaxGain"
+  | "duelEloDivisor"
+  | "duelK"
+  | "duelMarginMin"
+  | "duelMaxChange"
+  | "duelMinGain"
 >;
 
 /** What turns mu into the leaderboard number. */
@@ -49,6 +54,18 @@ export interface RatingMatch {
   tournament?: boolean;
   /** A tournament's kills by player (`KILL`s, not of themselves), for its standings. A player left out has none. */
   kills?: ReadonlyMap<number, number>;
+  /** A duel (no rounds): rated from its score instead (`rateDuel`). */
+  duel?: Duel;
+}
+
+/** A duel's result, by player id. */
+export interface Duel {
+  winner: number;
+  loser: number;
+  winnerScore: number;
+  loserScore: number;
+  /** False: past the pair's rated duels that day. It changes no rating and has no history. */
+  rated: boolean;
 }
 
 export interface PlayerRating {
@@ -163,6 +180,7 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
  * (`rateTournament`).
  */
 export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingConfig): HistoryEntry[] {
+  if (match.duel) return rateDuel(ratings, match, match.duel, config);
   const scaleAfter = Date.parse(match.playedAt) >= Date.parse(config.displayScaleAfterFrom);
   const started = new Map<number, PlayerRating>();
   for (const order of match.rounds) {
@@ -188,7 +206,12 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
     for (const id of played) capChange(ratings.get(id)!, started.get(id)!, config.ratingMatchMaxChange, config.ratingMatchMaxChange, config);
   }
 
-  return [...played].map((playerId) => {
+  return historyAfter(ratings, match, [...played], config);
+}
+
+/** Each player's rating after the match, as its history rows; their `lastPlayedAt` becomes the match's. */
+function historyAfter(ratings: Ratings, match: RatingMatch, players: readonly number[], config: RatingConfig): HistoryEntry[] {
+  return players.map((playerId) => {
     const rating = ratings.get(playerId)!;
     rating.lastPlayedAt = match.playedAt;
     return {
@@ -205,6 +228,49 @@ export function rateMatch(ratings: Ratings, match: RatingMatch, config: RatingCo
       scaleBaseMu: rating.scaleBaseMu,
     };
   });
+}
+
+/**
+ * The display points a duel moves its two players (docs/rating.md, "Duels"), from their display
+ * ratings before it: Elo on the display scale, times the score margin, at most `duelMaxChange`. The
+ * winner gains at least `duelMinGain`; the loser loses the change itself.
+ */
+export function duelChange(
+  winnerDisplay: number,
+  loserDisplay: number,
+  winnerScore: number,
+  loserScore: number,
+  config: Pick<RatingConfig, "duelEloDivisor" | "duelK" | "duelMarginMin" | "duelMaxChange" | "duelMinGain">,
+): { gain: number; loss: number } {
+  const expected = 1 / (1 + 10 ** ((loserDisplay - winnerDisplay) / config.duelEloDivisor));
+  const margin = config.duelMarginMin + (winnerScore - loserScore) / winnerScore;
+  const change = Math.min(config.duelMaxChange, Math.round(config.duelK * (1 - expected) * margin));
+  return { gain: Math.min(config.duelMaxChange, Math.max(config.duelMinGain, change)), loss: change };
+}
+
+/**
+ * Rates a duel in place: the winner gains and the loser loses display points by `duelChange`, from
+ * their exact display before it. Sigma, rounds, wins and streaks don't change: a duel has no rated
+ * rounds. A loser near `displayFloor` loses at most half the way down to it. A duel past the pair's
+ * daily limit (`rated` false) changes nothing and has no history rows.
+ */
+export function rateDuel(ratings: Ratings, match: RatingMatch, duel: Duel, config: RatingConfig): HistoryEntry[] {
+  if (!duel.rated || duel.winner === duel.loser) return [];
+  const scaleAfter = Date.parse(match.playedAt) >= Date.parse(config.displayScaleAfterFrom);
+  const players = [duel.winner, duel.loser];
+  for (const id of players) {
+    const rating = ratings.get(id);
+    if (rating && scaleAfter && rating.scaleBaseMu === null) rating.scaleBaseMu = rating.mu;
+    if (!rating) ratings.set(id, newRating(config, match.playedAt));
+  }
+  const winner = ratings.get(duel.winner)!;
+  const loser = ratings.get(duel.loser)!;
+  const from = { winner: displayExact(winner, config), loser: displayExact(loser, config) };
+  const { gain, loss } = duelChange(from.winner, from.loser, duel.winnerScore, duel.loserScore, config);
+  winner.mu = muForDisplay(from.winner + gain, winner.scaleBaseMu, config);
+  const lowest = config.displayFloor + (from.loser - config.displayFloor) / 2;
+  loser.mu = muForDisplay(Math.max(from.loser - loss, lowest), loser.scaleBaseMu, config);
+  return historyAfter(ratings, match, players, config);
 }
 
 /** A player's line in a tournament's standings. */

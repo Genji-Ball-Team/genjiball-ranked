@@ -67,6 +67,13 @@ body.admin {
   td.actions > * { margin-inline-start: 6px; }
   td.notes { white-space: normal; min-inline-size: 9rem; }
   td.notes gb-chip { margin: 2px 4px 2px 0; }
+  /* Duels: the entry form, and rating changes in the preview. */
+  .duel-form { display: grid; gap: 10px; max-inline-size: 40rem; margin-block: 12px; }
+  .duel-form textarea { font: inherit; font-family: ui-monospace, monospace; padding: 10px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); color: var(--fg); resize: vertical; }
+  .duel-form .actions, div.actions { display: flex; gap: 8px; margin-block: 10px; }
+  .up { color: var(--green); }
+  .down { color: var(--down); }
+  ul.plain { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 4px; }
   td.players { max-inline-size: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   td.detail { max-inline-size: 28rem; color: var(--muted); font-size: var(--body-size); overflow-wrap: anywhere; }
   td select { max-inline-size: 11rem; }

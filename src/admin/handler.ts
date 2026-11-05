@@ -25,6 +25,7 @@ import {
   setTournament,
 } from "./store";
 import { BadRequest, body, changedMeanwhile, regionField, rerate, text, type AdminConfig, type Context } from "./request";
+import { handleDuelAdmin } from "./duels";
 import { handlePlayerAdmin } from "./players";
 import { handleTourneyAdmin } from "./tourneys";
 import { dryRunParse, recomputeRegion } from "./debug";
@@ -112,6 +113,10 @@ export async function handleAdmin(request: Request, database: D1Database, proofs
     }
     if (path[0] === "players" || path[0] === "merges") {
       const answer = await handlePlayerAdmin(ctx, request, path, id);
+      if (answer) return answer;
+    }
+    if (path[0] === "duels") {
+      const answer = await handleDuelAdmin(ctx, request, path);
       if (answer) return answer;
     }
     if (path[0] === "tourneys" || path[0] === "lobbies" || path[0] === "signups") {
@@ -283,6 +288,7 @@ async function changeTournament(ctx: Context, matchId: number, data: Record<stri
   if (typeof data.tournament !== "boolean") throw new BadRequest("tournament must be true or false");
   const match = await findMatch(ctx.db, matchId);
   if (!match) return fail(404, "not_found", "No such match");
+  if (match.duel) return fail(409, "conflict", "A duel can't be a tournament");
   if (match.tournament === data.tournament) {
     return fail(409, "conflict", `The match is ${match.tournament ? "already" : "not"} a tournament`);
   }

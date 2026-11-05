@@ -6,6 +6,7 @@ import { regionRatingConfig, type RatingConfig } from "./engine";
 import { planRerate } from "./plan";
 import {
   compareRefs,
+  duelPlayers,
   fromStart,
   isConflict,
   lockStatement,
@@ -109,7 +110,7 @@ export async function rateNewMatches(
   }
   if (fresh.length) {
     const [rounds, kills] = await Promise.all([readRounds(db, fresh.map((m) => m.id)), readKills(db, fresh)]);
-    const players = [...new Set([...rounds.values()].flat(2))];
+    const players = [...new Set([...[...rounds.values()].flat(2), ...duelPlayers(fresh)])];
     const ratings = await readRatings(db, region, players);
     const writes = planRerate(
       {
@@ -163,7 +164,7 @@ export async function recomputeRatings(
     readKills(db, counted),
     readHistory(db, region, [...batch.map((m) => m.id), ...dropped]),
   ]);
-  const players = [...new Set([...[...rounds.values()].flat(2), ...history.map((entry) => entry.playerId)])];
+  const players = [...new Set([...[...rounds.values()].flat(2), ...duelPlayers(counted), ...history.map((entry) => entry.playerId)])];
   const [start, ratings] = await Promise.all([readRatingsBefore(db, region, players, from), readRatings(db, region, players)]);
   const writes = planRerate(
     {

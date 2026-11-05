@@ -215,6 +215,33 @@ export const defaults = {
   tournamentMaxGain: 250,
 
   /**
+   * Duels: 1v1s (usually first to 15) that an admin enters by hand, rated into the region's normal
+   * rating like Elo (docs/rating.md, "Duels"). The winner's expected score is
+   * 1 / (1 + 10^((loser − winner) / `duelEloDivisor`)) on display ratings: at 800, a player 300 above
+   * wins about 70% of the time. The change is `duelK` × (1 − expected) × the margin, where the margin
+   * is `duelMarginMin` + (winner's score − loser's) ÷ winner's score: 0.5 at 15-14, 1.5 at 15-0.
+   */
+  duelEloDivisor: 800,
+  duelK: 25,
+  duelMarginMin: 0.5,
+  /** The most display points a duel moves anyone, either way. */
+  duelMaxChange: 25,
+  /** The least the winner of a duel gains (the loser then loses only the normal change): a winner never goes down. */
+  duelMinGain: 5,
+  /**
+   * Rated duels a day (UTC) between the same two players: the ones after still list, but don't
+   * change ratings, so a pair can't farm the minimum gain. 0: no limit. Decided when the duel is
+   * entered, and kept.
+   */
+  duelPairDailyRatedLimit: 3,
+  /** Most duels one admin entry (a pasted list) can hold. */
+  duelsPerEntryMax: 50,
+  /** Duels a page of the Duels tab (`/api/duels`) lists, newest first. */
+  duelsPageSize: 30,
+  /** Most of a player's duels their Duels stats (`/api/players/:id/duels`) reads, newest first. */
+  playerDuelsMax: 1000,
+
+  /**
    * Tourneys page (#31): past tourneys per page, newest first. Each lobby's standings read its
    * match's rounds and events (about 600 rows), so a page of 10 two-lobby tourneys is about 12k rows.
    */

@@ -19,6 +19,8 @@ export interface HistoryPoint {
 export interface StoredHistoryRow extends HistoryPoint {
   streak: number;
   bestStreak: number;
+  /** 1: the match is a duel (`matches.duel`). */
+  duel: number;
 }
 
 /** A rated round of the player's, as recent form shows it. */

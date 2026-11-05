@@ -9,6 +9,7 @@
 @import "./compare.css";
 @import "./match.css";
 @import "./ranked.css";
+@import "./duels.css";
 
 html {
   /* The scrollbar's room is kept on every page, so the layout doesn't shift sideways between a page
@@ -366,7 +367,7 @@ gb-chip.void { color: var(--down); }
     font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
     letter-spacing: 0.06em; text-transform: uppercase;
   }
-  .tabbar gb-icon { inline-size: 22px; block-size: 22px; }
+  .tabbar gb-icon, .tabbar svg.icon { inline-size: 22px; block-size: 22px; }
   .tabbar a.open-now { position: relative; }
   .tabbar .live-dot { position: absolute; inset-block-start: 6px; inset-inline-start: calc(50% + 14px); margin: 0; }
   .tabbar a[aria-current] { background: var(--raised); color: var(--fg); }

@@ -29,6 +29,8 @@ export type AdminConfig = UpdateConfig &
     | "playerNameMaxLength"
     | "playerMergeMaxPairRows"
     | "playerSearchMinLength"
+    | "duelPairDailyRatedLimit"
+    | "duelsPerEntryMax"
   >;
 
 export interface Context {

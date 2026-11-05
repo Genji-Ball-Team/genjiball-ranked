@@ -3,6 +3,7 @@
 // the link (`?ids=1,2,3`), so a shared link opens the same view.
 import "@genji-ball-team/ui/chip.js";
 import "@genji-ball-team/ui/compare-chart.js";
+import "@genji-ball-team/ui/delta.js";
 import "@genji-ball-team/ui/empty.js";
 import "@genji-ball-team/ui/search.js";
 import "@genji-ball-team/ui/skeleton.js";
@@ -10,12 +11,13 @@ import type { GbCompareChart } from "@genji-ball-team/ui/compare-chart.js";
 import type { TierLine } from "@genji-ball-team/ui/rating-chart.js";
 import type { GbSearch, SearchItem, SearchQuery } from "@genji-ball-team/ui/search.js";
 import { api, inRegion, NotFound, playerLink } from "../lib/api";
+import { duelsLink, record, signed } from "../lib/duels";
 import { compareMax, comparedIds } from "../lib/early";
 import { count, killDeath, plural, rating, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, Html, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { site } from "../lib/site";
-import type { FoundPlayers, History, PlayerPage, Tier } from "../lib/types";
+import type { FoundPlayers, History, PlayerDuels, PlayerPage, Tier } from "../lib/types";
 import { attach, type CompareCard } from "../share";
 import { start } from "../shell";
 
@@ -204,6 +206,33 @@ async function headToHead(a: Compared, b: Compared, current: () => boolean): Pro
   }
 }
 
+/**
+ * Their duels against each other, under everything else: shown only if they've played one here.
+ * From `a`'s side: wins, score and the rating that moved between them.
+ */
+async function duelsBox(a: Compared, b: Compared, current: () => boolean): Promise<void> {
+  const d = await api<PlayerDuels>(`players/${a.id}/duels?vs=${b.id}&${inRegion()}`).catch(() => null);
+  if (!current() || !d?.duels) return;
+  const swing = (n: number) => html`<b class="num ${n > 0 ? "up" : n < 0 ? "down" : ""}">${signed(n)}</b>`;
+  render(
+    byId("duels-h2h"),
+    html`<p class="facts"><span>${a.name} <span class="muted">vs</span> ${b.name}</span><span>${count(d.duels, "duel")} · <a href="${duelsLink(a.id)}">${a.name}'s duels</a></span></p>
+      ${tug(a, b, "Duels won", d.wins, d.losses, "duels won against the other")}
+      ${tug(a, b, "Score", d.score, d.opponentScore, "points scored in their duels")}
+      <div class="tug"><p>${swing(d.ratingChange)}<span>Rating from these duels</span>${swing(-d.ratingChange)}</p></div>
+      <ol class="duels">${d.recent.map(
+        (r) => html`<li class="duel mine"><div class="duel-card">
+          <span class="result ${r.won ? "won" : "lost"}">${r.won ? "W" : "L"}</span>
+          <span class="vs">${r.won ? a.name : b.name} won</span>
+          <b class="num">${r.score}–${r.opponentScore}</b>
+          <span class="when"><small>${new Date(r.playedAt).toLocaleDateString()}</small></span>
+          <span class="change num">${r.ratingAfter !== null && r.ratingBefore !== null ? html`<gb-delta value="${r.ratingAfter - r.ratingBefore}"></gb-delta>` : html`<span class="muted">not rated</span>`}</span></div></li>`,
+      )}</ol>
+      <p class="note">Record ${record(d.wins, d.losses)} from ${a.name}'s side.</p>`,
+  );
+  byId("duels-section").hidden = false;
+}
+
 /** The share card: the players' figures side by side, with their rating histories. */
 function shareCard(players: Compared[]): CompareCard {
   const names = players.map((p) => p.name);
@@ -246,8 +275,8 @@ function ratingChart(players: Compared[]): void {
     points: p.history.points.map((point) => ({
       rating: point.rating,
       at: point.playedAt,
-      label: `Match #${point.matchId}`,
-      href: `/match?id=${point.matchId}`,
+      label: point.duel ? "Duel" : `Match #${point.matchId}`,
+      href: point.duel ? duelsLink(p.id) : `/match?id=${point.matchId}`,
     })),
   }));
   chart.setAttribute(
@@ -281,6 +310,7 @@ async function comparePage(): Promise<void> {
     );
     byId("h2h-section").hidden = true;
     byId("graph-section").hidden = true;
+    byId("duels-section").hidden = true;
     if (!ids.length) {
       title("Compare");
       byId("heading").textContent = "Compare";
@@ -307,7 +337,10 @@ async function comparePage(): Promise<void> {
         : html`<gb-empty>${count(missing.length, "player")} in the link no longer ${plural(missing.length, "exists", "exist")}. Add another.</gb-empty>`,
     );
     const [first, second] = players;
-    if (first && second && players.length === 2) void headToHead(first, second, () => run === shown);
+    if (first && second && players.length === 2) {
+      void headToHead(first, second, () => run === shown);
+      void duelsBox(first, second, () => run === shown);
+    }
     if (players.length) {
       attach(headline, shareCard(players));
       ratingChart(players);

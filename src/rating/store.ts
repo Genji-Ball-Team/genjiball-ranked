@@ -1,4 +1,4 @@
-import type { HistoryEntry, PlayerRating, RatingMatch } from "./engine";
+import type { Duel, HistoryEntry, PlayerRating, RatingMatch } from "./engine";
 import type { RatingWrites, StoredRating } from "./plan";
 
 /**
@@ -33,6 +33,8 @@ export interface CandidateMatch extends MatchRef {
   rated: boolean;
   /** An admin marked it as a tournament: its standings are rated too, with its own caps (docs/rating.md). */
   tournament: boolean;
+  /** A duel (`matches.duel`): its result, by player id. */
+  duel?: Duel | null;
 }
 
 export function compareRefs(a: MatchRef, b: MatchRef): number {
@@ -96,7 +98,11 @@ export async function readNewestRated(db: D1Database, board: string): Promise<Ma
  * The columns of a `CandidateMatch` (read with `toCandidate`): the recompute and the dry-run
  * recompute script (`src/rating/dryRun.ts`) read matches the same way.
  */
-export const candidateColumns = "id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated, tournament";
+export const candidateColumns = `id, played_at AS playedAt, complete, rated_at IS NOT NULL AS rated, tournament,
+  CASE WHEN duel = 1 THEN (SELECT json_object('winnerScore', d.winner_score, 'loserScore', d.loser_score, 'rated', d.rated,
+    'winner', (SELECT player_id FROM match_players WHERE match_id = d.match_id AND log_id = 1),
+    'loser', (SELECT player_id FROM match_players WHERE match_id = d.match_id AND log_id = 2))
+    FROM duels d WHERE d.match_id = matches.id) END AS duel`;
 
 export interface CandidateRow {
   id: number;
@@ -104,10 +110,32 @@ export interface CandidateRow {
   complete: number;
   rated: number;
   tournament: number;
+  /** JSON, for a duel. */
+  duel: string | null;
 }
 
 export function toCandidate(m: CandidateRow): CandidateMatch {
-  return { id: m.id, playedAt: m.playedAt, complete: m.complete === 1, rated: m.rated === 1, tournament: m.tournament === 1 };
+  return {
+    id: m.id,
+    playedAt: m.playedAt,
+    complete: m.complete === 1,
+    rated: m.rated === 1,
+    tournament: m.tournament === 1,
+    duel: parseDuel(m.duel),
+  };
+}
+
+/** A duel's JSON from `candidateColumns`; null for a match that isn't one, or one missing its rows. */
+function parseDuel(json: string | null): Duel | null {
+  if (json === null) return null;
+  const d = JSON.parse(json) as { winner: number | null; loser: number | null; winnerScore: number; loserScore: number; rated: number };
+  if (d.winner === null || d.loser === null) return null;
+  return { winner: d.winner, loser: d.loser, winnerScore: d.winnerScore, loserScore: d.loserScore, rated: d.rated === 1 };
+}
+
+/** The players of these matches' duels: they have no rounds to find them by. */
+export function duelPlayers(matches: readonly CandidateMatch[]): number[] {
+  return matches.flatMap((m) => (m.duel ? [m.duel.winner, m.duel.loser] : []));
 }
 
 /** The region's accepted matches from `from` on, in play order, at most `limit` (index `matches_region_status_played`). */
@@ -203,7 +231,7 @@ export function groupKills(rows: readonly KillRow[]): Map<number, Map<number, nu
 
 /** The kills by player of these matches' tournaments (other matches don't need them: no query when there are none). */
 export async function readKills(db: D1Database, matches: readonly CandidateMatch[]): Promise<Map<number, Map<number, number>>> {
-  const ids = matches.filter((m) => m.tournament).map((m) => m.id);
+  const ids = matches.filter((m) => m.tournament && !m.duel).map((m) => m.id);
   if (!ids.length) return new Map();
   const { results } = await db.prepare(killsSql("SELECT value FROM json_each(?1)")).bind(JSON.stringify(ids)).all<KillRow>();
   return groupKills(results);
@@ -221,6 +249,7 @@ export function ratingMatches(
     rounds: rounds.get(m.id) ?? [],
     tournament: m.tournament,
     ...(m.tournament ? { kills: kills.get(m.id) ?? new Map() } : {}),
+    ...(m.duel ? { duel: m.duel } : {}),
   }));
 }
 

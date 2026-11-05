@@ -141,3 +141,17 @@ The rounds reward each round's finish and the bonus the whole tourney, so a stro
 After changing these settings, recompute from the first tournament they should apply to: `POST /api/admin/ratings/recompute?region=eu&from=<match id>` ([api.md](api.md)). Matches before it keep their ratings.
 
 There is one leaderboard per region. Tourney matches are on it with ranked ones; only their rating differs. A tourney is played in one region, and only that region's matches can be linked to its lobbies. A match is a tournament once an admin links it to a tourney lobby (`POST /api/admin/lobbies/:id`, [api.md](api.md)), or marks it by hand with the route above. Unlinking it, or deleting the lobby, makes it a normal match again. Either way the ratings are recomputed from it.
+
+## Duels
+
+A duel is a 1v1 (usually first to 15) that an admin enters by hand on the admin page (`POST /api/admin/duels`, [api.md](api.md#duels)). It changes the region's normal rating, the same one lobbies and tourneys change, and it counts from the moment it's saved: duels are never backdated. Its rating is Elo on the display ratings, not OpenSkill (`duelChange` and `rateDuel` in `src/rating/engine.ts`, settings in `src/config.ts`):
+
+- The winner's expected score is E = 1 ÷ (1 + 10^((loser − winner) ÷ `duelEloDivisor`)). With 800, a 2200 beats a 1900 about 70% of the time.
+- The margin is `duelMarginMin` + (winner's score − loser's score) ÷ winner's score: 0.53 for 15-14, 1.5 for 15-0.
+- The change is round(`duelK` × (1 − E) × margin), at most `duelMaxChange` (25). The winner gains it and the loser loses it, except that the winner always gains at least `duelMinGain` (5) while the loser loses only the change. So duels add a little rating overall.
+- Equal ratings 15-10: +10/−10. 2200 beats 1900 15-14: +5/−4. 1900 beats 2200 15-0: +25/−25.
+- A loser close to `displayFloor` loses at most half the way down to it.
+- Sigma, rounds, wins and win streaks don't change: a duel has no rated rounds. A player new to the region starts where a new player of that region does.
+- Only the first `duelPairDailyRatedLimit` (3) duels of the same two players in a UTC day change ratings; the rest are listed as "not rated". 0 turns the limit off. Whether a duel is rated is decided when it's saved and stored.
+
+A duel is a match row ([database.md](database.md#duels)), so a recompute replays it in play order with everything else, and undoing it (voiding the match) recomputes from it. Discord rank roles follow the rating as always.
