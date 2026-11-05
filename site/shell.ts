@@ -10,6 +10,7 @@ import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/skeleton.js";
 import type { GbSearch, SearchQuery } from "@genji-ball-team/ui/search.js";
 import { api, inRegion, playerLink } from "./lib/api";
+import { duelIcon } from "./lib/duels";
 import { showBanners } from "./lib/banners";
 import { rating, tierName } from "./lib/format";
 import { html, raw, render } from "./lib/html";
@@ -17,7 +18,7 @@ import { site } from "./lib/site";
 import type { FoundPlayers } from "./lib/types";
 
 /** The pages whose region goes in the URL, so a shared link opens the same view. */
-const pinned = ["leaderboard", "player", "compare", "matches", "live", "records", "tourneys"];
+const pinned = ["leaderboard", "player", "compare", "matches", "live", "records", "duels", "tourneys"];
 
 // The region switch next to the wordmark: links to this page in each region, once the regions are
 // known (straight away after a first visit).
@@ -108,7 +109,7 @@ function openSheet(): void {
 // does the same job.
 function tabBar(page: string): void {
   const tab = (href: string, icon: string, label: string, current: boolean) =>
-    html`<a href="${href}"${current && raw(' aria-current="page"')}><gb-icon name="${icon}"></gb-icon>${label}</a>`;
+    html`<a href="${href}"${current && raw(' aria-current="page"')}>${icon === "duels" ? duelIcon() : html`<gb-icon name="${icon}"></gb-icon>`}${label}</a>`;
   const bar = document.createElement("nav");
   bar.className = "tabbar";
   bar.setAttribute("aria-label", "Sections");
@@ -119,7 +120,7 @@ function tabBar(page: string): void {
       "matches",
       "Matches",
       page === "matches" || page === "match",
-    )}${tab("/live", "live", "Live", page === "live")}${tab("/records", "records", "Records", page === "records")}${tab(
+    )}${tab("/live", "live", "Live", page === "live")}${tab("/duels", "duels", "Duels", page === "duels")}${tab(
       "/tourneys",
       "tourney",
       "Tourneys",

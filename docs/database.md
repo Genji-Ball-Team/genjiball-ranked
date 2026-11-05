@@ -34,6 +34,7 @@ The server stores everything in one D1 database (SQLite). The schema is in [`mig
 | `records_state` | (one row) | `feed_cursor`: how far the cron has read the match feed for `match_stats` |
 | `match_stats_recount` | match queued for a recount | By a player merge or undo, which the feed doesn't list ([below](#records)). Deleted once counted |
 | `rating_state` | region | Whether the region's ratings are stale, and from which match. `version` guards rating writes ([rating.md](rating.md)). A region added to the config gets its row the first time it's rated |
+| `duels` | duel | The score of a duel match (`matches.duel` = 1): `winner_score`, `loser_score`, `rated` (0: past the pair's daily limit) and the admin who entered it ([below](#duels)) |
 
 Player fields inside a match (`winner_id`, `killer_id`, `actor_id`, `target_id`) are **log ids**, not player ids, exactly as in the log. `match_players` maps them to players, so merging two aliases only touches `match_players`, `round_players` and the ratings, never the events.
 
@@ -85,6 +86,16 @@ Events hold log ids, never player ids, so a merge doesn't touch them. Nothing is
 ## The match feed
 
 `GET /api/matches?after=` ([api.md](api.md)) lists public matches by `matches.feed_seq`, a change number. Two triggers (`migrations/0010_match_feed.sql`) give a match the next number (`max(feed_seq) + 1`, through the unique index `matches_feed`) when it's inserted as `accepted` or `void`, and when, while public or on leaving public, its `status`, `line_count` or `tournament` changes or `rated_at` goes from `NULL` to a time. A third (`migrations/0014_feed_region_moves.sql`) does the same when a match that is or was public moves to another region, and adds the region it left to `feed_left_regions` (`,eu,na,`), so the feed of every region it left lists it as removed, even after several moves or a move after leaving public. So code that writes `matches` doesn't have to know about the feed, and a recompute (which only stamps `rated_at` on newly rated matches) doesn't re-list old ones. Each change costs one more row written, about three a match.
+
+## Duels
+
+Duels (1v1s an admin enters by hand, [rating.md](rating.md#duels)) are matches with `duel` = 1 (migrations/0032_duels.sql), so the ratings, recomputes, voids, player merges and region moves treat them like any match. Each has:
+
+- a `matches` row: its region, `played_at` (when it was saved), `match_key` `duel:<stamp>:<i>`, format 0, game version `duel`, complete. Its host and upload are the shared duel host (token hash `duels`, revoked, left out of the admin's host list) and an empty upload, made by the first save;
+- two `match_players` rows: log id 1 is the winner, 2 the loser;
+- a `duels` row with the score.
+
+A duel has no rounds, events, stats, head-to-head or records rows. It's left out of the match feed (the feed triggers check `duel` = 0), of `/api/recent`, the player's matches, records, and the match page (404). The partial index `matches_duels` lists a region's accepted duels for the Duels tab.
 
 ## Records
 

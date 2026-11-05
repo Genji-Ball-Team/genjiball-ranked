@@ -267,6 +267,15 @@ For admins, from the admin page (`/admin`) or any HTTP client. Code: `src/admin/
 
 A match action answers `{ match, ratingsStale }`. Accepting, voiding or un-voiding brings the ratings up to date as far as one cron run would, within what's left of the request's `queriesPerRequest` ([rating.md](rating.md)): a match that now counts is rated straight away if it's the newest, and a short stale tail is recomputed. `ratingsStale: true` means the cron finishes the recompute (every 10 minutes).
 
+### Duels
+
+| Route | What it does |
+|---|---|
+| `POST /api/admin/duels/preview` with `{ region, duels: [{ winner, loser, winnerScore, loserScore }] }` | What saving would do, duel by duel, from the region's ratings now: `{ region, duels: [{ winner: { id, name }, loser, winnerScore, loserScore, rated, winnerBefore, winnerAfter, loserBefore, loserAfter }], newPlayers }`. `id` is null for a name no player has; `newPlayers` lists those names. Writes nothing |
+| `POST /api/admin/duels` with the same and `newPlayers: [name]` | Saves them, played now (one second apart, in order), and rates them straight away: 201 `{ region, duels (with id), newPlayers, ratingsStale }`. A name in `newPlayers` becomes a new player with that name as their alias, so their lobbies later count for them; any other unknown name is a 409. At most `duelsPerEntryMax` (50) duels |
+
+Names are matched like aliases (ignoring case). Two names of one player can't duel (400). To undo a duel, void its match (`POST /api/admin/matches/:id/void`): the ratings are recomputed from it. A duel can't be marked a tournament (409). The rating rule is in [rating.md](rating.md#duels).
+
 ### Merging players
 
 A player who changes their name shows up as a new player: names are all the server knows of them (`players`, `aliases`). An admin who knows two names are one player merges them. Merges fix name changes. They don't detect smurfs or tell who is behind an account, and the site (and anything built on this API) must never say they do: a merge only joins names an admin knows are one player.
@@ -508,3 +517,10 @@ What the host tool builds the game's `RANKS - generated` rule from (GenjiBall-CE
 - `header` is the line under the guide's header (`rankTags[0]`); then one entry per tier, **lowest first**, every tier even with no names. Site-only tiers (`siteOnly` in `config.tiers`: Rookie) aren't listed, and their players get no tag: the game's tiers start at Apprentice. `color` is RGBA, 0–255.
 - A player is listed in their tier when they have `minRankedRounds` rated rounds and aren't inactive (the same rules as the site). At most `rankTagsMaxNames` (500) names, the best ratings first.
 - `names` are the names the players were last seen with in a log, which is how the Workshop writes them (not a display name an admin set, [Merging players](#merging-players)). Names with `{` or `}`, and names over 128 characters, are left out. The rest are raw: **the host tool escapes `"` and `\`** when it writes the `Custom String`s.
+
+## Duels: `GET /api/duels?region=eu`, `GET /api/players/:id/duels?region=eu`
+
+- `/api/duels` lists the region's duels, newest first, `duelsPageSize` (30) a page: `{ region, hasMore, duels: [{ id, playedAt, winnerScore, loserScore, rated, winner: { id, name, ratingBefore, ratingAfter }, loser }] }`. `?before=<id>` gives the page after that duel. `ratingBefore` and `ratingAfter` are null for a duel that wasn't rated.
+- `/api/players/:id/duels` is one player's duel stats in the region, from their side: `{ region, player: { id, name }, duels, wins, losses, score, opponentScore, ratingChange, streak, bestWin, beatMost, beatenByMost, opponents, recent }`. `opponents` lists everyone they dueled (`wins`, `losses`, `score`, `opponentScore`, `change`, `lastPlayedAt`), most duels first; `recent` their newest `duelsPageSize` duels (`won`, `score`, `opponentScore`, `opponent`, `ratingBefore`, `ratingAfter`). `&vs=<id>` counts only the duels against that player (and adds `vs`), for Compare. At most `playerDuelsMax` (1000) duels are counted.
+
+Duels aren't in `/api/recent`, a player's matches or the match feed. In `/api/players/:id/history` a duel's point has `duel: true`.

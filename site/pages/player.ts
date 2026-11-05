@@ -9,12 +9,13 @@ import type { GbButton } from "@genji-ball-team/ui/button.js";
 import type { GbRatingChart, TierLine } from "@genji-ball-team/ui/rating-chart.js";
 import type { GbSegmented } from "@genji-ball-team/ui/segmented.js";
 import { api, idParam, inRegion, matchLink, NotFound, playerLink } from "../lib/api";
+import { duelIcon, duelsLink, record } from "../lib/duels";
 import { count, date, killDeath, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { me, setMe } from "../lib/me";
 import { site } from "../lib/site";
-import type { History, HistoryPoint, PlayerMatch, PlayerMatches, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
+import type { History, HistoryPoint, PlayerDuels, PlayerMatch, PlayerMatches, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
 import { attach, type PlayerCard } from "../share";
 import { start } from "../shell";
 import { titleChip, titleFx, titleLooks, titleSeals } from "../titles";
@@ -37,6 +38,16 @@ function meButton(box: HTMLElement, id: number): void {
   });
   show();
   box.append(button);
+}
+
+/** A "Duels stats" button, with their duel record, for a player who has played a duel here. */
+async function duelsButton(box: HTMLElement, id: number): Promise<void> {
+  const d = await api<PlayerDuels>(`players/${id}/duels?${inRegion()}`).catch(() => null);
+  if (!d?.duels) return;
+  box.insertAdjacentHTML(
+    "beforeend",
+    html`<a class="duels-button" href="${duelsLink(id)}">${duelIcon()}Duels stats <small class="num">${record(d.wins, d.losses)}</small></a>`.value,
+  );
 }
 
 /** The share card: the profile now, with the rating history once it's loaded. */
@@ -199,15 +210,15 @@ const since = (points: HistoryPoint[], days: number | null): HistoryPoint[] =>
  * The chart over 7 days, 30 days or everything, with the first and last match's dates under it. A
  * range with fewer than two matches can't draw a line: its button is off.
  */
-function chartRange(chart: GbRatingChart, h: History): void {
+function chartRange(chart: GbRatingChart, h: History, playerId: number): void {
   const range = byId<GbSegmented>("range");
   const days = (value: string) => (value === "all" ? null : Number(value));
   const draw = () => {
     const points = since(h.points, days(range.value));
     chart.points = points.map((p) => ({
       rating: p.rating,
-      label: `Match #${p.matchId} · ${date(p.playedAt)}${p.matchId === h.peak?.matchId ? " · Peak" : ""}`,
-      href: matchLink(p.matchId),
+      label: `${p.duel ? "Duel" : `Match #${p.matchId}`} · ${date(p.playedAt)}${p.matchId === h.peak?.matchId ? " · Peak" : ""}`,
+      href: p.duel ? duelsLink(playerId) : matchLink(p.matchId),
     }));
     const [first, last] = [points[0], points.at(-1)];
     render(byId("graph-dates"), html`${first && html`<span>${date(first.playedAt)}</span>`}${last && last !== first && html`<span>${date(last.playedAt)}</span>`}`);
@@ -218,7 +229,7 @@ function chartRange(chart: GbRatingChart, h: History): void {
   draw();
 }
 
-function history(h: History, r: PlayerRating | null): void {
+function history(h: History, r: PlayerRating | null, playerId: number): void {
   if (!h.points.length) return;
   byId("history").hidden = false;
   render(
@@ -235,7 +246,7 @@ function history(h: History, r: PlayerRating | null): void {
     const tier = tierName(t);
     return t && tier ? [{ tier, label: t.label, threshold: t.threshold }] : [];
   });
-  chartRange(chart, h);
+  chartRange(chart, h, playerId);
   const f = h.form;
   render(
     byId("form-facts"),
@@ -300,9 +311,10 @@ async function playerPage(): Promise<void> {
     if (crown) titleHero(crown);
     const headline = byId("headline");
     if (!p.alt) meButton(headline, p.id);
+    void duelsButton(headline, p.id);
     attach(headline, shareCard(p, crown, null));
     const showHistory = (h: History) => {
-      history(h, r);
+      history(h, r, p.id);
       attach(headline, shareCard(p, crown, h));
     };
     const h = await historyAnswer;

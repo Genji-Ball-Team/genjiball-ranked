@@ -8,6 +8,7 @@ import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/toast.js";
 import { site } from "../lib/site";
 import { byId, h } from "../admin/dom";
+import { duelsView } from "../admin/duels";
 import { hostsView } from "../admin/hosts";
 import { logView } from "../admin/log";
 import { matchesView, matchView } from "../admin/matches";
@@ -27,6 +28,7 @@ const routes: [RegExp, View][] = [
   [/^tourneys$/, tourneysView],
   [/^tourneys\/(\d+)$/, tourneyView],
   [/^hosts$/, hostsView],
+  [/^duels$/, duelsView],
   [/^players$/, playersView],
   [/^players\/(\d+)$/, playerView],
   [/^log$/, logView],

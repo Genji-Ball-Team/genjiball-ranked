@@ -351,7 +351,7 @@ export async function listPlayerMatches(
           WHERE h.board = ?1 AND h.player_id = ?2 AND (h.played_at, h.match_id) < (m.played_at, m.id)
           ORDER BY h.played_at DESC, h.match_id DESC LIMIT 1) AS ratingBefore
        FROM match_players mp JOIN matches m ON m.id = mp.match_id
-       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1 AND (?4 IS NULL OR mp.match_id < ?4)
+       WHERE mp.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1 AND m.duel = 0 AND (?4 IS NULL OR mp.match_id < ?4)
        GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?3`,
     )
     .bind(board, playerId, limit, before)
@@ -417,7 +417,7 @@ export interface RecentPlayerRow {
 export async function listRecentMatches(db: D1Database, board: string, limit: number, before: number | null): Promise<RecentMatchRow[]> {
   const older = before === null ? "" : "AND (played_at, id) < (SELECT played_at, id FROM matches WHERE id = ?3)";
   const newest = (status: string) =>
-    `SELECT * FROM (SELECT id, played_at FROM matches WHERE region = ?1 AND status = '${status}' ${older} ORDER BY played_at DESC, id DESC LIMIT ?2)`;
+    `SELECT * FROM (SELECT id, played_at FROM matches WHERE region = ?1 AND status = '${status}' AND duel = 0 ${older} ORDER BY played_at DESC, id DESC LIMIT ?2)`;
   const page = `SELECT id FROM (${newest("accepted")} UNION ALL ${newest("void")}) ORDER BY played_at DESC, id DESC LIMIT ?2`;
   const params = before === null ? [board, limit] : [board, limit, before];
   const [matches, players] = await db.batch([
@@ -527,7 +527,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       .prepare(
         `SELECT m.id, m.region, m.played_at AS playedAt, m.map, m.preset, m.game_version AS gameVersion, m.legacy, m.status = 'void' AS void,
            m.complete, m.tournament, ${tourneyRef}
-         FROM matches m WHERE m.id = ?1 AND m.status IN ${publicStatuses}`,
+         FROM matches m WHERE m.id = ?1 AND m.status IN ${publicStatuses} AND m.duel = 0`,
       )
       .bind(id),
     db
@@ -704,7 +704,7 @@ export async function listFeed(
 export async function listHistory(db: D1Database, board: string, playerId: number): Promise<StoredHistoryRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT h.match_id AS matchId, h.played_at AS playedAt, h.display AS rating, h.streak, h.best_streak AS bestStreak
+      `SELECT h.match_id AS matchId, h.played_at AS playedAt, h.display AS rating, h.streak, h.best_streak AS bestStreak, m.duel
        FROM rating_history h JOIN matches m ON m.id = h.match_id
        WHERE h.board = ?1 AND h.player_id = ?2 AND m.status IN ${publicStatuses} AND m.region = ?1
        ORDER BY h.played_at, h.match_id`,

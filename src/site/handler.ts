@@ -11,6 +11,8 @@ import { countTourneyWins, findTourney, hasScreenshot, listLobbies, listPast, li
 import { noMonthRecords, noRecords, recordsView, type RecordsConfig } from "../records/stats";
 import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
+import { duelStats } from "../duels/plan";
+import { listDuels, listPlayerDuels } from "../duels/store";
 import { displayRating } from "../rating/engine";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { isOpen, parseBoardFilter, tierRanges, type BoardFilter } from "./boardFilter";
@@ -74,6 +76,8 @@ export type SiteConfig = RankTagsConfig &
     | "matchFeedLimit"
     | "playerRecentMatches"
     | "recentMatchesPageSize"
+    | "duelsPageSize"
+    | "playerDuelsMax"
     | "playerRivalsLimit"
     | "playerSearchLimit"
     | "playerSearchMinLength"
@@ -111,7 +115,7 @@ export async function handleSite(
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/$/, "").split("/").slice(2);
   const route = path[0];
-  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head", "recent"].includes(route ?? "");
+  const regional = ["leaderboard", "titles", "rank-tags", "tourneys", "players", "lobbies", "records", "head-to-head", "recent", "duels"].includes(route ?? "");
   const asked = regional ? regionParam(url, config) : null;
   if (asked instanceof Response) return asked;
   const region = asked!;
@@ -159,6 +163,12 @@ export async function handleSite(
       if (limit === null) return fail(400, "bad_request", "limit must be a positive number");
       return Response.json(await recent(db, region, before, Math.min(limit, config.recentMatchesPageSize)));
     },
+    duels: async () => {
+      const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
+      if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a duel id");
+      const rows = await listDuels(db, region.id, config.duelsPageSize + 1, before);
+      return Response.json({ region: region.id, hasMore: rows.length > config.duelsPageSize, duels: rows.slice(0, config.duelsPageSize) });
+    },
     "head-to-head": async () => {
       const a = positiveId(url.searchParams.get("a"));
       const b = positiveId(url.searchParams.get("b"));
@@ -179,6 +189,23 @@ export async function handleSite(
       return Response.json({ region: region.id, ...(await playerMatches(db, config, region, found.id, before)) });
     },
     "players/:id/history": async () => found(id === null ? null : await history(db, config, region, id), "No such player"),
+    "players/:id/duels": async () => {
+      const found = id === null ? null : await findCanonicalPlayer(db, id);
+      if (!found) return fail(404, "not_found", "No such player");
+      // `?vs=<player id>`: only their duels with that player (compare).
+      const vs = url.searchParams.has("vs") ? positiveId(url.searchParams.get("vs")) : null;
+      if (vs === null && url.searchParams.has("vs")) return fail(400, "bad_request", "vs must be a player id");
+      const opponent = vs === null ? null : await findCanonicalPlayer(db, vs);
+      if (vs !== null && !opponent) return fail(404, "not_found", "No such player");
+      const duels = (await listPlayerDuels(db, region.id, found.id, config.playerDuelsMax)).filter((d) => !opponent || d.opponent.id === opponent.id);
+      return Response.json({
+        region: region.id,
+        player: { id: found.id, name: found.name },
+        ...(opponent ? { vs: { id: opponent.id, name: opponent.name } } : {}),
+        duels: duels.length,
+        ...duelStats(duels, config.duelsPageSize),
+      });
+    },
     "players/:id/stats": async () => found(id === null ? null : await stats(db, region, id), "No such player"),
     "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match"),
     "tourneys/:id": async () => found(id === null ? null : await tourney(db, config, id), "No such tourney"),
@@ -418,7 +445,7 @@ async function history(db: D1Database, config: SiteConfig, region: Region, reque
   const form = recentForm(formRounds);
   const peak = peakOf(rows);
   const last = rows.at(-1);
-  const point = (row: (typeof rows)[number]) => ({ matchId: row.matchId, playedAt: row.playedAt, rating: row.rating });
+  const point = (row: (typeof rows)[number]) => ({ matchId: row.matchId, playedAt: row.playedAt, rating: row.rating, ...(row.duel === 1 ? { duel: true } : {}) });
   return {
     region: region.id,
     player: { id: found.id, name: found.name },

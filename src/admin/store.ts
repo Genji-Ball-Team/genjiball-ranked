@@ -39,6 +39,8 @@ export interface MatchRow extends MatchState {
   complete: boolean;
   rated: boolean;
   tournament: boolean;
+  /** A duel entered by an admin (`matches.duel`): no log, no rounds. */
+  duel: boolean;
   players: string[];
 }
 
@@ -72,7 +74,7 @@ export async function findAdmin(db: D1Database, tokenHash: string): Promise<Admi
 const hostColumns = "id, name, trust, region, created_at AS createdAt, last_upload_at AS lastUploadAt";
 
 export async function listHosts(db: D1Database, limit: number): Promise<HostRow[]> {
-  const { results } = await db.prepare(`SELECT ${hostColumns} FROM hosts ORDER BY id DESC LIMIT ?`).bind(limit).all<HostRow>();
+  const { results } = await db.prepare(`SELECT ${hostColumns} FROM hosts WHERE token_hash <> 'duels' ORDER BY id DESC LIMIT ?`).bind(limit).all<HostRow>();
   return results;
 }
 
@@ -116,7 +118,7 @@ export async function setHostRegion(db: D1Database, hostId: number, region: stri
 
 const matchColumns = `m.id, m.region, m.match_key AS matchKey, m.host_id AS hostId, h.name AS hostName, m.line_count AS lineCount, m.build,
   m.status, m.rejection_code AS rejectionCode, m.rejection_message AS rejectionMessage, m.review_reasons AS reviewReasons,
-  m.map, m.preset, m.played_at AS playedAt, m.complete, m.rated_at IS NOT NULL AS rated, m.tournament,
+  m.map, m.preset, m.played_at AS playedAt, m.complete, m.rated_at IS NOT NULL AS rated, m.tournament, m.duel,
   (SELECT json_group_array(mp.name) FROM match_players mp WHERE mp.match_id = m.id) AS players`;
 
 interface RawMatch {
@@ -137,10 +139,11 @@ interface RawMatch {
   complete: number;
   rated: number;
   tournament: number;
+  duel: number;
   players: string;
 }
 
-function toMatch({ rejectionCode, rejectionMessage, reviewReasons, complete, rated, tournament, players, ...m }: RawMatch): MatchRow {
+function toMatch({ rejectionCode, rejectionMessage, reviewReasons, complete, rated, tournament, duel, players, ...m }: RawMatch): MatchRow {
   return {
     ...m,
     rejection: rejectionCode === null ? null : { code: rejectionCode, message: rejectionMessage ?? "" },
@@ -148,6 +151,7 @@ function toMatch({ rejectionCode, rejectionMessage, reviewReasons, complete, rat
     complete: complete === 1,
     rated: rated === 1,
     tournament: tournament === 1,
+    duel: duel === 1,
     players: JSON.parse(players) as string[],
   };
 }

@@ -74,7 +74,11 @@ export async function readRecountQueue(db: D1Database, limit: number): Promise<{
 /** Queues these matches' stats for a recount: the matches `playerId` is in. For a merge's batch. */
 export function queueRecountStatement(db: D1Database, playerId: number): D1PreparedStatement {
   return db
-    .prepare("INSERT INTO match_stats_recount (match_id) SELECT DISTINCT match_id FROM match_players WHERE player_id = ?1")
+    .prepare(
+      // Not duels: they have no stats.
+      `INSERT INTO match_stats_recount (match_id) SELECT DISTINCT mp.match_id FROM match_players mp
+       WHERE mp.player_id = ?1 AND NOT EXISTS (SELECT 1 FROM duels d WHERE d.match_id = mp.match_id)`,
+    )
     .bind(playerId);
 }
 
@@ -258,7 +262,7 @@ function matchRecords(column: string, round: string | null, month: boolean): str
 function ratingRecords(since: string): string {
   return jsonRows(`SELECT json_object('value', h.display, 'matchId', h.match_id, 'playedAt', h.played_at, 'playerId', h.player_id, 'name', p.name) AS x
     FROM rating_history h JOIN matches m ON m.id = h.match_id JOIN players p ON p.id = h.player_id
-    WHERE h.board = ?1 AND m.status = 'accepted' AND m.region = ?1 AND h.played_at >= ${since}
+    WHERE h.board = ?1 AND m.status = 'accepted' AND m.region = ?1 AND m.duel = 0 AND h.played_at >= ${since}
       AND h.display >= coalesce((SELECT display FROM ratings WHERE board = ?1 AND last_played_at >= ${since}
         ORDER BY display DESC LIMIT 1 OFFSET ?7 - 1), -1e308)
     ORDER BY h.display DESC, h.played_at, h.match_id LIMIT ?8`);
