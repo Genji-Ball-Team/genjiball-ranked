@@ -27,6 +27,9 @@ export type RatingConfig = Pick<
   | "displayScaleAfterFrom"
   | "displayFloor"
   | "ratingMatchMaxChange"
+  | "ratingRoundLossCap"
+  | "ratingRoundLossCapFrom"
+  | "ratingRoundLossCapFromByRegion"
   | "tournamentBonusWeight"
   | "tournamentWinValueGrowth"
   | "tournamentWinnerBonus"
@@ -122,11 +125,23 @@ export function newRating(config: RatingConfig, playedAt?: string): PlayerRating
 
 /**
  * The config to rate one region with: its own `ratingNewPlayerStart` when
- * `ratingNewPlayerStartByRegion` has one, else the config as it is. Everything else is the same.
+ * `ratingNewPlayerStartByRegion` has one, and its own `ratingRoundLossCapFrom` when
+ * `ratingRoundLossCapFromByRegion` has one, else the config as it is. Everything else is the same.
  */
 export function regionRatingConfig<T extends RatingConfig>(config: T, region: string): T {
   const start = Object.hasOwn(config.ratingNewPlayerStartByRegion, region) ? config.ratingNewPlayerStartByRegion[region] : undefined;
-  return start === undefined ? config : { ...config, ratingNewPlayerStart: start };
+  const capFrom = Object.hasOwn(config.ratingRoundLossCapFromByRegion, region) ? config.ratingRoundLossCapFromByRegion[region] : undefined;
+  if (start === undefined && capFrom === undefined) return config;
+  return {
+    ...config,
+    ...(start === undefined ? {} : { ratingNewPlayerStart: start }),
+    ...(capFrom === undefined ? {} : { ratingRoundLossCapFrom: capFrom }),
+  };
+}
+
+/** Whether a match played at `playedAt` has the per-round loss cap (`ratingRoundLossCap`). */
+export function roundLossCapOn(config: Pick<RatingConfig, "ratingRoundLossCap" | "ratingRoundLossCapFrom">, playedAt?: string): boolean {
+  return config.ratingRoundLossCap > 0 && playedAt !== undefined && Date.parse(playedAt) >= Date.parse(config.ratingRoundLossCapFrom);
 }
 
 /**
@@ -144,10 +159,9 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
     return { ...current, sigma: Math.sqrt(current.sigma ** 2 + tauSq) };
   });
 
-  const after = rate(
-    before.map(({ mu, sigma }) => [{ mu, sigma }]),
-    { mu: config.ratingMu, sigma: config.ratingSigma, beta: config.ratingBeta, tau: 0 },
-  );
+  const options = { mu: config.ratingMu, sigma: config.ratingSigma, beta: config.ratingBeta, tau: 0 };
+  const after = rate(before.map(({ mu, sigma }) => [{ mu, sigma }]), options);
+  const capped = roundLossCapOn(config, playedAt);
 
   order.forEach((id, i) => {
     const prior = before[i]!;
@@ -156,8 +170,17 @@ export function rateRound(ratings: Ratings, order: readonly number[], config: Ra
     // Damping: mu moves 1/n of the way to the full update. Sigma takes the full update: damping it
     // too kept every regular's sigma near 6 however much they played, so the ratings never settled
     // and a strong player kept gaining a lot from beating far weaker ones (docs/rating.md).
+    let change = (full.mu - prior.mu) / n;
+    if (capped && change < 0) {
+      // Per-round loss cap: what they'd have gained winning this round (the others in the same
+      // order behind them), damped the same way. They lose at most `ratingRoundLossCap` times that.
+      const won = [i, ...order.map((_, j) => j).filter((j) => j !== i)];
+      const asWinner = rate(won.map((j) => [{ mu: before[j]!.mu, sigma: before[j]!.sigma }]), options)[0]![0]!;
+      const winGain = Math.max(0, (asWinner.mu - prior.mu) / n);
+      change = Math.max(change, -config.ratingRoundLossCap * winGain);
+    }
     ratings.set(id, {
-      mu: prior.mu + (full.mu - prior.mu) / n,
+      mu: prior.mu + change,
       sigma: full.sigma,
       rounds: prior.rounds + 1,
       wins: prior.wins + (i === 0 ? 1 : 0),

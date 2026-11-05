@@ -29,6 +29,12 @@ Sigma takes each round's full update. It used to be damped too, and then it neve
 
 After a match, nobody's display rating is more than `ratingMatchMaxChange` (150) points from where they started it, either way: someone who would move further ends exactly that far, at the mu that shows it (the display curve inverted). It's a safety net for a long lobby against much weaker (or much stronger) players, and for a newcomer's lucky first match now that they show on the leaderboard after 3 rounds. On the v1.3.2 logs it changes prediction by less than 0.01. Tournaments have their own cap (below).
 
+## Per-round loss cap
+
+In each rated round, nobody loses more mu than `ratingRoundLossCap` (3.7) times what winning that same round would have gained them (the others in the same order behind them, damped the same way). A strong player in a lobby of much weaker ones gains very little per win but used to lose a lot for one bad round, so a night of mostly wins could still end down. Only losses are capped, and only mu: sigma, and everyone else in the round, move as without it. The per-match cap still applies after.
+
+It counts from `ratingRoundLossCapFrom` (the 800 start, 2026-10-24 13:30 UTC) in EU, and for every NA match (`ratingRoundLossCapFromByRegion`). Tourney rounds have it too, as they are rated like ranked rounds; the tourney's own loss and gain caps then apply to the whole tourney as before. Duels have no rounds, so it doesn't touch them. Migration 0033 re-rated EU from the 800 start and NA from the start.
+
 ## New players
 
 A player new to the board starts at `ratingNewPlayerStart` (800) on the straight display scale: 200/`displayScale` mu under `ratingMu`, which the display eases to about 914. Everyone used to start at 1000, the middle of the board, so a newcomer was rated as an average player while most played well under that, and regulars kept gaining from beating them. On the EU matches of 2026-10-05 to 2026-10-23, starting newcomers at 800 from 2026-10-14 on cut regulars' gain per match with a newcomer from +5.7 to +0.9 display points (other matches about 0), predicted rounds better (log-likelihood +0.03 on the last 20 %) and put no one under 50 rounds in the top 10. Lower starts (750) took farming to about 0 but were no better at predicting.
