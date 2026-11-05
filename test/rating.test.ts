@@ -257,7 +257,7 @@ describe("new players", () => {
     expect(regionRatingConfig(config, "eu")).toBe(config);
     expect(regionRatingConfig(config, "toString")).toBe(config);
     const na = regionRatingConfig(config, "na");
-    expect(na).toEqual({ ...config, ratingNewPlayerStart: 1000 });
+    expect(na).toEqual({ ...config, ratingNewPlayerStart: 1000, ratingRoundLossCapFrom: "2000-01-01T00:00:00Z" });
     // From the switch on an NA newcomer starts at mu = ratingMu (1000 shown), as everyone did before it.
     expect(newRating(na, after).mu).toBe(config.ratingMu);
     expect(displayRating(newRating(na, after), na)).toBe(config.displayCenter);
@@ -471,6 +471,69 @@ describe("the per-match cap", () => {
     rateMatch(uncapped, match(1, [[1, 2, 3, 4]]), { ...config, ratingMatchMaxChange: Infinity });
     rateMatch(capped, match(1, [[1, 2, 3, 4]]), config);
     expect(capped.get(1)!.mu).toBe(uncapped.get(1)!.mu);
+  });
+});
+
+describe("the per-round loss cap", () => {
+  const before = "2026-10-24T13:29:59Z";
+  const after = "2026-10-24T13:30:00Z";
+  const off = { ...config, ratingRoundLossCap: 0 };
+  // A strong player finishing last behind three weak ones: winning would pay little, losing costs a lot.
+  const lobby = (): Ratings =>
+    new Map([
+      [1, { ...newRating(config), mu: 40, sigma: 2.5 }],
+      [2, { ...newRating(config), mu: 22, sigma: 4 }],
+      [3, { ...newRating(config), mu: 22, sigma: 4 }],
+      [4, { ...newRating(config), mu: 22, sigma: 4 }],
+    ]);
+  const order = [2, 3, 4, 1];
+
+  it("holds a round's loss to ratingRoundLossCap times what winning it would have gained", () => {
+    const won = lobby();
+    rateRound(won, [1, 2, 3, 4], off, after);
+    const winGain = won.get(1)!.mu - 40;
+    const lost = lobby();
+    rateRound(lost, order, config, after);
+    expect(40 - lost.get(1)!.mu).toBeCloseTo(config.ratingRoundLossCap * winGain, 10);
+    const uncapped = lobby();
+    rateRound(uncapped, order, off, after);
+    expect(uncapped.get(1)!.mu).toBeLessThan(lost.get(1)!.mu);
+    // Sigma, and everyone else, are as without the cap.
+    expect(lost.get(1)!.sigma).toBe(uncapped.get(1)!.sigma);
+    for (const id of [2, 3, 4]) expect(lost.get(id)).toEqual(uncapped.get(id));
+  });
+
+  it("leaves a loss within the cap alone", () => {
+    const even = (): Ratings => new Map([1, 2, 3, 4].map((id) => [id, newRating(config)]));
+    const capped = even(), uncapped = even();
+    rateRound(capped, [1, 2, 3, 4], config, after);
+    rateRound(uncapped, [1, 2, 3, 4], off, after);
+    expect(capped).toEqual(uncapped);
+  });
+
+  it("is off before ratingRoundLossCapFrom and with no playedAt", () => {
+    for (const playedAt of [before, undefined]) {
+      const capped = lobby(), uncapped = lobby();
+      rateRound(capped, order, config, playedAt);
+      rateRound(uncapped, order, off, playedAt);
+      expect(capped).toEqual(uncapped);
+    }
+  });
+
+  it("is on for every NA match", () => {
+    const na = regionRatingConfig(config, "na");
+    const capped = lobby(), uncapped = lobby();
+    rateRound(capped, order, na, "2026-10-01T00:00:00Z");
+    rateRound(uncapped, order, { ...na, ratingRoundLossCap: 0 }, "2026-10-01T00:00:00Z");
+    expect(capped.get(1)!.mu).toBeGreaterThan(uncapped.get(1)!.mu);
+  });
+
+  it("doesn't touch duels", () => {
+    const duel: RatingMatch = { id: 1, playedAt: after, rounds: [], duel: { winner: 2, loser: 1, winnerScore: 15, loserScore: 0, rated: true } };
+    const capped = lobby(), uncapped = lobby();
+    rateMatch(capped, duel, config);
+    rateMatch(uncapped, duel, off);
+    expect(capped).toEqual(uncapped);
   });
 });
 

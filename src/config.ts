@@ -146,6 +146,21 @@ export const defaults = {
    * On the v1.3.2 logs it barely changes how well rounds are predicted.
    */
   ratingMatchMaxChange: 150,
+  /**
+   * Per-round loss cap: in a rated round, nobody loses more than this many times what winning that
+   * round would have gained them (both in mu, after damping). A strong player who finishes low in a
+   * round against much weaker players can gain only a little by winning it, so this keeps one bad
+   * round from costing many good ones. Sigma is untouched. Tourney rounds too (their own caps apply
+   * after); duels have no rounds. 0: off. See docs/rating.md, "Per-round loss cap".
+   */
+  ratingRoundLossCap: 3.7,
+  /** ISO 8601: rounds of matches played from here on have `ratingRoundLossCap` (the 800 start). Set it once, never move it. */
+  ratingRoundLossCapFrom: "2026-10-24T13:30:00Z",
+  /**
+   * A region whose `ratingRoundLossCapFrom` is another moment, by region id. NA has it from the
+   * start: every NA match ever played has the cap (EU only from the 800 start, so its older board stays as it was).
+   */
+  ratingRoundLossCapFromByRegion: { na: "2000-01-01T00:00:00Z" } as Record<string, string>,
 
   /**
    * A match with no MATCH_END is rated once this many hours have passed since it started: until
