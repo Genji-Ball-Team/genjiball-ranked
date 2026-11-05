@@ -152,6 +152,6 @@ A duel is a 1v1 (usually first to 15) that an admin enters by hand on the admin 
 - Equal ratings 15-10: +10/−10. 2200 beats 1900 15-14: +5/−4. 1900 beats 2200 15-0: +25/−25.
 - A loser close to `displayFloor` loses at most half the way down to it.
 - Sigma, rounds, wins and win streaks don't change: a duel has no rated rounds. A player new to the region starts where a new player of that region does.
-- Only the first `duelPairDailyRatedLimit` (3) duels of the same two players in a UTC day change ratings; the rest are listed as "not rated". 0 turns the limit off. Whether a duel is rated is decided when it's saved and stored.
+- Every duel changes ratings: only staff enter them. `duelPairDailyRatedLimit` (0, off) can cap the rated duels of the same two players in a UTC day; past it a duel is listed as "not rated". Whether a duel is rated is decided when it's saved and stored.
 
 A duel is a match row ([database.md](database.md#duels)), so a recompute replays it in play order with everything else, and undoing it (voiding the match) recomputes from it. Discord rank roles follow the rating as always.

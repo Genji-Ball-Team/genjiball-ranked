@@ -231,9 +231,9 @@ export const defaults = {
   /**
    * Rated duels a day (UTC) between the same two players: the ones after still list, but don't
    * change ratings, so a pair can't farm the minimum gain. 0: no limit. Decided when the duel is
-   * entered, and kept.
+   * entered, and kept. Off: only staff enter duels, so every one they enter counts.
    */
-  duelPairDailyRatedLimit: 3,
+  duelPairDailyRatedLimit: 0,
   /** Most duels one admin entry (a pasted list) can hold. */
   duelsPerEntryMax: 50,
   /** Duels a page of the Duels tab (`/api/duels`) lists, newest first. */

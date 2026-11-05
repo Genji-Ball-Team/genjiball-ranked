@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { sha256 } from "../src/bytes";
 import { defaults, loadConfig } from "../src/config";
-import { checkDuels, duelStats, type PlayerDuelRow } from "../src/duels/plan";
+import { checkDuels, duelStats, planDuels, type PlayerDuelRow } from "../src/duels/plan";
 import { createLogger } from "../src/log";
 import { displayRating, duelChange, newRating, rateDuel, type Ratings } from "../src/rating/engine";
 import { readState } from "../src/rating/store";
@@ -188,13 +188,24 @@ describe("admin duels", () => {
     expect(hosts.hosts.map((h) => h.name)).not.toContain("Duels (entered by admins)");
   });
 
-  it("rates only the first duelPairDailyRatedLimit duels of a pair a day", async () => {
+  it("rates every duel by default, however often a pair duels", async () => {
     await uploadLog(matchLog(), hostToken, hoursAgo(2));
-    const limit = defaults.duelPairDailyRatedLimit;
-    const res = await save("eu", Array.from({ length: limit + 1 }, () => duel("Alpha", "Bravo")));
-    expect(res.duels.map((d) => d.rated)).toEqual([...Array(limit).fill(true), false]);
-    const again = await save("eu", [duel("Bravo", "Alpha"), duel("Alpha", "Charlie")]);
-    expect(again.duels.map((d) => d.rated)).toEqual([false, true]);
+    expect(defaults.duelPairDailyRatedLimit).toBe(0);
+    const res = await save("eu", Array.from({ length: 5 }, () => duel("Alpha", "Bravo")));
+    expect(res.duels.map((d) => d.rated)).toEqual(Array(5).fill(true));
+  });
+
+  it("with a daily limit, rates only the first duels of a pair a day", () => {
+    const config = { ...defaults, duelPairDailyRatedLimit: 2 };
+    const plan = planDuels(
+      [duel("Alpha", "Bravo"), duel("Bravo", "Alpha"), duel("Alpha", "Bravo"), duel("Alpha", "Charlie")],
+      new Map(),
+      new Map(),
+      new Map(),
+      config,
+      "2026-11-05T12:00:00Z",
+    );
+    expect(plan.map((d) => d.rated)).toEqual([true, true, false, true]);
   });
 
   it("keeps duels through a recompute, and undo re-rates without them", async () => {
