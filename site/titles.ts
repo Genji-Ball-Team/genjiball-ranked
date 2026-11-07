@@ -1,13 +1,16 @@
 // Titles (/api/titles): God and Demigod, the 1v1 tourney's winners. They keep their real place on the
 // leaderboard; their row and profile stand out instead (site.css, "Titles"). God is light: a white rim
-// running round the row, a glowing place, sparkles and motes. Demigod is dark red: a slower red rim
-// turning the other way, a red haze, and red mist on the profile.
+// running round the row, a glowing place, sparkles and motes. Demigod is dark red: on the leaderboard
+// only its chip (the row keeps its tier's look), and on the profile a red rim and red mist.
 import "@genji-ball-team/ui/chip.js";
 import { html, type Html } from "./lib/html";
 import type { TitleName } from "./lib/types";
 
-/** The class that gives a row or profile the title's look. */
+/** The class that gives a profile the title's look. */
 export const titleLooks: Record<TitleName, string> = { God: "god", Demigod: "demi" };
+
+/** The class that gives a leaderboard row the title's look, null for none: a Demigod row shows only its chip. */
+export const rowLooks: Record<TitleName, string | null> = { God: "god", Demigod: null };
 
 /** The seal on a titled profile: what the title is, and what it was won with. */
 export const titleSeals: Record<TitleName, [string, string]> = {
@@ -24,7 +27,7 @@ export function titleFx(title: TitleName, where: "row" | "profile"): string {
   const bits = (n: number, cls: string, style: () => string) =>
     Array.from({ length: n }, () => `<i class="${cls}" style="${style()}"></i>`).join("");
   if (title === "Demigod") {
-    if (where === "row") return '<i class="haze"></i>';
+    if (where === "row") return "";
     return bits(
       4,
       "mist",

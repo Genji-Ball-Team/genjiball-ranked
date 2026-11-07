@@ -22,7 +22,7 @@ import { me } from "../lib/me";
 import { site } from "../lib/site";
 import type { BoardFilter, Leaderboard, PlayerPage, TitleName, Titles } from "../lib/types";
 import { start } from "../shell";
-import { titleChip, titleFx, titleLooks } from "../titles";
+import { rowLooks, titleChip, titleFx } from "../titles";
 
 /** The rows, with a band heading wherever the tier changes. */
 type Row = Leaderboard["players"][number];
@@ -50,7 +50,7 @@ function change(p: Row): Html {
 
 function entry(p: Row, titled: TitleName | undefined, days: number): Html {
   const inactive = p.inactiveSince && `Inactive since ${date(p.inactiveSince)}`;
-  const look = titled && titleLooks[titled];
+  const look = titled && rowLooks[titled];
   const mine = p.id === me();
   const classes = ["entry", inactive && "inactive", mine && "me", look].filter(Boolean).join(" ");
   const pos = ["pos", "num", p.rank <= 3 && "high"].filter(Boolean).join(" ");
@@ -64,7 +64,7 @@ function entry(p: Row, titled: TitleName | undefined, days: number): Html {
     <span class="num">${change(p)}</span>
     <span class="num muted">${num(p.rounds)}</span>
     <span class="num muted">${winRate(p.wins, p.rounds)}</span>
-    <span class="muted played">${ago(p.lastPlayedAt)}</span>${titled && html`<span class="fx" aria-hidden="true">${raw(titleFx(titled, "row"))}</span>`}</a></li>`;
+    <span class="muted played">${ago(p.lastPlayedAt)}</span>${look && html`<span class="fx" aria-hidden="true">${raw(titleFx(titled!, "row"))}</span>`}</a></li>`;
 }
 
 /** "Jump to me": the remembered player's row, on the full board's page it's on. */
