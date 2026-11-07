@@ -431,9 +431,9 @@ describe("tierFor", () => {
       ["Apprentice", 1300],
       ["Master", 1600],
       ["Grandmaster", 1900],
-      ["Ascendant", 2200],
-      ["Champion", 2500],
-      ["Sovereign", 2800],
+      ["Ascendant", 2100],
+      ["Champion", 2300],
+      ["Sovereign", 2500],
     ]);
   });
 

@@ -53,8 +53,8 @@ describe("titles", () => {
       ]),
     );
     expect(body.titles.map((t) => [t.title, t.id, t.rank, t.rating, t.tier?.label])).toEqual([
-      ["God", 3, 3, 2300, "Ascendant"],
-      ["Demigod", 2, 2, 2600, "Champion"],
+      ["God", 3, 3, 2300, "Champion"],
+      ["Demigod", 2, 2, 2600, "Sovereign"],
       ["Demigod", 4, 4, 2000, "Grandmaster"],
     ]);
   });
