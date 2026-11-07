@@ -341,9 +341,9 @@ export const defaults = {
     { label: "Apprentice", color: [207, 131, 88], threshold: 1300 },
     { label: "Master", color: [232, 211, 79], threshold: 1600 },
     { label: "Grandmaster", color: [240, 156, 23], threshold: 1900 },
-    { label: "Ascendant", color: [112, 154, 251], threshold: 2200 },
-    { label: "Champion", color: [251, 87, 93], threshold: 2500 },
-    { label: "Sovereign", color: [183, 119, 248], threshold: 2800 },
+    { label: "Ascendant", color: [112, 154, 251], threshold: 2100 },
+    { label: "Champion", color: [251, 87, 93], threshold: 2300 },
+    { label: "Sovereign", color: [183, 119, 248], threshold: 2500 },
   ] as Tier[],
 
   /**

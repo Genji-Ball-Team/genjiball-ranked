@@ -22,9 +22,9 @@ describe("rankTags", () => {
       ["Apprentice", "Apprentice - 1300", []],
       ["Master", "Master - 1600", []],
       ["Grandmaster", "Grandmaster - 1900", ["Kenzo", "Momo"]],
-      ["Ascendant", "Ascendant - 2200", []],
-      ["Champion", "Champion - 2500", []],
-      ["Sovereign", "Sovereign - 2800", ["Zeus"]],
+      ["Ascendant", "Ascendant - 2100", []],
+      ["Champion", "Champion - 2300", []],
+      ["Sovereign", "Sovereign - 2500", ["Zeus"]],
     ]);
     expect(tags.tiers[0]!.color).toEqual([207, 131, 88, 255]);
   });
