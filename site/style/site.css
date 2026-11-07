@@ -163,20 +163,16 @@ gb-search kbd:empty { display: none; }
 
 /* Titles (titles.ts): God and Demigod keep their place and stand out there instead, the library's
    title looks (brand.md, Colour) plus the ladder's own sparkles. God is white light: a white rim
-   running round the row, a glowing place and rating, a shimmering name, motes and sparkles. Demigod
-   is dark red: a slower red rim turning the other way and a red haze. Without motion, the rims and
-   glows stay and nothing moves. */
+   running round the row, a glowing place and rating, a shimmering name, motes and sparkles. A Demigod
+   row has only its dark red chip and keeps its tier's look. Without motion, the rim and glows stay
+   and nothing moves. */
 @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
-a.entry.god, a.entry.demi { isolation: isolate; overflow: hidden; border: 1.5px solid transparent; }
-.entry.god > :not(.fx), .entry.demi > :not(.fx) { position: relative; z-index: 1; }
-a.entry.god::before, a.entry.demi::before { z-index: 2; inset-inline-start: 2px; width: 4px; }
+a.entry.god { isolation: isolate; overflow: hidden; border: 1.5px solid transparent; }
+.entry.god > :not(.fx) { position: relative; z-index: 1; }
+a.entry.god::before { z-index: 2; inset-inline-start: 2px; width: 4px; }
 a.entry.god::before {
   background: linear-gradient(var(--god-cream), var(--god));
   box-shadow: 0 0 8px color-mix(in oklab, var(--god-cream) 90%, transparent);
-}
-a.entry.demi::before {
-  background: linear-gradient(var(--demi-hi), var(--demi));
-  box-shadow: 0 0 8px color-mix(in oklab, var(--demi-hi) 75%, transparent);
 }
 .entry > .fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 a.entry.god {
@@ -203,27 +199,15 @@ a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
     conic-gradient(transparent 0 40deg, var(--god) 45deg, transparent 50deg 130deg, var(--god) 135deg, transparent 140deg 220deg, var(--god) 225deg, transparent 230deg 310deg, var(--god) 315deg, transparent 320deg);
   mask: radial-gradient(circle, #000 0 30%, transparent 70%);
 }
-a.entry.demi {
-  --fill: color-mix(in oklab, var(--demi-dark) 17%, var(--bg)); margin-block: 2px;
-  background:
-    linear-gradient(90deg, color-mix(in oklab, var(--demi) 14%, transparent), transparent 70%) padding-box,
-    linear-gradient(var(--fill), var(--fill)) padding-box,
-    conic-gradient(from var(--spin), var(--demi-dark) 0 35%, var(--demi) 45%, var(--demi-hi) 50%, var(--demi-dark) 60% 85%, var(--demi-deep) 92%, var(--demi-dark) 100%) border-box;
-}
-a.entry.demi:hover, a.entry.demi:active { --fill: color-mix(in oklab, var(--demi-dark) 30%, var(--bg)); }
-.fx .haze { position: absolute; inset: -50% -20%; background: radial-gradient(40% 60% at 50% 50%, color-mix(in oklab, var(--demi) 18%, transparent), transparent 70%); }
 @media (prefers-reduced-motion: no-preference) {
   a.entry.god { animation: title-spin 4s linear infinite; }
-  a.entry.demi { animation: title-spin 7s linear infinite reverse; }
-  .entry.god .name { animation: title-shimmer 3s linear infinite; }
+    .entry.god .name { animation: title-shimmer 3s linear infinite; }
   .fx .mote { animation: title-mote var(--t) linear infinite; }
   .fx .spark { animation: title-twinkle var(--t) ease-in-out infinite; }
-  .fx .haze { animation: title-drift 6s ease-in-out infinite alternate; }
-  @keyframes title-spin { to { --spin: 360deg; } }
+    @keyframes title-spin { to { --spin: 360deg; } }
   @keyframes title-shimmer { to { background-position: -200% 0; } }
   @keyframes title-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
   @keyframes title-twinkle { 0%, 100% { opacity: 0; scale: 0.2; rotate: 0deg; } 50% { opacity: 1; scale: 1; rotate: 45deg; } }
-  @keyframes title-drift { from { transform: translateX(-30%); } to { transform: translateX(30%); } }
   a.entry { transition: background-color 0.15s; }
   .entry::before { transition: width 0.15s; }
 }
