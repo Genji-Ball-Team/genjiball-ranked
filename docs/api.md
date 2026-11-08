@@ -520,7 +520,7 @@ What the host tool builds the game's `RANKS - generated` rule from (GenjiBall-CE
 
 ## Duels: `GET /api/duels?region=eu`, `GET /api/players/:id/duels?region=eu`
 
-- `/api/duels` lists the region's duels, newest first, `duelsPageSize` (30) a page: `{ region, hasMore, duels: [{ id, playedAt, winnerScore, loserScore, rated, winner: { id, name, ratingBefore, ratingAfter }, loser }] }`. `?before=<id>` gives the page after that duel. `ratingBefore` and `ratingAfter` are null for a duel that wasn't rated.
+- `/api/duels` lists the region's duels, newest first, `duelsPageSize` (30) a page: `{ region, hasMore, duels: [{ id, playedAt, winnerScore, loserScore, rated, winner: { id, name, ratingBefore, ratingAfter }, loser }] }`. `?before=<id>` gives the page after that duel. `ratingBefore` and `ratingAfter` are null for a duel that wasn't rated (and while it's being rated). A player's first rating in the region has `ratingBefore` where they started (a new player's start), so it shows as a change.
 - `/api/players/:id/duels` is one player's duel stats in the region, from their side: `{ region, player: { id, name }, duels, wins, losses, score, opponentScore, ratingChange, streak, bestWin, beatMost, beatenByMost, opponents, recent }`. `opponents` lists everyone they dueled (`wins`, `losses`, `score`, `opponentScore`, `change`, `lastPlayedAt`), most duels first; `recent` their newest `duelsPageSize` duels (`won`, `score`, `opponentScore`, `opponent`, `ratingBefore`, `ratingAfter`). `&vs=<id>` counts only the duels against that player (and adds `vs`), for Compare. At most `playerDuelsMax` (1000) duels are counted.
 
 Duels aren't in `/api/recent`, a player's matches or the match feed. In `/api/players/:id/history` a duel's point has `duel: true`.
