@@ -159,11 +159,18 @@ describe("admin duels", () => {
     expect(first.winnerBefore).toBe(alpha);
     expect(await display("Alpha")).toBe(res.duels[1]!.loserAfter);
 
-    const list = await get<{ duels: { id: number; winner: { name: string }; winnerScore: number; loserScore: number }[]; hasMore: boolean }>("duels?region=eu");
+    const list = await get<{
+      duels: { id: number; winner: { name: string }; loser: { id: number; name: string; ratingBefore: number | null; ratingAfter: number | null }; winnerScore: number; loserScore: number }[];
+      hasMore: boolean;
+    }>("duels?region=eu");
     expect(list.duels.map((d) => [d.winner.name, d.winnerScore, d.loserScore])).toEqual([
       ["Bravo", 15, 3],
       ["Alpha", 15, 12],
     ]);
+    // Nachos' first rating in the region shows as a change from where they started, not "not rated".
+    const firstListed = list.duels[1]!;
+    expect(firstListed.loser).toEqual({ id: nachos, name: "Nachos", ratingBefore: first.loserBefore, ratingAfter: first.loserAfter });
+    expect(first.loserAfter).toBeLessThan(first.loserBefore!);
     const stats = await get<{ duels: number; wins: number; losses: number; score: number; opponentScore: number }>(`players/${await playerId("Alpha")}/duels?region=eu`);
     expect(stats).toMatchObject({ duels: 2, wins: 1, losses: 1, score: 18, opponentScore: 27 });
     const vs = await get<{ duels: number }>(`players/${await playerId("Alpha")}/duels?region=eu&vs=${nachos}`);

@@ -110,12 +110,18 @@ export interface HistoryEntry {
 
 export type Ratings = Map<number, PlayerRating>;
 
+/** What `newRating` reads. */
+export type NewRatingConfig = Pick<
+  RatingConfig,
+  "ratingMu" | "ratingSigma" | "ratingNewPlayerStart" | "ratingNewPlayerStartFrom" | "displayCenter" | "displayScale" | "displayScaleAfterFrom"
+>;
+
 /**
  * A player's rating before their first rated round. One first rated in a match played from
  * `ratingNewPlayerStartFrom` on (`playedAt`) starts at `ratingNewPlayerStart`; before it, and with
  * no `playedAt`, at `ratingMu`. From `displayScaleAfterFrom` on, their start is their `scaleBaseMu`.
  */
-export function newRating(config: RatingConfig, playedAt?: string): PlayerRating {
+export function newRating(config: NewRatingConfig, playedAt?: string): PlayerRating {
   const lower = playedAt !== undefined && Date.parse(playedAt) >= Date.parse(config.ratingNewPlayerStartFrom);
   const mu = lower ? config.ratingMu + (config.ratingNewPlayerStart - config.displayCenter) / config.displayScale : config.ratingMu;
   // From `displayScaleAfterFrom` on, everything they gain or lose is at `displayScaleAfter`.

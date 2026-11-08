@@ -90,7 +90,10 @@ export type SiteConfig = RankTagsConfig &
     | "lobbyTtlSeconds"
     | "lobbiesCacheSeconds"
     | "ratingMu"
+    | "ratingSigma"
     | "ratingNewPlayerStart"
+    | "ratingNewPlayerStartFrom"
+    | "displayScaleAfterFrom"
     | "ratingNewPlayerStartByRegion"
     | "ratingMatchMaxChange"
     | "displayCenter"
@@ -166,7 +169,7 @@ export async function handleSite(
     duels: async () => {
       const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
       if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a duel id");
-      const rows = await listDuels(db, region.id, config.duelsPageSize + 1, before);
+      const rows = await listDuels(db, config, region.id, config.duelsPageSize + 1, before);
       return Response.json({ region: region.id, hasMore: rows.length > config.duelsPageSize, duels: rows.slice(0, config.duelsPageSize) });
     },
     "head-to-head": async () => {
@@ -197,7 +200,7 @@ export async function handleSite(
       if (vs === null && url.searchParams.has("vs")) return fail(400, "bad_request", "vs must be a player id");
       const opponent = vs === null ? null : await findCanonicalPlayer(db, vs);
       if (vs !== null && !opponent) return fail(404, "not_found", "No such player");
-      const duels = (await listPlayerDuels(db, region.id, found.id, config.playerDuelsMax)).filter((d) => !opponent || d.opponent.id === opponent.id);
+      const duels = (await listPlayerDuels(db, config, region.id, found.id, config.playerDuelsMax)).filter((d) => !opponent || d.opponent.id === opponent.id);
       return Response.json({
         region: region.id,
         player: { id: found.id, name: found.name },

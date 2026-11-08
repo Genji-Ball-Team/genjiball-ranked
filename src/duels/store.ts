@@ -1,3 +1,5 @@
+import { displayRating, newRating, type DisplayConfig, type NewRatingConfig } from "../rating/engine";
+import type { Config } from "../config";
 import { nameKey } from "../upload/plan";
 import type { DuelPlayer, PlannedDuel, PlayerDuelRow } from "./plan";
 
@@ -184,12 +186,23 @@ interface RawDuel {
   sides: string;
 }
 
-function toDuel(r: RawDuel): DuelRow | null {
+/** What listing duels reads: each region's new-player start, for a side's first rating. */
+export type DuelListConfig = NewRatingConfig & DisplayConfig & Pick<Config, "ratingNewPlayerStartByRegion">;
+
+/**
+ * A duel's row. A side the duel rated with no earlier rating in the region (their first rating
+ * there) gets the rating they started from as `ratingBefore`, so it shows a change, not "not rated".
+ */
+function toDuel(r: RawDuel, region: string, config: DuelListConfig): DuelRow | null {
   const all = JSON.parse(r.sides) as { log: number; id: number; name: string; after: number | null; before: number | null }[];
+  const start = (): number => {
+    const own = Object.hasOwn(config.ratingNewPlayerStartByRegion, region) ? config.ratingNewPlayerStartByRegion[region] : undefined;
+    return displayRating(newRating({ ...config, ratingNewPlayerStart: own ?? config.ratingNewPlayerStart }, r.playedAt), config);
+  };
   const side = (log: number): DuelSide | null => {
     const s = all.find((x) => x.log === log);
     if (!s) return null;
-    return { id: s.id, name: s.name, ratingAfter: s.after, ratingBefore: s.after === null ? null : s.before };
+    return { id: s.id, name: s.name, ratingAfter: s.after, ratingBefore: s.after === null ? null : (s.before ?? start()) };
   };
   const winner = side(1);
   const loser = side(2);
@@ -200,7 +213,7 @@ function toDuel(r: RawDuel): DuelRow | null {
 const duelColumns = `m.id, m.played_at AS playedAt, d.winner_score AS winnerScore, d.loser_score AS loserScore, d.rated, ${sides} AS sides`;
 
 /** The region's newest duels, older than duel `before` when given (index `matches_duels`). */
-export async function listDuels(db: D1Database, region: string, limit: number, before: number | null): Promise<DuelRow[]> {
+export async function listDuels(db: D1Database, config: DuelListConfig, region: string, limit: number, before: number | null): Promise<DuelRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${duelColumns}
@@ -211,11 +224,11 @@ export async function listDuels(db: D1Database, region: string, limit: number, b
     )
     .bind(region, limit, before)
     .all<RawDuel>();
-  return results.flatMap((r) => toDuel(r) ?? []);
+  return results.flatMap((r) => toDuel(r, region, config) ?? []);
 }
 
 /** The player's duels in the region, newest first, at most `limit`, from their side. */
-export async function listPlayerDuels(db: D1Database, region: string, playerId: number, limit: number): Promise<PlayerDuelRow[]> {
+export async function listPlayerDuels(db: D1Database, config: DuelListConfig, region: string, playerId: number, limit: number): Promise<PlayerDuelRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${duelColumns}
@@ -226,7 +239,7 @@ export async function listPlayerDuels(db: D1Database, region: string, playerId: 
     .bind(region, playerId, limit)
     .all<RawDuel>();
   return results.flatMap((r) => {
-    const duel = toDuel(r);
+    const duel = toDuel(r, region, config);
     if (!duel) return [];
     const won = duel.winner.id === playerId;
     const [mine, theirs] = won ? [duel.winner, duel.loser] : [duel.loser, duel.winner];
