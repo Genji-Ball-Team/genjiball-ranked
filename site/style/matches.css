@@ -1,0 +1,29 @@
+/* The matches page (pages/matches.ts): the matches under a heading for each day, each row's time beside
+   it. With one map for every match shown (`one-map`), the map is left out and only its chips stay.
+   The player filter in the headline is on duels too. */
+.player-filter { width: 16rem; }
+
+#matches:has(> .day:first-child) { border-top: 0; }
+#matches .day {
+  padding: 18px 8px 6px; border-bottom: 1px solid var(--line); color: var(--muted);
+  font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
+  letter-spacing: var(--label-tracking); text-transform: uppercase;
+}
+#matches .day:first-child { padding-block-start: 12px; }
+#matches .when { color: var(--soft); }
+#matches.one-map .map-name { display: none; }
+#matches.one-map .map:not(:has(gb-chip)) { display: none; }
+
+@media (min-width: 641px) {
+  #matches a { grid-template-columns: 5rem minmax(0, 0.7fr) minmax(0, 1.3fr) 8rem; }
+  /* The winner takes the map's room; a chip left (void, a tourney) goes beside the place. */
+  #matches.one-map a { grid-template-columns: 5rem minmax(0, 1fr) auto 8rem; }
+  #matches.one-map a > * { grid-row: 1; }
+  #matches.one-map .podium { grid-column: 2; }
+  #matches.one-map .map { grid-column: 3; }
+  #matches.one-map .side { grid-column: 4; }
+}
+
+@media (max-width: 640px) {
+  .player-filter { width: 100%; }
+}

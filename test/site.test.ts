@@ -501,6 +501,39 @@ describe("recent matches", () => {
     expect((await read("recent?limit=50")).matches).toHaveLength(2);
     expect((await handleSite(new Request("https://example.com/api/recent?limit=0"), db(), config))!.status).toBe(400);
   });
+
+  it("lists one player's matches with player, paging with before, in that player's region", async () => {
+    await playMatches(2);
+    const res = await SELF.fetch("https://example.com/api/upload", {
+      method: "POST",
+      body: matchLog({ key: "000000000900", players: ["Echo", "Bravo", "Charlie", "Delta"] }),
+      headers: { Authorization: `Bearer ${token}`, "X-Log-Started-At": new Date(Date.now() - 60 * 60 * 1000).toISOString() },
+    });
+    expect(res.status).toBe(200);
+    const [alpha, echo] = [await playerId("Alpha"), await playerId("Echo")];
+    const alphaMatches = (await db()
+      .prepare("SELECT DISTINCT match_id AS id FROM match_players WHERE player_id = ? ORDER BY match_id DESC")
+      .bind(alpha)
+      .all<{ id: number }>()).results.map((r) => r.id);
+    expect(alphaMatches).toHaveLength(2);
+
+    const config = { ...defaults, recentMatchesPageSize: 1 };
+    const read = async (path: string) => (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), config))!.json()) as Recent & { player: { id: number; name: string } };
+    const first = await read(`recent?player=${alpha}`);
+    expect(first).toMatchObject({ region: "eu", player: { id: alpha, name: "Alpha" }, hasMore: true });
+    expect(first.matches.map((m) => m.id)).toEqual([alphaMatches[0]]);
+    expect(first.matches[0]!.players.map((p) => p.name).sort()).toEqual(["Alpha", "Bravo", "Charlie", "Delta"]);
+    const rest = await read(`recent?player=${alpha}&before=${first.matches[0]!.id}`);
+    expect(rest).toMatchObject({ hasMore: false });
+    expect(rest.matches.map((m) => m.id)).toEqual([alphaMatches[1]]);
+
+    expect((await get<Recent>(`recent?player=${echo}`)).matches.map((m) => m.id)).toEqual([await matchId("000000000900")]);
+    // Without a player the answer has none.
+    expect(await get<Recent>("recent")).not.toHaveProperty("player");
+    expect(await get<Recent & { player: unknown }>(`recent?region=na&player=${alpha}`)).toMatchObject({ region: "na", player: { id: alpha }, matches: [] });
+    expect((await SELF.fetch("https://example.com/api/recent?player=x")).status).toBe(400);
+    expect((await SELF.fetch("https://example.com/api/recent?player=999999")).status).toBe(404);
+  });
 });
 
 describe("match", () => {

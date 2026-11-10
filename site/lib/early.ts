@@ -28,8 +28,10 @@ export function earlyPaths(pathname: string, search: string, region: string): st
       return id ? [`players/${id}?${r}`, `players/${id}/history?${r}`, `titles?${r}`, lobbies] : [lobbies];
     case "/match":
       return id ? [`matches/${id}`, lobbies] : [lobbies];
-    case "/matches":
-      return [`recent?${r}`, lobbies];
+    case "/matches": {
+      const player = query.get("player") ?? "";
+      return [/^[1-9]\d{0,15}$/.test(player) ? `recent?${r}&player=${player}` : `recent?${r}`, lobbies];
+    }
     case "/records":
       return [`records?${r}`, lobbies];
     case "/tourneys":
