@@ -20,15 +20,15 @@
 }
 .duel-card .name.won { color: var(--fg); font-weight: 700; }
 .duel-card a.name:hover { text-decoration: underline; text-decoration-color: var(--green); text-underline-offset: 3px; }
-.duel-card .change { color: var(--soft); font-size: 0.9rem; }
+.duel-card .change { color: var(--soft); font-size: var(--body-size); }
 .duel-card .score { display: grid; justify-items: center; line-height: 1.15; }
 .duel-card .score b { font-size: 1.4rem; font-stretch: var(--display-width); color: var(--soft); }
 .duel-card .score .won { color: var(--green); }
-.duel-card .score small { color: var(--muted); font-size: 0.8rem; }
+.duel-card .score small { color: var(--muted); font-size: var(--small-size); }
 
 /* A player's own duels: result, opponent, score, day, change. */
 .duel.mine .duel-card { grid-template-columns: auto 1fr auto auto auto; padding-block: 10px; }
-.duel.mine .result { display: grid; place-items: center; inline-size: 1.75rem; block-size: 1.75rem; border-radius: var(--r-chip); font-weight: 700; font-size: 0.85rem; }
+.duel.mine .result { display: grid; place-items: center; inline-size: 1.75rem; block-size: 1.75rem; border-radius: var(--r-chip); font-weight: 700; font-size: var(--compact-size); }
 .duel.mine .result.won { background: color-mix(in oklab, var(--green) 22%, transparent); color: var(--green); }
 .duel.mine .result.lost { background: color-mix(in oklab, var(--down) 22%, transparent); color: var(--down); }
 .duel.mine .vs { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
@@ -77,5 +77,5 @@
   .duel-card .score b { font-size: 1.25rem; }
   .duel.mine .duel-card { grid-template-columns: auto 1fr auto auto; }
   .duel.mine .when { display: none; }
-  .duel-opponents li { grid-template-columns: 1fr 3.25rem 4.5rem 3.25rem; font-size: 0.9rem; }
+  .duel-opponents li { grid-template-columns: 1fr 3.25rem 4.5rem 3.25rem; font-size: var(--body-size); }
 }

@@ -24,7 +24,14 @@ export const killDeath = (kills: number, deaths: number): string =>
 export const date = (iso: string): string =>
   new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
-export const dateTime = (iso: string): string =>
+/**
+ * A short date for under a chart: "Oct 5", or "Oct 2025" when `years` (the dates shown span more
+ * than one year), so the ends of a long range still say which year they're in.
+ */
+export const shortDate = (iso: string, years = false): string =>
+  new Date(iso).toLocaleDateString(undefined, years ? { year: "numeric", month: "short" } : { month: "short", day: "numeric" });
+
+export const dateTime =(iso: string): string =>
   new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** "3 days ago": how long ago something was, for beside a date. */

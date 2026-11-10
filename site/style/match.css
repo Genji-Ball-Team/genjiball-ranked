@@ -23,7 +23,7 @@
 
 .standings .name { inline-size: 100%; }
 .standings tr.first > td:first-child { color: var(--gold); font-weight: 700; }
-.standings .change gb-delta { margin-inline-start: 4px; font-size: 0.85rem; }
+.standings .change gb-delta { margin-inline-start: 4px; font-size: var(--compact-size); }
 
 /* A column a round: the place, a filled square for the winner, faint for left or away, hatched when
    the round isn't rated. */
@@ -41,11 +41,11 @@
 .rounds .r.end { border-inline-start: 1px solid var(--line); padding-inline: 8px; }
 .rounds td.r.total { font-weight: 700; }
 
-/* A phone keeps the place, name, wins, kills, deflects and rating; touches, streak and the New chip
-   go, and the change sits under the rating, so the rating fits without scrolling. */
+/* A phone drops the New chip and puts the change under the rating; the table itself drops touches
+   and streak, then deflects, when they still don't fit (data-priority), so the rating needs no scrolling. */
 @media (max-width: 640px) {
-  .standings .extra, .standings .change gb-chip { display: none; }
+  .standings .change gb-chip { display: none; }
   .standings .name { inline-size: auto; }
-  .standings :is(th, td) { padding-inline: 6px; }
+  .standings :is(th, td) { padding-inline: 8px; }
   .standings .change gb-delta { display: block; margin-inline-start: 0; line-height: 1.1; }
 }

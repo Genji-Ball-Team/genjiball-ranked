@@ -12,7 +12,7 @@ body.admin {
   #side-nav a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: var(--r); color: var(--soft); text-decoration: none; }
   #side-nav a:hover { background: var(--raised); color: var(--fg); }
   #side-nav a[aria-current="page"] { background: var(--raised); color: var(--fg); box-shadow: inset 2px 0 0 var(--green); }
-  .badge { min-inline-size: 1.4rem; padding: 0 6px; border-radius: 999px; background: var(--raised); border: 1px solid var(--border); color: var(--fg); font-size: 0.8rem; text-align: center; font-variant-numeric: tabular-nums; }
+  .badge { min-inline-size: 1.4rem; padding: 0 6px; border-radius: 999px; background: var(--raised); border: 1px solid var(--border); color: var(--fg); font-size: var(--small-size); text-align: center; font-variant-numeric: tabular-nums; }
   /* A field in a table row: the column heading names it, the label stays for screen readers. */
   gb-field.bare > .gb-field-label { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .side-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-inline: 12px; font-size: var(--body-size); }
@@ -49,7 +49,7 @@ body.admin {
   a.button { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--control-border); border-radius: var(--r); color: var(--fg); text-decoration: none; }
   a.button:hover { background: var(--raised); }
   .hint { color: var(--muted); }
-  gb-button.small::part(button) { padding-block: 4px; font-size: 0.9rem; }
+  gb-button.small::part(button) { padding-block: 4px; font-size: var(--body-size); }
   gb-button.danger::part(button) { color: var(--down); }
   gb-chip.warn { --chip: var(--soft); }
   gb-chip.good { --chip: var(--green); }
@@ -155,7 +155,7 @@ body.admin {
   .dropzone:focus-within { outline: 2px solid var(--green); outline-offset: 2px; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; margin-block: 12px; }
   .parse { display: grid; gap: 12px; margin-block-start: 16px; }
-  .parse pre { max-block-size: 24rem; overflow: auto; padding: 12px; border-radius: var(--r); background: var(--bg); font-size: 0.85rem; }
+  .parse pre { max-block-size: 24rem; overflow: auto; padding: 12px; border-radius: var(--r); background: var(--bg); font-size: var(--compact-size); }
   .parse details { color: var(--soft); }
 
   @media (max-width: 760px) {

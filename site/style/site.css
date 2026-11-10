@@ -80,7 +80,7 @@ main { flex: 1; padding-block: 32px 48px; }
 .ladder gb-skeleton { min-block-size: 52px; }
 .band {
   position: sticky; top: var(--cols-h); z-index: 2;
-  margin-block-start: 20px; padding: 8px 0 6px; background: var(--bg); color: var(--muted); font-size: 0.8rem;
+  margin-block-start: 20px; padding: 8px 0 6px; background: var(--bg); color: var(--muted); font-size: var(--small-size);
 }
 .band > span { display: flex; align-items: center; gap: 10px; }
 .band:first-child { margin-block-start: 0; }
@@ -116,13 +116,13 @@ main { flex: 1; padding-block: 32px 48px; }
   display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere;
   font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width);
 }
-.who small { display: block; color: var(--muted); font-size: 0.8rem; }
+.who small { display: block; color: var(--muted); font-size: var(--small-size); }
 .entry .stats { display: none; }
 .entry .rating { font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); }
 .entry .rating.floor { color: var(--muted); font-weight: 400; }
 .entry.inactive .who b, .entry.inactive .rating { color: var(--muted); }
 .entry.inactive::before { opacity: 0.45; }
-.entry .played { font-size: 0.85rem; white-space: nowrap; }
+.entry .played { font-size: var(--compact-size); white-space: nowrap; }
 /* "This is me": a raised row with a label, so it shows without taking a colour. */
 .entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
 .you {
@@ -136,7 +136,7 @@ main { flex: 1; padding-block: 32px 48px; }
    pill per set part that removes it. */
 .filter-count {
   display: inline-grid; place-items: center; min-inline-size: 20px; block-size: 20px; margin-inline-start: 8px; padding-inline: 5px;
-  border-radius: 10px; background: var(--green); color: var(--bg); font-size: 0.75rem; font-weight: 700;
+  border-radius: 10px; background: var(--green); color: var(--bg); font-size: var(--small-size); font-weight: 700;
 }
 .filter-count[hidden] { display: none; }
 .filter-box { display: grid; gap: 16px; inline-size: 296px; max-inline-size: 100%; }
@@ -152,7 +152,7 @@ main { flex: 1; padding-block: 32px 48px; }
 .filter-pills:empty { display: none; }
 .filter-pill, .filter-pill-clear {
   display: inline-flex; align-items: center; gap: 6px; block-size: 30px; margin: 0; padding: 0 6px 0 10px; border: 0;
-  border-radius: 15px; background: var(--raised); color: var(--soft); font: inherit; font-size: 0.82rem; cursor: pointer;
+  border-radius: 15px; background: var(--raised); color: var(--soft); font: inherit; font-size: var(--compact-size); cursor: pointer;
 }
 .filter-pill b { color: var(--fg); font-weight: 600; }
 .filter-pill .x { display: grid; place-items: center; inline-size: 20px; block-size: 20px; border-radius: 10px; color: var(--muted); }
@@ -161,7 +161,7 @@ main { flex: 1; padding-block: 32px 48px; }
 .filter-pill-clear:hover { color: var(--fg); }
 .filter-pill:focus-visible, .filter-pill-clear:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
 @media (pointer: coarse) { .filter-pill, .filter-pill-clear { block-size: 40px; border-radius: 20px; } }
-.matched { margin-block: 14px 0; color: var(--muted); font-size: 0.82rem; }
+.matched { margin-block: 14px 0; color: var(--muted); font-size: var(--compact-size); }
 .matched[hidden] { display: none; }
 .pager { margin-block-start: 24px; }
 /* gb-search draws its shortcut hint even without a shortcut: hide the empty one (fix in genjiball-ui). */
@@ -248,7 +248,6 @@ h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(-
 .facts small { color: var(--muted); font-weight: 400; }
 .graph { margin-block-start: 16px; }
 .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px 24px; flex-wrap: wrap; }
-.chart-dates { display: flex; justify-content: space-between; margin: 4px 0 0; color: var(--muted); font-size: 0.8rem; }
 /* Form: a square a round, its place in it. A win is the only filled one. */
 .form { list-style: none; display: flex; flex-wrap: wrap; gap: 4px; margin: 16px 0 0; padding: 0; }
 .form a {
@@ -264,8 +263,8 @@ h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(-
 .rivals li { display: grid; grid-template-columns: minmax(0, 1fr) auto 7rem auto; gap: 0 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--line); }
 .rivals li > a:first-child { color: var(--fg); font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width); text-decoration: none; overflow-wrap: anywhere; }
 .rivals li > a:first-child:hover { text-decoration: underline; }
-.rivals small { color: var(--muted); font-size: 0.85rem; text-align: end; white-space: nowrap; }
-.rivals .vs { color: var(--muted); font-size: 0.85rem; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.rivals small { color: var(--muted); font-size: var(--compact-size); text-align: end; white-space: nowrap; }
+.rivals .vs { color: var(--muted); font-size: var(--compact-size); text-decoration-color: var(--border); text-underline-offset: 3px; }
 .rivals .vs:hover { color: var(--green); }
 /* Recent matches: when, map, the rating after and its change. */
 .history[data-loading] { display: grid; gap: 6px; padding-block-start: 6px; border: 0; }
@@ -280,10 +279,10 @@ h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(-
 .history .place { display: flex; align-items: baseline; gap: 8px; color: var(--soft); }
 .history .place b { min-width: 2.25rem; font-weight: 600; }
 .history .place b.won { color: var(--fg); font-weight: 700; }
-.history .place small { color: var(--muted); font-size: 0.85rem; }
+.history .place small { color: var(--muted); font-size: var(--compact-size); }
 .more { display: flex; width: fit-content; margin: 16px auto 0; }
 .history .change { display: flex; justify-content: end; align-items: baseline; gap: 6px; font-size: 1.1rem; font-weight: 600; font-stretch: var(--title-width); }
-.history .change span, .history .change gb-delta { font-size: 0.9rem; font-weight: 400; }
+.history .change span, .history .change gb-delta { font-size: var(--body-size); font-weight: 400; }
 /* A player's recent list: the place right after the map, or after the date when every match was on one map. The matches page's list has the same id (`.feed`). */
 #matches:not(.feed) a { grid-template-columns: 9rem 11rem minmax(0, 1fr) 8rem; }
 #matches.no-map:not(.feed) a { grid-template-columns: 9rem minmax(0, 1fr) 8rem; }
@@ -294,7 +293,7 @@ gb-chip.void { color: var(--down); }
 .feed a { grid-template-columns: 9rem minmax(0, 0.7fr) minmax(0, 1.3fr) 8rem; }
 .feed .podium { display: flex; flex-direction: column; min-width: 0; }
 .feed .podium b { font-weight: 600; overflow-wrap: anywhere; }
-.feed .podium small { color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; }
+.feed .podium small { color: var(--muted); font-size: var(--compact-size); overflow-wrap: anywhere; }
 .feed .side { display: flex; justify-content: end; align-items: baseline; gap: 8px; white-space: nowrap; }
 .feed .side b { font-weight: 600; color: var(--soft); }
 .feed .side b.won { color: var(--fg); font-weight: 700; }
@@ -338,7 +337,7 @@ gb-chip.void { color: var(--down); }
 /* Footer: one quiet line. */
 .foot {
   display: flex; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap;
-  padding-block: 20px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.8rem;
+  padding-block: 20px 28px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--small-size);
 }
 .foot-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .foot-links a { color: var(--muted); text-decoration: none; white-space: nowrap; }
@@ -405,7 +404,7 @@ gb-chip.void { color: var(--down); }
   .who .stats { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .who .inactive-note { display: none; }
   .entry .rating { line-height: 1.1; }
-  .rating .stats { color: var(--muted); font-size: 0.8rem; font-weight: 400; font-stretch: normal; line-height: 1.4; }
+  .rating .stats { color: var(--muted); font-size: var(--small-size); font-weight: 400; font-stretch: normal; line-height: 1.4; }
   /* Three figures a row, so K/D doesn't wrap alone. */
   .figures { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; }
   .figures div { padding-inline: 16px; }
@@ -417,15 +416,15 @@ gb-chip.void { color: var(--down); }
   .rivals .vs { grid-column: 3; grid-row: 1 / 3; align-self: center; }
   .history a { grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }
   .history .when { grid-column: 1; }
-  .history .map { grid-column: 1; font-size: 0.85rem; }
-  .history .place { grid-column: 1; font-size: 0.85rem; }
+  .history .map { grid-column: 1; font-size: var(--compact-size); }
+  .history .place { grid-column: 1; font-size: var(--compact-size); }
   .history .place b { min-width: 0; }
   .history .change { grid-column: 2; grid-row: 1 / 4; align-self: center; }
   #matches:not(.feed) a, #matches.no-map:not(.feed) a { grid-template-columns: minmax(0, 1fr) auto; }
   .feed a { grid-template-columns: minmax(0, 1fr) auto; }
   .feed .when, .feed .map, .feed .podium { grid-column: 1; }
   .feed .map { order: 1; }
-  .feed .side { grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: 0.85rem; }
+  .feed .side { grid-column: 2; grid-row: 1 / 4; align-self: center; font-size: var(--compact-size); }
   .seal { flex-basis: 100%; margin: 0; text-align: start; }
 }
 

@@ -45,5 +45,5 @@
   .share-label { display: none; }
   .share-preview img { max-height: 36vh; }
   .share-styles { gap: 4px; }
-  .share-styles button { letter-spacing: 0; font-size: 0.6875rem; }
+  .share-styles button { letter-spacing: 0; font-size: var(--label-size); }
 }
