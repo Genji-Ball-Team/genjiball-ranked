@@ -68,7 +68,8 @@ const maxHeaderLine = 2000;
 
 /** public/_headers: site/_headers, then each page's module and the chunks it imports. */
 async function writeHeaders(metafile) {
-  let text = await withStyleHashes(readFileSync("site/_headers", "utf8"));
+  // LF only: a Windows checkout (core.autocrlf) gives site/_headers CRLF, and the preloads below add LF.
+  let text = await withStyleHashes(readFileSync("site/_headers", "utf8").replace(/\r\n/g, "\n"));
   for (const [file, output] of Object.entries(metafile?.outputs ?? {})) {
     // A page's module only: a module loaded by import() (share-sheet.ts) is an entry point too.
     const path = output.entryPoint?.startsWith("site/pages/") && pagePath(plainName(file));
