@@ -189,6 +189,7 @@ describe("match stats (#15)", () => {
     players,
     rounds,
     roundPlayers,
+    ratingsBefore: new Map(),
   });
   const player = (logId: number, playerId: number, kills: number) => ({ logId, playerId, name: String(playerId), kills, ratingBefore: null, ratingAfter: null });
   const entry = (roundId: number, logId: number, position: number | null, left = false) =>

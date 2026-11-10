@@ -35,7 +35,10 @@
       <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
     </div>
     <section id="rounds-section">
-      <h2>Rounds</h2>
+      <div class="rounds-head">
+        <h2>Rounds</h2>
+        <gb-segmented id="round-view" label="Rounds show" value="place" hidden><button value="place">Place</button><button value="rating">Rating change</button></gb-segmented>
+      </div>
       <div id="result" class="recap" aria-busy="true" data-loading>
         <gb-skeleton block></gb-skeleton><gb-skeleton block></gb-skeleton>
       </div>

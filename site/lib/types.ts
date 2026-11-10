@@ -112,6 +112,8 @@ export interface PlayerMatch {
 export interface PlayerMatches {
   region: string;
   matches: PlayerMatch[];
+  /** Their duels among these matches (by id). */
+  duels: PlayerDuel[];
   hasMore: boolean;
 }
 
@@ -155,6 +157,8 @@ export interface PlayerPage {
     rating: PlayerRating | null;
   };
   matches: PlayerMatch[];
+  /** Their duels among `matches` (by id). */
+  duels: PlayerDuel[];
   moreMatches: boolean;
   mostEliminated: Rival[];
   mostEliminatedBy: Rival[];
@@ -204,6 +208,8 @@ export interface MatchPlayer {
   longestStreak: number;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  /** Rating points the match moved them after its last round (its cap, or a tourney's standings). */
+  ratingAfterRounds: number | null;
   place: number;
 }
 
@@ -217,6 +223,8 @@ export interface Placement {
   kills: number;
   deflects: number;
   touches: number;
+  /** Rating points this round moved them; null when it moved none or isn't known. */
+  ratingChange: number | null;
 }
 
 export interface Round {
@@ -245,6 +253,8 @@ export interface Match {
   tourney: { id: number; name: string; lobby: string } | null;
   players: MatchPlayer[];
   rounds: Round[];
+  /** Whether the rounds' `ratingChange` and the players' `ratingAfterRounds` are given. */
+  ratingChanges: boolean;
 }
 
 /** `GET /api/rules`: how ranked works, from the server's config. */
