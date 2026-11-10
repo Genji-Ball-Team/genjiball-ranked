@@ -7,7 +7,7 @@ import "@genji-ball-team/ui/pager.js";
 import type { GbPager } from "@genji-ball-team/ui/pager.js";
 import { api, inRegion } from "../lib/api";
 import { count, title } from "../lib/format";
-import { byId, html, render, type Html } from "../lib/html";
+import { byId, html, raw, render, type Html } from "../lib/html";
 import { loaded, pastEnd, showError } from "../lib/load";
 import { site } from "../lib/site";
 import {
@@ -62,7 +62,7 @@ function pastItem(t: Tourney): Html {
     .map((l) => html`<img src="${l.screenshot}" alt="" loading="lazy" decoding="async">`);
   const flag = t.status === "cancelled" ? statusChip("cancelled") : played(t) && verifiedChip(t.lobbies.every((l) => l.verified));
   const none = t.status === "cancelled" ? "Didn't take place." : "No results yet.";
-  return html`<li><a href="${tourneyLink(t.id)}">
+  return html`<li${t.status === "cancelled" && raw(' class="cancelled"')}><a href="${tourneyLink(t.id)}">
     ${dateBlock(t.startsAt)}
     <span class="what"><b>${t.name}</b>${results.length ? results : html`<small class="muted">${none}</small>`}</span>
     <span class="side">${flag}${thumbs.length > 0 && html`<span class="thumbs">${thumbs}</span>`}</span></a></li>`;
@@ -75,9 +75,13 @@ async function tourneysPage(): Promise<void> {
   const past = byId("past");
   try {
     const list = await api<TourneyList>(`tourneys?${inRegion()}&page=${page}`);
-    if (list.upcoming.length) {
+    // Upcoming only comes with the first page.
+    if (page === 1) {
       byId("upcoming-section").hidden = false;
-      render(byId("upcoming"), html`${list.upcoming.map(upcomingItem)}`);
+      render(
+        byId("upcoming"),
+        list.upcoming.length ? html`${list.upcoming.map(upcomingItem)}` : html`<li><gb-empty>No ${short} tourney is planned yet.</gb-empty></li>`,
+      );
     }
     loaded(
       past,
