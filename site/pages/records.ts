@@ -57,12 +57,6 @@ const recordList: { key: string; label: string; show: (r: RecordEntry) => string
   { key: "matchWins", label: "Most rounds won in a match", show: (r) => num(r.value), where: playedOn },
   { key: "matchKills", label: "Most kills in a match", show: (r) => num(r.value), where: playedOn },
   { key: "roundDeflects", label: "Most deflects in a round", show: (r) => num(r.value), where: (r) => html`round ${r.round}, ${playedOn(r)}` },
-  {
-    key: "fastestDeflect",
-    label: "Fastest deflect",
-    show: (r) => num(Math.round(r.value)),
-    where: (r) => html`ball speed in m/s, round ${r.round}, ${playedOn(r)}`,
-  },
   { key: "mostWins", label: "Most rounds won", show: (r) => num(r.value), where: () => "" },
   { key: "mostRounds", label: "Most rounds played", show: (r) => num(r.value), where: () => "" },
 ];

@@ -44,8 +44,8 @@ function drawRegions(): void {
   );
 }
 
-/** Makes a `<gb-search>` find players in this page's region (`/api/players?search=`). */
-export function findPlayers(search: GbSearch): void {
+/** Makes a `<gb-search>` find players in this page's region (`/api/players?search=`), each result a `link`. */
+export function findPlayers(search: GbSearch, link: (id: number) => string = playerLink): void {
   search.addEventListener("query", (event) => {
     const { query, signal, answer, fail } = (event as CustomEvent<SearchQuery>).detail;
     api<FoundPlayers>(`players?search=${encodeURIComponent(query)}&${inRegion()}`, { signal })
@@ -56,7 +56,7 @@ export function findPlayers(search: GbSearch): void {
             tier: tierName(p.tier),
             note: p.matchedAlias ? `was ${p.matchedAlias}` : undefined,
             detail: rating(p.rating),
-            href: playerLink(p.id),
+            href: link(p.id),
           })),
         ),
       )

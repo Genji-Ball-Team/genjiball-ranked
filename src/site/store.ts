@@ -424,19 +424,41 @@ export interface RecentPlayerRow {
  * The region's newest public matches by play time, older than match `before` when given, with their
  * players. Each status is walked down index `matches_region_status_played` and stops at the limit,
  * so a page reads about `limit` match rows, not the region's every match.
+ *
+ * With `playerId`, only that player's matches, newest by id like `listPlayerMatches` (and `before`
+ * then a match id they played in): walked down index `match_players_player`, stopping at the limit.
  */
-export async function listRecentMatches(db: D1Database, board: string, limit: number, before: number | null): Promise<RecentMatchRow[]> {
-  const older = before === null ? "" : "AND (played_at, id) < (SELECT played_at, id FROM matches WHERE id = ?3)";
-  const newest = (status: string) =>
-    `SELECT * FROM (SELECT id, played_at FROM matches WHERE region = ?1 AND status = '${status}' AND duel = 0 ${older} ORDER BY played_at DESC, id DESC LIMIT ?2)`;
-  const page = `SELECT id FROM (${newest("accepted")} UNION ALL ${newest("void")}) ORDER BY played_at DESC, id DESC LIMIT ?2`;
-  const params = before === null ? [board, limit] : [board, limit, before];
+export async function listRecentMatches(
+  db: D1Database,
+  board: string,
+  limit: number,
+  before: number | null,
+  playerId: number | null = null,
+): Promise<RecentMatchRow[]> {
+  let page: string;
+  let order: string;
+  let params: (string | number | null)[];
+  if (playerId === null) {
+    const older = before === null ? "" : "AND (played_at, id) < (SELECT played_at, id FROM matches WHERE id = ?3)";
+    const newest = (status: string) =>
+      `SELECT * FROM (SELECT id, played_at FROM matches WHERE region = ?1 AND status = '${status}' AND duel = 0 ${older} ORDER BY played_at DESC, id DESC LIMIT ?2)`;
+    page = `SELECT id FROM (${newest("accepted")} UNION ALL ${newest("void")}) ORDER BY played_at DESC, id DESC LIMIT ?2`;
+    order = "m.played_at DESC, m.id DESC";
+    params = before === null ? [board, limit] : [board, limit, before];
+  } else {
+    // Grouped and sorted on `mp.match_id`, so SQLite walks the index and stops at the limit.
+    page = `SELECT mp.match_id AS id FROM match_players mp JOIN matches m ON m.id = mp.match_id
+      WHERE mp.player_id = ?4 AND m.region = ?1 AND m.status IN ${publicStatuses} AND m.duel = 0 AND (?3 IS NULL OR mp.match_id < ?3)
+      GROUP BY mp.match_id ORDER BY mp.match_id DESC LIMIT ?2`;
+    order = "m.id DESC";
+    params = [board, limit, before, playerId];
+  }
   const [matches, players] = await db.batch([
     db
       .prepare(
         `WITH page AS MATERIALIZED (${page})
          SELECT m.id, m.played_at AS playedAt, m.map, m.legacy, m.status = 'void' AS void, m.tournament, ${tourneyRef}
-         FROM page CROSS JOIN matches m ON m.id = page.id ORDER BY m.played_at DESC, m.id DESC`,
+         FROM page CROSS JOIN matches m ON m.id = page.id ORDER BY ${order}`,
       )
       .bind(...params),
     // A player who rejoined has two log ids: one row, their totals added up, with the name they last joined as.

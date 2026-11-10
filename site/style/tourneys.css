@@ -30,6 +30,8 @@
   .thumbs { display: flex; gap: 6px; }
   .thumbs img { inline-size: 4.5rem; block-size: 2.75rem; object-fit: cover; border-radius: var(--r-chip); border: 1px solid var(--border); background: var(--panel); }
   gb-chip.cancelled { color: var(--down); }
+  /* A cancelled tourney steps back behind the played ones around it. */
+  .events .cancelled :is(.what > b, .day b) { color: var(--muted); font-weight: 600; }
   gb-chip.unverified { --chip: var(--muted); }
 
   #facts { list-style: none; padding: 0; }

@@ -91,6 +91,8 @@ export function playLost(): void {
   let pops: Pop[] = [];
 
   bestOut.textContent = String(best);
+  // The page says mouse; a touch screen drags and taps instead (see the input below).
+  if (matchMedia("(pointer: coarse)").matches) sub.textContent = "Drag to move. Tap to deflect.";
 
   function readColors(): void {
     const css = getComputedStyle(document.documentElement);

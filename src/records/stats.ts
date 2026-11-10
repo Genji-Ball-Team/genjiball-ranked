@@ -35,8 +35,8 @@ export interface FeedMatch {
 
 /** Counted per match from the events and rounds, by log id. */
 export interface MatchCounts {
-  /** A player's `DEFLECT`s in one round, and the fastest. */
-  deflects: { matchId: number; round: number | null; logId: number; count: number; fastest: number | null }[];
+  /** A player's `DEFLECT`s in one round. */
+  deflects: { matchId: number; round: number | null; logId: number; count: number }[];
   /** A player's `KILL`s (not of themselves) in the match. */
   kills: { matchId: number; logId: number; count: number }[];
   /** Rated rounds a log id won. */
@@ -59,9 +59,6 @@ export interface MatchStatsRow {
   roundDeflects: number | null;
   roundDeflectsBy: number | null;
   roundDeflectsRound: number | null;
-  fastestDeflect: number | null;
-  fastestDeflectBy: number | null;
-  fastestDeflectRound: number | null;
   matchKills: number | null;
   matchKillsBy: number | null;
   matchWins: number | null;
@@ -126,15 +123,11 @@ export function matchStats(matches: readonly FeedMatch[], counts: MatchCounts): 
 
     const deflects = deflectsByMatch.get(match.id) ?? [];
     const rounds = new Map<number | null, Map<number, number>>();
-    let fastest: Best | null = null;
     for (const d of deflects) {
       const player = by(d.logId);
       let totals = rounds.get(d.round);
       if (!totals) rounds.set(d.round, (totals = new Map()));
       totals.set(player, (totals.get(player) ?? 0) + d.count);
-      if (d.fastest === null) continue;
-      const candidate = { value: d.fastest, by: player, round: d.round };
-      if (better(fastest, candidate)) fastest = candidate;
     }
     let perRound: Best | null = null;
     for (const [round, totals] of rounds) {
@@ -155,9 +148,6 @@ export function matchStats(matches: readonly FeedMatch[], counts: MatchCounts): 
       roundDeflects: perRound?.value ?? null,
       roundDeflectsBy: perRound?.by ?? null,
       roundDeflectsRound: perRound?.round ?? null,
-      fastestDeflect: fastest?.value ?? null,
-      fastestDeflectBy: fastest?.by ?? null,
-      fastestDeflectRound: fastest?.round ?? null,
       matchKills: kills?.value ?? null,
       matchKillsBy: kills?.by ?? null,
       matchWins: wins?.value ?? null,
@@ -190,7 +180,6 @@ export interface CareerRecord {
 /** Each record's holders, best first, each player once: at most `recordsTop`. */
 export interface Records {
   roundDeflects: MatchRecord[];
-  fastestDeflect: MatchRecord[];
   matchKills: MatchRecord[];
   matchWins: MatchRecord[];
   highestRating: MatchRecord[];
@@ -200,13 +189,13 @@ export interface Records {
 }
 
 /** The records set in a match, by name: the ones a match leaving the region's records can take away. */
-export const matchRecordNames = ["roundDeflects", "fastestDeflect", "matchKills", "matchWins", "highestRating"] as const;
+export const matchRecordNames = ["roundDeflects", "matchKills", "matchWins", "highestRating"] as const;
 export type MatchRecordName = (typeof matchRecordNames)[number];
 
 /** The records set in matches this month (UTC): the match records, not the career ones. */
 export type MonthRecords = Pick<Records, MatchRecordName>;
 
-export const noMonthRecords: MonthRecords = { roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [], highestRating: [] };
+export const noMonthRecords: MonthRecords = { roundDeflects: [], matchKills: [], matchWins: [], highestRating: [] };
 
 export const noRecords: Records = { ...noMonthRecords, winStreak: [], mostRounds: [], mostWins: [] };
 

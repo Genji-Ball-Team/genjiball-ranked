@@ -29,6 +29,9 @@ test("filters and searches are the same page; a later page is its own", () => {
   assert.equal(canonicalPath("/", "?page=3&region=eu", "eu"), "/?page=3&region=eu");
   assert.equal(canonicalPath("/", "?page=1", "eu"), "/?region=eu");
   assert.equal(canonicalPath("/tourneys", "?page=2", "na"), "/tourneys?page=2&region=na");
+  // One player's matches or duels: a filter of the region's list (their own page is /player).
+  assert.equal(canonicalPath("/matches", "?player=12&region=eu", "eu"), "/matches?region=eu");
+  assert.equal(canonicalPath("/duels.html", "?player=12", "na"), "/duels?region=na");
 });
 
 test("a player and a compare page keep their ids and region; a match and a tourney only the id", () => {

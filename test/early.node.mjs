@@ -39,6 +39,12 @@ test("a match page asks for the match without a region", () => {
   assert.deepEqual(earlyPaths("/match.html", "?id=7", "eu"), ["matches/7", "lobbies?region=eu"]);
 });
 
+test("the matches page asks for one player's matches with a valid player", () => {
+  assert.deepEqual(earlyPaths("/matches", "", "eu"), ["recent?region=eu", "lobbies?region=eu"]);
+  assert.deepEqual(earlyPaths("/matches", "?player=12&region=na", "na"), ["recent?region=na&player=12", "lobbies?region=na"]);
+  assert.deepEqual(earlyPaths("/matches", "?player=x", "eu")[0], "recent?region=eu");
+});
+
 test("the live page and pages without early reads ask only for lobbies", () => {
   assert.deepEqual(earlyPaths("/live", "", "eu"), ["lobbies?region=eu"]);
   assert.deepEqual(earlyPaths("/data", "", "eu"), ["lobbies?region=eu"]);

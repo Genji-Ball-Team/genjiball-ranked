@@ -10,6 +10,7 @@
 @import "./match.css";
 @import "./ranked.css";
 @import "./duels.css";
+@import "./matches.css";
 
 html {
   /* The scrollbar's room is kept on every page, so the layout doesn't shift sideways between a page

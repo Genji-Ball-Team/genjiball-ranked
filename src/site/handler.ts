@@ -161,7 +161,12 @@ export async function handleSite(
       if (before === null && url.searchParams.has("before")) return fail(400, "bad_request", "before must be a match id");
       const limit = url.searchParams.has("limit") ? pageNumber(url.searchParams.get("limit")) : config.recentMatchesPageSize;
       if (limit === null) return fail(400, "bad_request", "limit must be a positive number");
-      return Response.json(await recent(db, region, before, Math.min(limit, config.recentMatchesPageSize)));
+      // `?player=<id>`: only that player's matches (the matches page's filter).
+      const playerId = url.searchParams.has("player") ? positiveId(url.searchParams.get("player")) : null;
+      if (playerId === null && url.searchParams.has("player")) return fail(400, "bad_request", "player must be a player id");
+      const player = playerId === null ? null : await findCanonicalPlayer(db, playerId);
+      if (playerId !== null && !player) return fail(404, "not_found", "No such player");
+      return Response.json(await recent(db, region, before, Math.min(limit, config.recentMatchesPageSize), player));
     },
     duels: async () => {
       const before = url.searchParams.has("before") ? positiveId(url.searchParams.get("before")) : null;
@@ -404,15 +409,15 @@ function placeIn(everyone: readonly Totals[], mine: Totals): number {
 }
 
 /** A page of `size` of the region's newest matches, older than match `before` when given, each with its players in place order. */
-async function recent(db: D1Database, region: Region, before: number | null, size: number) {
-  const rows = await listRecentMatches(db, region.id, size + 1, before);
+async function recent(db: D1Database, region: Region, before: number | null, size: number, player: { id: number; name: string } | null) {
+  const rows = await listRecentMatches(db, region.id, size + 1, before, player?.id ?? null);
   const matches = rows.slice(0, size).map((m) => ({
     ...m,
     players: m.players
       .map((p) => ({ ...p, place: placeIn(m.players, p) }))
       .sort((a, b) => a.place - b.place || a.name.localeCompare(b.name)),
   }));
-  return { region: region.id, matches, hasMore: rows.length > size };
+  return { region: region.id, ...(player && { player: { id: player.id, name: player.name } }), matches, hasMore: rows.length > size };
 }
 
 /**

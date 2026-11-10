@@ -129,6 +129,8 @@ export interface RecentPlayer {
 /** `GET /api/recent`: the region's newest matches. */
 export interface RecentMatches {
   region: string;
+  /** With `?player=`: whose matches these are. */
+  player?: { id: number; name: string };
   matches: (Omit<PlayerMatch, "ratingBefore" | "ratingAfter" | "place" | "roundWins"> & { players: RecentPlayer[] })[];
   hasMore: boolean;
 }
