@@ -15,7 +15,7 @@ beforeEach(async () => {
   const tables = ["events", "round_players", "rounds", "match_players", "rating_history", "ratings", "matches", "uploads", "aliases", "players", "hosts"];
   await db().batch([
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
-    db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
+    db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL, board_players = 0"),
     db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'trusted', ?, 'trusted', 'eu')").bind(await sha256(token)),
   ]);
 });
@@ -55,6 +55,7 @@ interface Board {
 interface Filtered extends Board {
   filter: { tiers: string[]; played: number | null; rounds: number | null; min: number | null; max: number | null };
   matched: number | null;
+  total: number | null;
 }
 
 describe("standing", () => {
@@ -261,6 +262,22 @@ describe("leaderboard", () => {
     expect((await db().prepare("SELECT display FROM ratings WHERE player_id = ?").bind(first!.id).first<{ display: number }>())!.display).toBe(first!.rating);
     const { player } = await get<{ player: { rating: { rank: number | null } } }>(`players/${second!.id}`);
     expect(player.rating.rank).toBe(1);
+  });
+
+  it("gives the board's player count in total, kept by the rating writes, on every page and filter", async () => {
+    await playMatches(matchesToRank - 1);
+    expect((await get<Filtered>("leaderboard")).total).toBe(0);
+    await playMatches(1);
+    const config = { ...defaults, leaderboardPageSize: 3 };
+    const page = async (query: string) => {
+      const res = await handleSite(new Request(`https://example.com/api/leaderboard?${query}`), db(), config);
+      return (await res!.json()) as Filtered;
+    };
+    expect(await page("page=2")).toMatchObject({ total: 4, matched: null, hasMore: false });
+    expect(await page("tier=none")).toMatchObject({ total: 4 });
+    // A region whose count was never stored answers null.
+    await db().prepare("UPDATE rating_state SET board_players = NULL WHERE board = 'eu'").run();
+    expect((await get<Filtered>("leaderboard")).total).toBeNull();
   });
 
   it("only answers GET", async () => {

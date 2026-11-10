@@ -12,6 +12,7 @@ import "@genji-ball-team/ui/segmented.js";
 import type { GbChipSelect } from "@genji-ball-team/ui/chip-select.js";
 import { tiers } from "@genji-ball-team/ui/chip.js";
 import type { GbPager } from "@genji-ball-team/ui/pager.js";
+import type { GbPopover } from "@genji-ball-team/ui/popover.js";
 import type { GbSegmented } from "@genji-ball-team/ui/segmented.js";
 import { api, inRegion, playerLink } from "../lib/api";
 import { boardParams, boardQuery } from "../lib/boardFilter";
@@ -24,8 +25,14 @@ import type { BoardFilter, Leaderboard, PlayerPage, TitleName, Titles } from "..
 import { start } from "../shell";
 import { rowLooks, titleChip, titleFx } from "../titles";
 
-/** The rows, with a band heading wherever the tier changes. */
+/**
+ * The rows, with a band heading wherever the tier changes. A table for screen readers (`tableRoles`):
+ * each row reads with its column's name, and a band is a row of one cell across them all.
+ */
 type Row = Leaderboard["players"][number];
+
+/** The columns, as `.cols` in index.html heads them. */
+const columns = 7;
 
 function ladder(players: Row[], titles: Map<number, TitleName>, days: number): Html {
   let band: string | undefined;
@@ -33,9 +40,9 @@ function ladder(players: Row[], titles: Map<number, TitleName>, days: number): H
     let head: Html | "" = "";
     if (p.siteTier?.label !== band) {
       band = p.siteTier?.label;
-      head = html`<li class="band">${
+      head = html`<li class="band" role="row"><span role="cell" aria-colspan="${columns}">${
         p.siteTier ? html`${tierChip(p.siteTier)}<span class="num">${num(p.siteTier.threshold)}+</span>` : "No tier yet"
-      }</li>`;
+      }</span></li>`;
     }
     return html`${head}${entry(p, titles.get(p.id), days)}`;
   });
@@ -48,23 +55,53 @@ function change(p: Row): Html {
   return p.change === null ? html`<span class="muted">new</span>` : html`<gb-delta value="${p.change}"></gb-delta>`;
 }
 
+/**
+ * A player's row. The whole row is their link: the name's link covers it (`.go`), so the row can be
+ * a table row and its figures cells. On a phone, the 7-day change shows under the rating and the
+ * rounds and win rate in one line under the name (an inactive player's: that, and their rounds).
+ */
 function entry(p: Row, titled: TitleName | undefined, days: number): Html {
   const inactive = p.inactiveSince && `Inactive since ${date(p.inactiveSince)}`;
   const look = titled && rowLooks[titled];
   const mine = p.id === me();
   const classes = ["entry", inactive && "inactive", mine && "me", look].filter(Boolean).join(" ");
   const pos = ["pos", "num", p.rank <= 3 && "high"].filter(Boolean).join(" ");
+  const cell = raw('role="cell"');
   // The effect's layer goes last: the columns are counted from the first child.
-  return html`<li${mine && raw(' id="me"')}><a class="${classes}" href="${playerLink(p.id)}"${tierName(p.siteTier) && html` data-tier="${tierName(p.siteTier)}"`}>
-    <span class="${pos}">${p.rank}</span>
-    <span class="who"><b><span class="name">${p.name}</span>${mine && html`<span class="you">You</span>`}${titled && html` ${titleChip(titled)}`}</b>${
-      inactive && html`<small>${inactive}</small>`
-    }<small class="stats">${p.change ? html`${change(p)} in ${days} days · ` : ""}${num(p.rounds)} rounds, ${winRate(p.wins, p.rounds)} won</small></span>
-    <span class="rating num${p.rating > 0 ? "" : " floor"}">${rating(p.rating)}</span>
-    <span class="num">${change(p)}</span>
-    <span class="num muted">${num(p.rounds)}</span>
-    <span class="num muted">${winRate(p.wins, p.rounds)}</span>
-    <span class="muted played">${ago(p.lastPlayedAt)}</span>${look && html`<span class="fx" aria-hidden="true">${raw(titleFx(titled!, "row"))}</span>`}</a></li>`;
+  return html`<li class="${classes}" role="row"${mine && raw(' id="me"')}${tierName(p.siteTier) && html` data-tier="${tierName(p.siteTier)}"`}>
+    <span class="${pos}" ${cell}>${p.rank}</span>
+    <span class="who" ${cell}><b><a class="go name" href="${playerLink(p.id)}">${p.name}</a>${mine && html`<span class="you">You</span>`}${titled && html` ${titleChip(titled)}`}</b>${
+      inactive && html`<small class="inactive-note">${inactive}</small>`
+    }<small class="stats">${inactive ? `Inactive · ${num(p.rounds)} rounds` : `${num(p.rounds)} rounds · ${winRate(p.wins, p.rounds)} won`}</small></span>
+    <span class="rating num${p.rating > 0 ? "" : " floor"}" ${cell}>${rating(p.rating)}${
+      p.change ? html`<small class="stats"><gb-delta value="${p.change}"></gb-delta><span class="sr"> in ${days} days</span></small>` : ""
+    }</span>
+    <span class="num" ${cell}>${change(p)}</span>
+    <span class="num muted" ${cell}>${num(p.rounds)}</span>
+    <span class="num muted" ${cell}>${winRate(p.wins, p.rounds)}</span>
+    <span class="muted played" ${cell}>${ago(p.lastPlayedAt)}</span>${look && html`<span class="fx" aria-hidden="true">${raw(titleFx(titled!, "row"))}</span>`}</li>`;
+}
+
+/** The board as a table while it has rows; a plain list for a placeholder, an empty board or an error. */
+function tableRoles(on: boolean): void {
+  const board = byId("board");
+  const cols = byId("cols");
+  const list = byId("list");
+  // The name goes with the role: on the table, else on the list.
+  const label = on ? board : list;
+  (on ? list : board).removeAttribute("aria-label");
+  label.setAttribute("aria-label", "Leaderboard");
+  if (on) {
+    board.setAttribute("role", "table");
+    cols.setAttribute("role", "row");
+    cols.removeAttribute("aria-hidden");
+    list.setAttribute("role", "rowgroup");
+  } else {
+    board.removeAttribute("role");
+    cols.removeAttribute("role");
+    cols.setAttribute("aria-hidden", "true");
+    list.removeAttribute("role");
+  }
 }
 
 /** "Jump to me": the remembered player's row, on the full board's page it's on. */
@@ -181,6 +218,7 @@ async function leaderboardPage(): Promise<void> {
       const titled = await titles;
       // A later change asked again: its answer is the one to show. Checked after every wait.
       if (mine !== asked) return;
+      tableRoles(board.players.length > 0);
       loaded(
         box,
         board.players.length
@@ -196,6 +234,11 @@ async function leaderboardPage(): Promise<void> {
       const pager = byId<GbPager>("pager");
       pager.setAttribute("href", `?${inRegion()}${filter}&page={page}`);
       pager.toggleAttribute("more", board.hasMore);
+      // "Page 2 of 28": from how many the filter picks, or the whole board's count. That count is the
+      // rating writes' (a minute behind at most), so the pages go at least as far as `hasMore` says.
+      const players = board.matched ?? board.total;
+      pager.pages =
+        players === null || !board.players.length ? 0 : Math.max(Math.ceil(players / board.pageSize), board.hasMore ? page + 1 : page);
       pager.page = page;
       pager.hidden = page === 1 && !board.hasMore;
       if (mine === 1) {
@@ -203,7 +246,9 @@ async function leaderboardPage(): Promise<void> {
         void jumpToMe(board.pageSize);
       }
     } catch (error) {
-      if (mine === asked) showError(box, error, "leaderboard");
+      if (mine !== asked) return;
+      tableRoles(false);
+      showError(box, error, "leaderboard");
     }
   }
 
@@ -219,6 +264,8 @@ async function leaderboardPage(): Promise<void> {
   // A chip or a segment is picked at once; a number once it's typed (on Enter or leaving the box).
   form.addEventListener("change", () => apply(controlsQuery()));
   byId("filter-clear").addEventListener("click", () => apply(new URLSearchParams()));
+  // Every change applies at once: Done only closes the box (a number being typed applies as it loses focus).
+  byId("filter-done").addEventListener("click", () => byId<GbPopover>("filter-popover").hide());
   byId("filter-pills").addEventListener("click", (event) => {
     const pill = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-clears]") : null;
     if (!pill) return;

@@ -27,7 +27,7 @@ beforeEach(async () => {
   ];
   await db().batch([
     ...tables.map((t) => db().prepare(`DELETE FROM ${t}`)),
-    db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL"),
+    db().prepare("UPDATE rating_state SET version = 0, stale_played_at = NULL, stale_match_id = NULL, stale_since = NULL, recomputed_at = NULL, board_players = 0"),
     db().prepare("INSERT INTO admins (id, name, token_hash) VALUES (1, 'Ada', ?)").bind(await sha256(adminToken)),
     db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'eu host', ?, 'trusted', 'eu')").bind(await sha256(tokens.eu)),
     db().prepare("INSERT INTO hosts (id, name, token_hash, trust, region) VALUES (2, 'na host', ?, 'trusted', 'na')").bind(await sha256(tokens.na)),
@@ -458,6 +458,25 @@ describe("players: alt accounts", () => {
     expect((await admin("players/999999/alt", { alt: true })).status).toBe(404);
     await adminOk(`players/${alfa}/merge`, { into: alpha });
     expect((await admin(`players/${alfa}/alt`, { alt: true })).status).toBe(409);
+  });
+
+  it("keeps the board's player count right through an alt mark and a merge", async () => {
+    const { alpha, alfa } = await nameChange();
+    // What the leaderboard counts: minRankedRounds rated rounds, not an alt.
+    const count = async (sql: string) => Number((await rows(sql))[0]!.n);
+    const counted = () =>
+      count(`SELECT COUNT(*) AS n FROM ratings WHERE board = 'eu' AND rounds >= ${defaults.minRankedRounds} AND player_id NOT IN (SELECT id FROM players WHERE alt = 1)`);
+    const stored = () => count("SELECT board_players AS n FROM rating_state WHERE board = 'eu'");
+    const before = await counted();
+    expect(before).toBeGreaterThan(0);
+    expect(await stored()).toBe(before);
+    await adminOk(`players/${alpha}/alt`, { alt: true });
+    expect(await stored()).toBe(before - 1);
+    await adminOk(`players/${alpha}/alt`, { alt: false });
+    expect(await stored()).toBe(before);
+    await adminOk(`players/${alfa}/merge`, { into: alpha });
+    await finishRecompute();
+    expect(await stored()).toBe(await counted());
   });
 });
 

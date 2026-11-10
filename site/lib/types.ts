@@ -54,6 +54,8 @@ export interface Leaderboard {
   filter: BoardFilter;
   /** How many players the filter picks in all; null without one. */
   matched: number | null;
+  /** How many players are on the whole board; null before the region's ratings were first counted. */
+  total: number | null;
   /** Days back `change` counts from. */
   changeDays: number;
   hasMore: boolean;

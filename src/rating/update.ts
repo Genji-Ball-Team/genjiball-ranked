@@ -5,6 +5,7 @@ import { hourMs, isoSeconds } from "../time";
 import { regionRatingConfig, type RatingConfig } from "./engine";
 import { planRerate } from "./plan";
 import {
+  boardPlayersStatement,
   compareRefs,
   duelPlayers,
   fromStart,
@@ -45,7 +46,7 @@ import {
  * region's matches and ratings, and `updateRatings` runs them for each region.
  */
 
-export type UpdateConfig = RatingConfig & Pick<Config, "ratingIncompleteGraceHours" | "ratingMatchesPerRun" | "regions">;
+export type UpdateConfig = RatingConfig & Pick<Config, "ratingIncompleteGraceHours" | "ratingMatchesPerRun" | "regions" | "minRankedRounds">;
 
 export interface RateNewResult {
   /** Matches rated on top of the current ratings. */
@@ -121,7 +122,11 @@ export async function rateNewMatches(
       },
       regionRatingConfig(config, region),
     );
-    statements.push(...writeStatements(db, region, writes), ratedAtStatement(db, fresh.map((m) => m.id), stamp));
+    statements.push(
+      ...writeStatements(db, region, writes),
+      ratedAtStatement(db, fresh.map((m) => m.id), stamp),
+      boardPlayersStatement(db, region, config.minRankedRounds),
+    );
   }
 
   try {
@@ -184,6 +189,9 @@ export async function recomputeRatings(
     ...(newlyRated.length ? [ratedAtStatement(db, newlyRated, stamp)] : []),
     ...(dropped.length ? [ratedAtStatement(db, dropped, null)] : []),
     staleUntilStatement(db, region, next, stamp),
+    // Counted once, on the last run (it reads the region's ratings). It also covers a merge or a
+    // match moved away, which take ratings off the board and then recompute.
+    ...(next === null ? [boardPlayersStatement(db, region, config.minRankedRounds)] : []),
   ];
   try {
     await db.batch(statements);

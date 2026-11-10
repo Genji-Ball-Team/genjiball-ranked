@@ -247,13 +247,14 @@ async function leaderboard(db: D1Database, config: SiteConfig, region: Region, u
       };
   // One more than a page, to know if there's a next one.
   const changeSince = daysAgo(config.leaderboardChangeDays);
-  const { rows, matched } = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset, changeSince, where);
+  const { rows, matched, total } = await listLeaderboard(db, region.id, config.minRankedRounds, size + 1, offset, changeSince, where);
   return {
     region: region.id,
     page,
     pageSize: size,
     filter,
     matched,
+    total,
     changeDays: config.leaderboardChangeDays,
     hasMore: rows.length > size,
     players: rows.slice(0, size).map((row) => ({

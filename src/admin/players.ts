@@ -199,7 +199,7 @@ async function markAlt(ctx: Context, playerId: number, data: Record<string, unkn
   const player = (await findPlayers(ctx.db, [playerId])).get(playerId);
   if (!player) return fail(404, "not_found", "No such player");
   if (player.mergedInto !== null) return fail(409, "conflict", `The player was merged into player ${player.mergedInto}. Mark that one`);
-  await writeAlt(ctx.db, playerId, data.alt, { adminId: ctx.admin.id, detail: { player: playerId, name: player.name, alt: data.alt }, at: isoSeconds(ctx.now) });
+  await writeAlt(ctx.db, playerId, data.alt, ctx.config.minRankedRounds, { adminId: ctx.admin.id, detail: { player: playerId, name: player.name, alt: data.alt }, at: isoSeconds(ctx.now) });
   ctx.log.info("admin: player alt", { admin: ctx.admin.id, player: playerId, alt: data.alt });
   return Response.json({ player: (await findPlayers(ctx.db, [playerId])).get(playerId) });
 }

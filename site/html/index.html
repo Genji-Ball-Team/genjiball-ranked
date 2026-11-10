@@ -34,7 +34,7 @@
       <gb-search class="find" data-players label="Find a player" hide-label placeholder="Find a player" shortcut="/" min-length="2" delay="250"></gb-search>
     </div>
     <div class="board-tools">
-      <gb-popover class="filter">
+      <gb-popover id="filter-popover" class="filter">
         <gb-button id="filter-open" variant="secondary">Filter<span id="filter-count" class="filter-count" hidden></span></gb-button>
         <form id="filter" class="filter-box" aria-label="Filter players">
           <fieldset><legend>Tier</legend><gb-chip-select id="filter-tier" label="Tier"></gb-chip-select></fieldset>
@@ -46,17 +46,21 @@
             <gb-field label="From"><input id="filter-min" name="min" type="number" step="1" inputmode="numeric"></gb-field>
             <gb-field label="To"><input id="filter-max" name="max" type="number" step="1" inputmode="numeric"></gb-field>
           </div></fieldset>
-          <div class="filter-foot"><gb-button id="filter-clear" variant="ghost" type="button">Clear all</gb-button></div>
+          <div class="filter-foot"><gb-button id="filter-clear" variant="ghost" type="button">Clear all</gb-button><gb-button id="filter-done" variant="primary" type="button">Done</gb-button></div>
         </form>
       </gb-popover>
       <div id="filter-pills" class="filter-pills"></div>
-      <gb-button id="jump" class="me-button" variant="ghost" hidden>Jump to me</gb-button>
+      <gb-button id="jump" class="me-button" variant="ghost" hidden>Jump to me</gb-button>
+
     </div>
     <p id="matched" class="matched" role="status" hidden></p>
-    <div class="cols" aria-hidden="true"><span>Rank</span><span>Player</span><span>Rating</span><span id="change-days">7 days</span><span>Rounds</span><span>Win rate</span><span>Last played</span></div>
-    <ol id="list" class="ladder" aria-busy="true" aria-label="Leaderboard" data-loading>
-      <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
-    </ol>
+    <!-- A table for screen readers once it has rows (tableRoles in leaderboard.ts). -->
+    <div id="board" class="board">
+      <div id="cols" class="cols" aria-hidden="true"><span role="columnheader">Rank</span><span role="columnheader">Player</span><span role="columnheader">Rating</span><span role="columnheader" id="change-days">7 days</span><span role="columnheader">Rounds</span><span role="columnheader">Win rate</span><span role="columnheader">Last played</span></div>
+      <ol id="list" class="ladder" aria-busy="true" aria-label="Leaderboard" data-loading>
+        <li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li><li><gb-skeleton block></gb-skeleton></li>
+      </ol>
+    </div>
     <p id="floor-note" class="note" hidden>A rating of – is still at the bottom of the scale: it starts climbing as the player wins rounds.</p>
     <gb-pager id="pager" class="pager"></gb-pager>
   </main>

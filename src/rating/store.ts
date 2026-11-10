@@ -328,6 +328,23 @@ export function ratingVersionStatement(db: D1Database): D1PreparedStatement {
   return db.prepare("UPDATE rating_state SET version = version + 1");
 }
 
+/**
+ * Counts the players on the region's leaderboard (`rating_state.board_players`, what its page count
+ * comes from): at least `minRounds` rated rounds, alts left out, as `listLeaderboard` lists them. Every
+ * region's with `board` null. Reads the region's `ratings` once: put it in the batches that change
+ * who is on the board (rating writes, an alt marked), not in reads.
+ */
+export function boardPlayersStatement(db: D1Database, board: string | null, minRounds: number): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE rating_state SET board_players = (
+         SELECT COUNT(*) FROM ratings r
+         WHERE r.board = rating_state.board AND r.rounds >= ?2 AND r.player_id NOT IN (SELECT id FROM players WHERE alt = 1))
+       WHERE ?1 IS NULL OR board = ?1`,
+    )
+    .bind(board, minRounds);
+}
+
 /** The error a batch fails with when `lockStatement` found a newer version. */
 export function isConflict(error: unknown): boolean {
   return String(error).includes("NOT NULL constraint failed: rating_state.version");

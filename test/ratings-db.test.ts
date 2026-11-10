@@ -156,11 +156,12 @@ describe("ratings: changed matches", () => {
     await upload(matchLog({ key: "000000000002", players: others }), "2026-09-02T20:00:00Z");
     await upload(matchLog({ key: "000000000003" }), "2026-09-03T20:00:00Z");
 
-    // Nothing changed: the recompute writes no history and no ratings, only its own state.
+    // Nothing changed: the recompute writes no history and no ratings, only its own state (the
+    // lock, the stale mark and, on its last run, the board's player count).
     await markAllStale(db(), new Date());
     const unchanged = counting();
     await recomputeRatings(unchanged.db, defaults, new Date(), log, "eu");
-    expect(unchanged.batches).toEqual([2]);
+    expect(unchanged.batches).toEqual([3]);
     await expectUpToDate();
 
     // A late match of the others' players leaves Alpha's matches alone.

@@ -68,7 +68,9 @@ const displayBefore = `(SELECT h.display FROM rating_history h WHERE h.board = ?
  * A leaderboard page: players with at least `minRounds` rated rounds, best first, alts left out (index
  * `ratings_board_display`). Without `where` it reads only the page. With it, the rows are the matching
  * ones, each still with its place on the whole board, and `matched` is how many match in all: that
- * reads the region's whole board once (each page is cached, `publicCacheSeconds`).
+ * reads the region's whole board once (each page is cached, `publicCacheSeconds`). `total`: how many
+ * are on the whole board, as the rating writes last counted them (`rating_state.board_players`, one
+ * row read); null before the region's first count.
  */
 export async function listLeaderboard(
   db: D1Database,
@@ -78,51 +80,60 @@ export async function listLeaderboard(
   offset: number,
   changeSince: string,
   where: LeaderboardWhere | null,
-): Promise<{ rows: LeaderboardRow[]; matched: number | null }> {
+): Promise<{ rows: LeaderboardRow[]; matched: number | null; total: number | null }> {
+  // In the page's batch: one more row read, no more round trips.
+  const total = async (statement: D1PreparedStatement) => {
+    const [page, count] = await db.batch([statement, db.prepare("SELECT board_players AS total FROM rating_state WHERE board = ?1").bind(board)]);
+    return { results: page!.results, total: (count!.results[0] as { total: number | null } | undefined)?.total ?? null };
+  };
   if (!where) {
-    const { results } = await db
-      .prepare(
-        `SELECT *, ${displayBefore} FROM (
-           SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
-           WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0
-           ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4
-         )`,
-      )
-      .bind(board, minRounds, limit, offset, changeSince)
-      .all<RatingRow & { displayBefore: number | null }>();
-    return { rows: results.map((row, i) => ({ ...row, rank: offset + i + 1 })), matched: null };
+    const page = await total(
+      db
+        .prepare(
+          `SELECT *, ${displayBefore} FROM (
+             SELECT ${ratingColumns} FROM ratings r JOIN players p ON p.id = r.player_id
+             WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0
+             ORDER BY r.display DESC, r.player_id LIMIT ?3 OFFSET ?4
+           )`,
+        )
+        .bind(board, minRounds, limit, offset, changeSince),
+    );
+    const rows = (page.results as (RatingRow & { displayBefore: number | null })[]).map((row, i) => ({ ...row, rank: offset + i + 1 }));
+    return { rows, matched: null, total: page.total };
   }
-  const { results } = await db
-    .prepare(
-      `WITH ranked AS (
-         SELECT ${ratingColumns}, ROW_NUMBER() OVER (ORDER BY r.display DESC, r.player_id) AS rank
-         FROM ratings r JOIN players p ON p.id = r.player_id
-         WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0
-       ), picked AS (
-         SELECT *, COUNT(*) OVER () AS matched FROM ranked
-         WHERE (?6 IS NULL OR EXISTS (SELECT 1 FROM json_each(?6) t
-             WHERE (json_extract(t.value, '$[0]') IS NULL OR display >= json_extract(t.value, '$[0]'))
-               AND (json_extract(t.value, '$[1]') IS NULL OR display < json_extract(t.value, '$[1]'))))
-           AND (?7 IS NULL OR lastPlayedAt >= ?7) AND (?8 IS NULL OR rounds >= ?8)
-           AND (?9 IS NULL OR display >= ?9) AND (?10 IS NULL OR display <= ?10)
-       )
-       SELECT *, ${displayBefore} FROM picked ORDER BY rank LIMIT ?3 OFFSET ?4`,
-    )
-    .bind(
-      board,
-      minRounds,
-      limit,
-      offset,
-      changeSince,
-      where.tierRanges ? JSON.stringify(where.tierRanges) : null,
-      where.playedSince,
-      where.rounds,
-      where.min,
-      where.max,
-    )
-    .all<LeaderboardRow & { matched: number }>();
+  const page = await total(
+    db
+      .prepare(
+        `WITH ranked AS (
+           SELECT ${ratingColumns}, ROW_NUMBER() OVER (ORDER BY r.display DESC, r.player_id) AS rank
+           FROM ratings r JOIN players p ON p.id = r.player_id
+           WHERE r.board = ?1 AND r.rounds >= ?2 AND p.alt = 0
+         ), picked AS (
+           SELECT *, COUNT(*) OVER () AS matched FROM ranked
+           WHERE (?6 IS NULL OR EXISTS (SELECT 1 FROM json_each(?6) t
+               WHERE (json_extract(t.value, '$[0]') IS NULL OR display >= json_extract(t.value, '$[0]'))
+                 AND (json_extract(t.value, '$[1]') IS NULL OR display < json_extract(t.value, '$[1]'))))
+             AND (?7 IS NULL OR lastPlayedAt >= ?7) AND (?8 IS NULL OR rounds >= ?8)
+             AND (?9 IS NULL OR display >= ?9) AND (?10 IS NULL OR display <= ?10)
+         )
+         SELECT *, ${displayBefore} FROM picked ORDER BY rank LIMIT ?3 OFFSET ?4`,
+      )
+      .bind(
+        board,
+        minRounds,
+        limit,
+        offset,
+        changeSince,
+        where.tierRanges ? JSON.stringify(where.tierRanges) : null,
+        where.playedSince,
+        where.rounds,
+        where.min,
+        where.max,
+      ),
+  );
+  const results = page.results as (LeaderboardRow & { matched: number })[];
   // A page past the last match has no row to carry the count.
-  return { rows: results, matched: results[0]?.matched ?? (offset ? null : 0) };
+  return { rows: results, matched: results[0]?.matched ?? (offset ? null : 0), total: page.total };
 }
 
 /**
