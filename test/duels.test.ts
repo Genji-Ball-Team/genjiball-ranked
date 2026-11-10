@@ -235,7 +235,7 @@ describe("admin duels", () => {
 });
 
 describe("a player's recent list", () => {
-  type Page = { matches: { id: number }[]; duels: { id: number; won: boolean; score: number; opponentScore: number; opponent: { name: string } }[]; moreMatches?: boolean; hasMore?: boolean };
+  type Page = { matches: { id: number }[]; duels: { id: number; won: boolean; score: number; opponentScore: number; opponent: { name: string } }[]; moreMatches?: boolean; hasMore?: boolean; nextBefore: number | null };
   const read = async (path: string, playerRecentMatches: number) =>
     (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), { ...defaults, playerRecentMatches }))!.json()) as Page;
 
@@ -258,8 +258,20 @@ describe("a player's recent list", () => {
     const alpha = await playerId("Alpha");
     // A page of one: the newer duel, then the older, then the match below both.
     const first = await read(`players/${alpha}`, 1);
-    expect([first.matches.map((m) => m.id), first.duels.map((x) => x.id), first.moreMatches]).toEqual([[], [newer!.id], true]);
-    const rest = await read(`players/${alpha}/matches?before=${newer!.id}`, 1);
-    expect([rest.matches.map((m) => m.id), rest.duels.map((x) => x.id), rest.hasMore]).toEqual([[match], [older!.id], false]);
+    expect([first.matches.map((m) => m.id), first.duels.map((x) => x.id), first.moreMatches, first.nextBefore]).toEqual([[], [newer!.id], true, newer!.id]);
+    const rest = await read(`players/${alpha}/matches?before=${first.nextBefore}`, 1);
+    expect([rest.matches.map((m) => m.id), rest.duels.map((x) => x.id), rest.hasMore, rest.nextBefore]).toEqual([[match], [older!.id], false, null]);
+  });
+
+  it("gives the next page's cursor when a page holds only duels", async () => {
+    await uploadLog(matchLog({ key: "000000000001" }), hostToken, hoursAgo(3));
+    const match = await matchId("000000000001");
+    const saved = (await save("eu", [duel("Alpha", "Bravo"), duel("Bravo", "Alpha"), duel("Alpha", "Bravo")])).duels;
+    const alpha = await playerId("Alpha");
+    // Pages of two: two duels and no match, though there are more.
+    const first = await read(`players/${alpha}/matches`, 2);
+    expect([first.matches, first.duels.map((x) => x.id), first.hasMore, first.nextBefore]).toEqual([[], [saved[2]!.id, saved[1]!.id], true, saved[1]!.id]);
+    const rest = await read(`players/${alpha}/matches?before=${first.nextBefore}`, 2);
+    expect([rest.matches.map((m) => m.id), rest.duels.map((x) => x.id), rest.hasMore, rest.nextBefore]).toEqual([[match], [saved[0]!.id], false, null]);
   });
 });

@@ -115,6 +115,8 @@ export interface PlayerMatches {
   /** Their duels among these matches (by id). */
   duels: PlayerDuel[];
   hasMore: boolean;
+  /** `before` for the next page; null when there is none. */
+  nextBefore: number | null;
 }
 
 /** A player in a match of `GET /api/recent`, in place order. */
@@ -160,6 +162,8 @@ export interface PlayerPage {
   /** Their duels among `matches` (by id). */
   duels: PlayerDuel[];
   moreMatches: boolean;
+  /** `before` for `GET /api/players/{id}/matches`; null when there are no more. */
+  nextBefore: number | null;
   mostEliminated: Rival[];
   mostEliminatedBy: Rival[];
   /** Kills of theirs on other players and deaths by another player's kill, in the region's accepted matches. */

@@ -204,21 +204,22 @@ function recentList(matches: PlayerMatch[], duels: PlayerDuel[], playerId: numbe
 }
 
 /** "Show more": the next older matches and duels under the list, until there are none. */
-function showMore(id: number, matches: PlayerMatch[], duels: PlayerDuel[]): void {
+function showMore(id: number, matches: PlayerMatch[], duels: PlayerDuel[], nextBefore: number): void {
   const button = byId<GbButton>("more-matches");
   const list = byId("matches");
+  let before = nextBefore;
   button.hidden = false;
   button.addEventListener("click", async () => {
     button.busy = true;
     try {
-      // A page ends at the oldest id on it, match or duel.
-      const before = Math.min(...matches.map((m) => m.id), ...duels.map((d) => d.id));
+      // The server's cursor: a page may hold no matches at all (only duels).
       const more = await api<PlayerMatches>(`players/${id}/matches?${inRegion()}&before=${before}`);
       matches.push(...more.matches);
       duels.push(...(more.duels ?? []));
       list.classList.toggle("no-map", new Set(matches.map((m) => m.map)).size <= 1);
       render(list, recentList(matches, duels, id));
-      button.hidden = !more.hasMore;
+      button.hidden = more.nextBefore === null;
+      if (more.nextBefore !== null) before = more.nextBefore;
       button.textContent = "Show more";
     } catch {
       button.textContent = "Couldn't load more: try again";
@@ -318,7 +319,7 @@ async function playerPage(): Promise<void> {
     () => [],
   );
   try {
-    const { player: p, matches, duels = [], moreMatches, mostEliminated, mostEliminatedBy, eliminations, tourneyWins } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
+    const { player: p, matches, duels = [], nextBefore, mostEliminated, mostEliminatedBy, eliminations, tourneyWins } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
     const r = p.rating;
     title(`${p.name} (${site.short(site.region)})`);
     byId("name").textContent = p.name;
@@ -342,7 +343,7 @@ async function playerPage(): Promise<void> {
         ? recentList(matches, duels, p.id)
         : html`<li><gb-empty>No matches in ${site.label(site.region)} yet.</gb-empty></li>`,
     );
-    if (moreMatches) showMore(p.id, matches, duels);
+    if (nextBefore != null) showMore(p.id, matches, duels, nextBefore);
     const crown = (await titles).find((t) => t.id === p.id)?.title;
     if (crown) titleHero(crown);
     const headline = byId("headline");

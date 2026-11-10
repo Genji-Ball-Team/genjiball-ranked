@@ -382,6 +382,7 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
     matches: recent.matches,
     duels: recent.duels,
     moreMatches: recent.hasMore,
+    nextBefore: recent.nextBefore,
     ...rivals,
     tourneyWins,
   };
@@ -409,7 +410,10 @@ async function playerMatches(db: D1Database, config: SiteConfig, region: Region,
     const mine = inMatch.find((t) => t.playerId === playerId);
     return { ...m, place: mine ? placeIn(inMatch, mine) : null, roundWins: mine?.roundWins ?? 0 };
   });
-  return { matches, duels: shown(duelRows), hasMore: rows.length > size || duelRows.length > size };
+  const hasMore = rows.length > size || duelRows.length > size;
+  // The next page starts below the smallest id shown: `floor`, which is set whenever there are more. A
+  // page can hold fewer matches than its size, even none, so a reader can't derive this from `matches`.
+  return { matches, duels: shown(duelRows), hasMore, nextBefore: hasMore ? floor : null };
 }
 
 type Totals = { roundWins: number; kills: number };
