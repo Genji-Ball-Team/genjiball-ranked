@@ -100,7 +100,7 @@ export async function readMatchCounts(db: D1Database, matchIds: readonly number[
   const [deflects, kills, wins, players] = await db.batch([
     db
       .prepare(
-        `SELECT e.match_id AS matchId, e.round, e.actor_id AS logId, COUNT(*) AS count, max(e.speed) AS fastest FROM events e
+        `SELECT e.match_id AS matchId, e.round, e.actor_id AS logId, COUNT(*) AS count FROM events e
          WHERE e.match_id IN (${ids}) AND e.type = 'DEFLECT' AND e.actor_id IS NOT NULL
            AND NOT EXISTS (SELECT 1 FROM match_players mp JOIN players p ON p.id = mp.player_id
              WHERE mp.match_id = e.match_id AND mp.log_id = e.actor_id AND p.bot = 1)
@@ -174,9 +174,6 @@ export function syncStatements(
       ["round_deflects", "roundDeflects"],
       ["round_deflects_by", "roundDeflectsBy"],
       ["round_deflects_round", "roundDeflectsRound"],
-      ["fastest_deflect", "fastestDeflect"],
-      ["fastest_deflect_by", "fastestDeflectBy"],
-      ["fastest_deflect_round", "fastestDeflectRound"],
       ["match_kills", "matchKills"],
       ["match_kills_by", "matchKillsBy"],
       ["match_wins", "matchWins"],
@@ -324,7 +321,6 @@ export async function readRecordsInput(
     db
       .prepare(
         `SELECT ${matchRecords("round_deflects", "round_deflects_round", false)} AS roundDeflects,
-           ${matchRecords("fastest_deflect", "fastest_deflect_round", false)} AS fastestDeflect,
            ${matchRecords("match_kills", null, false)} AS matchKills,
            ${matchRecords("match_wins", null, false)} AS matchWins,
            ${ratingRecords("''")} AS highestRating,
@@ -332,7 +328,6 @@ export async function readRecordsInput(
            ${careerRecords("rounds")} AS mostRounds,
            ${careerRecords("wins")} AS mostWins,
            ${matchRecords("round_deflects", "round_deflects_round", true)} AS monthRoundDeflects,
-           ${matchRecords("fastest_deflect", "fastest_deflect_round", true)} AS monthFastestDeflect,
            ${matchRecords("match_kills", null, true)} AS monthMatchKills,
            ${matchRecords("match_wins", null, true)} AS monthMatchWins,
            ${ratingRecords("?5")} AS monthHighestRating,
@@ -379,7 +374,6 @@ export async function readRecordsInput(
   return {
     records: {
       roundDeflects: toMatchRecords(row.roundDeflects, true, top),
-      fastestDeflect: toMatchRecords(row.fastestDeflect, true, top),
       matchKills: toMatchRecords(row.matchKills, false, top),
       matchWins: toMatchRecords(row.matchWins, false, top),
       highestRating: toMatchRecords(row.highestRating, false, top),
@@ -389,7 +383,6 @@ export async function readRecordsInput(
     },
     month: {
       roundDeflects: toMatchRecords(row.monthRoundDeflects, true, top),
-      fastestDeflect: toMatchRecords(row.monthFastestDeflect, true, top),
       matchKills: toMatchRecords(row.monthMatchKills, false, top),
       matchWins: toMatchRecords(row.monthMatchWins, false, top),
       highestRating: toMatchRecords(row.monthHighestRating, false, top),
@@ -439,6 +432,9 @@ export async function readRecords(db: D1Database, region: string): Promise<{ bod
   const body = JSON.parse(row.body) as RecordsBody;
   // A page stored before the records had top lists (no `month`) waits for its rebuild (migration 0027).
   if (!("month" in body)) return null;
+  // The fastest deflect is no record any more (the game caps the ball's speed, so it was always a tie):
+  // a page stored before then still has it until its rebuild.
+  for (const records of [body.records, body.month.records] as Record<string, unknown>[]) delete records.fastestDeflect;
   if (row.outdated !== 1) return { body, refreshedAt: row.refreshedAt };
   const ids = recordMatchIds(body);
   const holders = recordPlayerIds(body);

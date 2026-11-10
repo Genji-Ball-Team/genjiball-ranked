@@ -101,7 +101,7 @@ describe("match stats", () => {
         counts.kills.push({ matchId: m.id, logId, count: logId });
         counts.wins.push({ matchId: m.id, logId, count: logId });
         for (let round = 1; round <= 100; round++) {
-          counts.deflects.push({ get matchId() { visited++; return m.id; }, round, logId, count: logId, fastest: round });
+          counts.deflects.push({ get matchId() { visited++; return m.id; }, round, logId, count: logId });
         }
       }
       counts.ratedRounds.push({ matchId: m.id, count: 100 });
@@ -113,7 +113,7 @@ describe("match stats", () => {
     expect(rows).toHaveLength(defaults.recordsMatchesPerRun);
     for (const [i, row] of rows.entries()) {
       expect(row).toMatchObject({ matchId: i + 1, ratedRounds: 100, roundDeflects: 12, roundDeflectsBy: 12,
-        roundDeflectsRound: 1, fastestDeflect: 100, fastestDeflectBy: 1, fastestDeflectRound: 100,
+        roundDeflectsRound: 1,
         matchKills: 12, matchKillsBy: 12, matchWins: 12, matchWinsBy: 12 });
     }
   });
@@ -121,8 +121,9 @@ describe("match stats", () => {
   it("adds up a rejoined player's two log ids, and names them by the newest", () => {
     const [row] = matchStats([match], {
       deflects: [
-        { matchId: 7, round: 1, logId: 1, count: 2, fastest: 30 },
-        { matchId: 7, round: 1, logId: 2, count: 2, fastest: 40 },
+        { matchId: 7, round: 1, logId: 1, count: 2 },
+        { matchId: 7, round: 1, logId: 3, count: 2 },
+        { matchId: 7, round: 1, logId: 2, count: 3 },
       ],
       kills: [
         { matchId: 7, logId: 1, count: 2 },
@@ -137,7 +138,7 @@ describe("match stats", () => {
         { matchId: 7, logId: 3, playerId: 100, bot: 0 },
       ],
     });
-    expect(row).toMatchObject({ matchKills: 4, matchKillsBy: 3, matchWins: 1, matchWinsBy: 2, ratedRounds: 1, fastestDeflect: 40, fastestDeflectBy: 2 });
+    expect(row).toMatchObject({ matchKills: 4, matchKillsBy: 3, matchWins: 1, matchWinsBy: 2, ratedRounds: 1, roundDeflects: 4, roundDeflectsBy: 3 });
     expect(row!.players).toBe(2);
   });
 
@@ -160,16 +161,16 @@ describe("match stats", () => {
   it("breaks a tie to the earliest round, then the lowest log id", () => {
     const [row] = matchStats([match], {
       deflects: [
-        { matchId: 7, round: 2, logId: 1, count: 3, fastest: 50 },
-        { matchId: 7, round: 1, logId: 3, count: 3, fastest: 50 },
-        { matchId: 7, round: 1, logId: 2, count: 3, fastest: 20 },
+        { matchId: 7, round: 2, logId: 1, count: 3 },
+        { matchId: 7, round: 1, logId: 3, count: 3 },
+        { matchId: 7, round: 1, logId: 2, count: 3 },
       ],
       kills: [],
       wins: [],
       ratedRounds: [],
       players: [1, 2, 3].map((logId) => ({ matchId: 7, logId, playerId: logId, bot: 0 })),
     });
-    expect(row).toMatchObject({ roundDeflects: 3, roundDeflectsBy: 2, roundDeflectsRound: 1, fastestDeflect: 50, fastestDeflectBy: 3, fastestDeflectRound: 1 });
+    expect(row).toMatchObject({ roundDeflects: 3, roundDeflectsBy: 2, roundDeflectsRound: 1 });
     expect(row).toMatchObject({ matchKills: null, matchKillsBy: null, matchWins: null, ratedRounds: 0 });
   });
 });
@@ -190,7 +191,6 @@ describe("GET /api/records", () => {
     const best = Object.fromEntries(Object.entries(body.records).map(([name, list]) => [name, list[0]]));
     expect(best).toEqual({
       roundDeflects: { value: 3, player: { id: ids.Alpha, name: "Alpha" }, matchId: id, playedAt, round: 1 },
-      fastestDeflect: { value: 50, player: { id: ids.Bravo, name: "Bravo" }, matchId: id, playedAt, round: 1 },
       matchKills: { value: 2, player: { id: ids.Bravo, name: "Bravo" }, matchId: id, playedAt },
       // One win each: the lowest log id, Alpha.
       matchWins: { value: 1, player: { id: ids.Alpha, name: "Alpha" }, matchId: id, playedAt },
@@ -212,13 +212,13 @@ describe("GET /api/records", () => {
   });
 
   it("leaves a bot out: no record, its kills and the kills of it not counted, not one of the players", async () => {
-    await upload(richLog({ deflects: [[1, 2, 90], [1, 1, 20]], kills: [[2, 3], [2, 4], [1, 2], [1, 3]] }), 3);
+    await upload(richLog({ deflects: [[1, 2, 90], [1, 2, 90], [1, 1, 20]], kills: [[2, 3], [2, 4], [1, 2], [1, 3]] }), 3);
     // The live server marks a bot player when an upload first sees its name (legacyBotNames).
     await db().prepare("UPDATE players SET bot = 1 WHERE name = 'Bravo'").run();
     await refresh();
     const body = await records();
     expect(body.records.matchKills[0]).toMatchObject({ value: 1, player: { name: "Alpha" } });
-    expect(body.records.fastestDeflect[0]).toMatchObject({ value: 20, player: { name: "Alpha" } });
+    expect(body.records.roundDeflects[0]).toMatchObject({ value: 1, player: { name: "Alpha" } });
     expect(body.activity.players).toBe(3);
   });
 
@@ -229,7 +229,6 @@ describe("GET /api/records", () => {
     const first = await matchId("000000000001");
     const body = await records();
     // The second match played 1 rated round, under the 2 needed: only the first sets records.
-    expect(body.records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: first });
     expect(body.records.roundDeflects[0]).toMatchObject({ value: 1, matchId: first });
     expect(body.records.matchKills[0]).toMatchObject({ value: 1, matchId: first });
     // Both still count in the activity and top hosts.
@@ -240,7 +239,7 @@ describe("GET /api/records", () => {
     const { revision, version } = await revisions("eu");
     await rebuildRecords(db(), { ...config, recordsMinPlayers: 5 }, "eu", revision + 1, version, new Date());
     const gated = await records();
-    expect(gated.records).toMatchObject({ roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [] });
+    expect(gated.records).toMatchObject({ roundDeflects: [], matchKills: [], matchWins: [] });
     expect(gated.activity).toMatchObject({ matches: 2, rounds: 3 });
   });
 
@@ -251,8 +250,8 @@ describe("GET /api/records", () => {
     await refresh();
     const eu = await records();
     const na = await records("?region=na");
-    expect(eu.records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
-    expect(na).toMatchObject({ region: "na", records: { fastestDeflect: [{ value: 90, matchId: await matchId("000000000002") }], roundDeflects: [{ value: 2 }] } });
+    expect(eu.records.roundDeflects[0]).toMatchObject({ value: 1, matchId: await matchId("000000000001") });
+    expect(na).toMatchObject({ region: "na", records: { roundDeflects: [{ value: 2, matchId: await matchId("000000000002") }] } });
     expect(eu.topHosts).toEqual([{ name: "eu host", matches: 1 }]);
     expect(na.topHosts).toEqual([{ name: "na host", matches: 2 }]);
     expect(eu.activity.matches).toBe(1);
@@ -276,9 +275,9 @@ describe("GET /api/records", () => {
     await refresh(later(defaults.recordsRefreshMinutes));
     const eu = await records();
     const na = await records("?region=na");
-    expect(eu.records.fastestDeflect).toEqual([]);
+    expect(eu.records.roundDeflects).toEqual([]);
     expect(eu.topHosts).toEqual([]);
-    expect(na.records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: id });
+    expect(na.records.roundDeflects[0]).toMatchObject({ value: 1, matchId: id });
     expect(na.topHosts).toEqual([{ name: "eu host", matches: 1 }]);
   });
 
@@ -287,15 +286,15 @@ describe("GET /api/records", () => {
     await syncMatchStats(db(), defaults, log);
     const id = await matchId("000000000001");
     expect(await db().prepare("SELECT rated_rounds FROM match_stats WHERE match_id = ?").bind(id).first("rated_rounds")).toBe(1);
-    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 20], [2, 1, 60]] }), 3);
+    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 20], [2, 1, 60], [2, 1, 60]] }), 3);
     await syncMatchStats(db(), defaults, log);
-    expect(await db().prepare("SELECT rated_rounds, fastest_deflect FROM match_stats WHERE match_id = ?").bind(id).first()).toEqual({ rated_rounds: 2, fastest_deflect: 60 });
+    expect(await db().prepare("SELECT rated_rounds, round_deflects FROM match_stats WHERE match_id = ?").bind(id).first()).toEqual({ rated_rounds: 2, round_deflects: 2 });
 
     await db().prepare("UPDATE matches SET status = 'void' WHERE id = ?").bind(id).run();
     await refresh();
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(0);
     const body = await records();
-    expect(body.records).toMatchObject({ roundDeflects: [], fastestDeflect: [], matchKills: [], matchWins: [] });
+    expect(body.records).toMatchObject({ roundDeflects: [], matchKills: [], matchWins: [] });
     expect(body.topHosts).toEqual([]);
   });
 
@@ -310,28 +309,28 @@ describe("GET /api/records", () => {
   });
 
   it("lists each record's best holders, each player once at their best", async () => {
-    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 90]] }), 3);
-    await upload(richLog({ key: "000000000002", deflects: [[1, 1, 80]] }), 2);
+    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 90], [1, 1, 90], [1, 1, 90]] }), 3);
+    await upload(richLog({ key: "000000000002", deflects: [[1, 1, 80], [1, 1, 80]] }), 2);
     await upload(richLog({ key: "000000000003", deflects: [[1, 3, 60]] }), 1);
     await refresh();
     const body = await records();
-    expect(body.records.fastestDeflect).toMatchObject([
-      { value: 90, player: { name: "Alpha" }, matchId: await matchId("000000000001") },
-      { value: 60, player: { name: "Charlie" }, matchId: await matchId("000000000003") },
+    expect(body.records.roundDeflects).toMatchObject([
+      { value: 3, player: { name: "Alpha" }, matchId: await matchId("000000000001") },
+      { value: 1, player: { name: "Charlie" }, matchId: await matchId("000000000003") },
     ]);
     const { revision, version } = await revisions("eu");
     await rebuildRecords(db(), { ...config, recordsTop: 1 }, "eu", revision + 1, version, new Date());
-    expect((await records()).records.fastestDeflect).toHaveLength(1);
+    expect((await records()).records.roundDeflects).toHaveLength(1);
   });
 
   it("keeps this month's records apart from all time's", async () => {
-    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 90]] }), 24 * 40);
+    await upload(richLog({ key: "000000000001", deflects: [[1, 1, 90], [1, 1, 90]] }), 24 * 40);
     await upload(richLog({ key: "000000000002", deflects: [[1, 3, 60]] }), 0);
     await refresh();
     const body = await records();
     expect(body.month.since).toBe(monthStart(new Date()));
-    expect(body.records.fastestDeflect.map((r) => r.value)).toEqual([90, 60]);
-    expect(body.month.records.fastestDeflect).toMatchObject([{ value: 60, matchId: await matchId("000000000002") }]);
+    expect(body.records.roundDeflects.map((r) => r.value)).toEqual([2, 1]);
+    expect(body.month.records.roundDeflects).toMatchObject([{ value: 1, matchId: await matchId("000000000002") }]);
     expect(body.month.records.highestRating.every((r) => r.playedAt >= body.month.since)).toBe(true);
     expect(body.month.records).not.toHaveProperty("winStreak");
   });
@@ -341,6 +340,20 @@ describe("GET /api/records", () => {
     await refresh();
     await db().prepare("UPDATE records SET body = json_remove(body, '$.month') WHERE region = 'eu'").run();
     expect(await records()).toMatchObject({ updatedAt: null, records: noRecords });
+  });
+
+  it("leaves out the fastest deflect of a page stored while it was a record", async () => {
+    await upload(richLog({ deflects: [[1, 1, 20]] }), 3);
+    await refresh();
+    const old = '{"value":20,"player":{"id":1,"name":"Alpha"},"matchId":1,"playedAt":"2026-10-05T20:00:00Z","round":1}';
+    await db()
+      .prepare(`UPDATE records SET body = json_set(body, '$.records.fastestDeflect', json_array(json(?1)), '$.month.records.fastestDeflect', json_array(json(?1))) WHERE region = 'eu'`)
+      .bind(old)
+      .run();
+    const body = await records();
+    expect(body.records).not.toHaveProperty("fastestDeflect");
+    expect(body.month.records).not.toHaveProperty("fastestDeflect");
+    expect(body.records.roundDeflects).toHaveLength(1);
   });
 
   it("answers empty records before the first refresh, and a 400 for an unknown region", async () => {
@@ -357,22 +370,22 @@ describe("GET /api/records", () => {
 describe("records: matches that stop counting", () => {
   it("never names a record holder's match once it's back in review, and rebuilds at the next cron run", async () => {
     await upload(richLog({ key: "000000000001", deflects: [[1, 1, 20]] }), 3);
-    await upload(richLog({ key: "000000000002", deflects: [[1, 2, 90]] }), 2);
+    await upload(richLog({ key: "000000000002", deflects: [[1, 2, 90], [1, 2, 90]] }), 2);
     await refresh();
     const second = await matchId("000000000002");
-    expect((await records()).records.fastestDeflect[0]).toMatchObject({ matchId: second });
+    expect((await records()).records.roundDeflects[0]).toMatchObject({ matchId: second });
 
     // A longer copy sent it back to review: the trigger drops its stats in the same transaction.
     await db().prepare("UPDATE matches SET status = 'review' WHERE id = ?").bind(second).run();
     expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats WHERE match_id = ?").bind(second).first("n")).toBe(0);
     // Served from the stored page until the rebuild, without the match.
     const served = await records();
-    expect(served.records.fastestDeflect).toMatchObject([{ value: 20, matchId: await matchId("000000000001") }]);
+    expect(served.records.roundDeflects).toMatchObject([{ value: 1, matchId: await matchId("000000000001") }]);
     expect(JSON.stringify(served.records)).not.toContain(`"matchId":${second}`);
 
     // Due at once, inside recordsRefreshMinutes.
     await updateRecords(db(), config, new Date(), log);
-    expect((await records()).records.fastestDeflect[0]).toMatchObject({ value: 20, matchId: await matchId("000000000001") });
+    expect((await records()).records.roundDeflects[0]).toMatchObject({ value: 1, matchId: await matchId("000000000001") });
   });
 
   it("counts only matches accepted in the region now when rebuilding", async () => {
@@ -388,7 +401,7 @@ describe("records: matches that stop counting", () => {
       expect(await db().prepare("SELECT COUNT(*) AS n FROM match_stats").first("n")).toBe(1);
       await rebuildRecords(db(), config, "eu", 99, 0, new Date());
       const body = await records();
-      expect(body.records).toMatchObject({ roundDeflects: [], fastestDeflect: [], matchWins: [] });
+      expect(body.records).toMatchObject({ roundDeflects: [], matchWins: [] });
       expect(body.topHosts).toEqual([]);
       expect(body.activity.matches).toBe(0);
     } finally {
@@ -578,7 +591,7 @@ describe("records refresh", () => {
     expect((await db().prepare("SELECT region FROM records").all()).results).toEqual([{ region: "eu" }]);
     expect(await db().prepare("SELECT players, rated_rounds AS rounds FROM match_stats").first()).toEqual({ players: 4, rounds: 2 });
     // The cron's defaults: 2 rated rounds are too few to set a record.
-    expect((await records()).records.fastestDeflect).toEqual([]);
+    expect((await records()).records.roundDeflects).toEqual([]);
     await updateRecords(db(), config, new Date(), log);
     expect((await db().prepare("SELECT region FROM records ORDER BY region").all()).results).toEqual([{ region: "eu" }, { region: "na" }]);
   });
