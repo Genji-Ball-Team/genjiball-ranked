@@ -284,11 +284,11 @@ h2 { margin-block: 40px 12px; font-size: var(--heading-size); font-weight: var(-
 .more { display: flex; width: fit-content; margin: 16px auto 0; }
 .history .change { display: flex; justify-content: end; align-items: baseline; gap: 6px; font-size: 1.1rem; font-weight: 600; font-stretch: var(--title-width); }
 .history .change span, .history .change gb-delta { font-size: 0.9rem; font-weight: 400; }
-/* A player's recent list: the place right after the map, or after the date when every match was on one map. */
-#matches a { grid-template-columns: 9rem 11rem minmax(0, 1fr) 8rem; }
-#matches.no-map a { grid-template-columns: 9rem minmax(0, 1fr) 8rem; }
-#matches .place { flex-wrap: wrap; align-items: center; }
-#matches .duel .place .icon { inline-size: 18px; block-size: 18px; align-self: center; color: var(--muted); }
+/* A player's recent list: the place right after the map, or after the date when every match was on one map. The matches page's list has the same id (`.feed`). */
+#matches:not(.feed) a { grid-template-columns: 9rem 11rem minmax(0, 1fr) 8rem; }
+#matches.no-map:not(.feed) a { grid-template-columns: 9rem minmax(0, 1fr) 8rem; }
+#matches:not(.feed) .place { flex-wrap: wrap; align-items: center; }
+#matches:not(.feed) .duel .place .icon { inline-size: 18px; block-size: 18px; align-self: center; color: var(--muted); }
 gb-chip.void { color: var(--down); }
 /* The matches page: when, map, who won, and the reader's own place (or how many played). */
 .feed a { grid-template-columns: 9rem minmax(0, 0.7fr) minmax(0, 1.3fr) 8rem; }
@@ -421,7 +421,7 @@ gb-chip.void { color: var(--down); }
   .history .place { grid-column: 1; font-size: 0.85rem; }
   .history .place b { min-width: 0; }
   .history .change { grid-column: 2; grid-row: 1 / 4; align-self: center; }
-  #matches a, #matches.no-map a { grid-template-columns: minmax(0, 1fr) auto; }
+  #matches:not(.feed) a, #matches.no-map:not(.feed) a { grid-template-columns: minmax(0, 1fr) auto; }
   .feed a { grid-template-columns: minmax(0, 1fr) auto; }
   .feed .when, .feed .map, .feed .podium { grid-column: 1; }
   .feed .map { order: 1; }
