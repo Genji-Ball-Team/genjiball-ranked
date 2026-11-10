@@ -10,11 +10,13 @@
 // - <page>.html: site/html/'s, with each `/build/<name>.js` or `.css` it names pointing at the built
 //   file. Every built script and style is `build/chunks/<name>-<hash>`, so the browser keeps it for
 //   good (site/_headers) and a changed one is a new file. `--watch` keeps the plain names.
-// - _headers: site/_headers, plus a `Link: rel=modulepreload` for each page's chunks, so the browser
+// - _headers: site/_headers, with the UI components' style hashes in its Content-Security-Policy
+//   (scripts/csp.mjs), plus a `Link: rel=modulepreload` for each page's chunks, so the browser
 //   fetches them with the page instead of after its module.
 import { context, build } from "esbuild";
 import { readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { argv, stdout } from "node:process";
+import { withStyleHashes } from "./csp.mjs";
 
 const outdir = "public/build";
 const watch = argv.includes("--watch");
@@ -61,9 +63,13 @@ const plainName = (file) => file.split("/").pop().replace(/(-[A-Z0-9]{8})?\.(js|
 /** The page each module is for: the leaderboard is `/`, the 404 page has no path of its own. */
 const pagePath = (name) => (name === "leaderboard" ? "/" : name === "lost" ? null : `/${name}`);
 
+/** Cloudflare ignores a `_headers` line longer than this. */
+const maxHeaderLine = 2000;
+
 /** public/_headers: site/_headers, then each page's module and the chunks it imports. */
-function writeHeaders(metafile) {
-  let text = readFileSync("site/_headers", "utf8");
+async function writeHeaders(metafile) {
+  // LF only: a Windows checkout (core.autocrlf) gives site/_headers CRLF, and the preloads below add LF.
+  let text = await withStyleHashes(readFileSync("site/_headers", "utf8").replace(/\r\n/g, "\n"));
   for (const [file, output] of Object.entries(metafile?.outputs ?? {})) {
     // A page's module only: a module loaded by import() (share-sheet.ts) is an entry point too.
     const path = output.entryPoint?.startsWith("site/pages/") && pagePath(plainName(file));
@@ -75,6 +81,8 @@ ${path}
   Link: ${links}
 `;
   }
+  const long = text.split("\n").find((line) => line.length > maxHeaderLine);
+  if (long) throw new Error(`public/_headers has a line of ${long.length} characters, over Cloudflare's ${maxHeaderLine}: ${long.slice(0, 60)}…`);
   writeFileSync("public/_headers", text);
 }
 
@@ -97,13 +105,13 @@ function writeHtml(metafiles) {
 }
 
 if (watch) {
-  writeHeaders(null);
+  await writeHeaders(null);
   writeHtml([]);
   for (const options of builds) await (await context(options)).watch();
   stdout.write(`Watching site/ → ${outdir}/
 `);
 } else {
   const built = await Promise.all(builds.map((options) => build(options)));
-  writeHeaders(built[1].metafile);
+  await writeHeaders(built[1].metafile);
   writeHtml(built.map((result) => result.metafile));
 }

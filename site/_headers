@@ -1,6 +1,37 @@
 # Response headers for the files in public/ (Cloudflare Workers static assets), copied to
 # public/_headers by scripts/build-site.mjs, which adds each page's module preloads after these. The
 # rest keep the default: the browser checks back each time and gets a 304 when nothing changed.
+# These also reach a page the Worker hands on (the 404 page, a link preview); the Worker gives its
+# own answers (the API) headers of its own (src/security.ts).
+
+# Every file: the security headers. The Content-Security-Policy allows only what the built pages load
+# (test/csp.node.mjs checks the pages against it). No host is named for the site itself ('self'), so
+# the test server's pages work the same.
+#
+# - default-src 'none': anything not allowed below.
+# - script-src: the site's own scripts (the head script, the page modules and their chunks, the
+#   share sheet's lazy import), and Cloudflare Web Analytics' beacon, which Cloudflare adds to every
+#   page. No inline script, no eval.
+# - style-src-elem: the stylesheets, and the <style> each @genji-ball-team/ui component puts in its
+#   shadow root, by hash (the build fills in {component-styles}; scripts/csp.mjs). Constructable
+#   stylesheets (the light-DOM components' adoptedStyleSheets) aren't subject to the policy.
+# - style-src-attr 'unsafe-inline': style="" attributes. The pages' HTML has them (skeleton widths)
+#   and the pages write them with values worked out per row (bar widths, `--i` delays), which no hash
+#   can cover. A style attribute can't run a script; moving those to element.style would allow
+#   dropping this.
+# - style-src: browsers older than style-src-elem/-attr (CSP 3) use only this; newer ones ignore it.
+# - font-src: Saira, self-hosted.
+# - img-src: the site's images and tourney screenshots ('self'), and the share card's preview (blob:).
+# - connect-src: the API ('self'), the host page's latest host tool release (api.github.com), and
+#   the analytics beacon's reports (cloudflareinsights.com; 'self' covers its /cdn-cgi/rum).
+# - base-uri, form-action, frame-ancestors: no <base>, forms only post to the site, and no other
+#   site frames a page (X-Frame-Options says the same to browsers without frame-ancestors).
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; style-src-elem 'self' {component-styles}; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' blob:; connect-src 'self' https://api.github.com https://cloudflareinsights.com; base-uri 'none'; form-action 'self'; frame-ancestors 'none'
+  Strict-Transport-Security: max-age=31536000
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
 
 # The built scripts and styles (scripts/build-site.mjs): their names have a hash of their contents, so
 # a changed one is a new file, and the pages name the new one. Kept for a year without asking again.

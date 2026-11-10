@@ -8,6 +8,7 @@ import { createLogger, type Logger } from "./log";
 import { isPrivate, isPublicRead, isPublicWrite, isSameOrigin, preflight, signupRoute, withEdgeCache, withPrivateHeaders } from "./public";
 import { updateRatings } from "./rating/update";
 import { updateRecords } from "./records/update";
+import { withSecurityHeaders } from "./security";
 import { handleSite } from "./site/handler";
 import { isPreviewAgent, pagePreview, previewPages, withPreview } from "./site/preview";
 import { handleBotSignups } from "./tourney/botSignups";
@@ -20,24 +21,8 @@ import { handleHostMatches, handleHostMe, handleUpload } from "./upload/handler"
 // Static files in public/ are served before the Worker runs, so this only sees the other paths.
 export default {
   async fetch(request, env, ctx): Promise<Response> {
-    const config = loadConfig(env);
-    const log = createLogger(config.logLevel);
-    const url = new URL(request.url);
-
-    // A public write (a tourney sign-up): same origin only, never cached (src/public.ts).
-    if (isPublicWrite(request.method, url.pathname)) {
-      if (!isSameOrigin(request)) return withPrivateHeaders(fail(403, "cross_origin", "Sign up from the site's own pages"));
-      return withPrivateHeaders(await route(request, env, config, log, url));
-    }
-    // Every public read route gets CORS and caching headers here, not in its handler, and goes through
-    // Cloudflare's cache (src/public.ts).
-    if (isPublicRead(url.pathname)) {
-      if (request.method === "OPTIONS") return preflight(config);
-      return withEdgeCache(request, ctx, config, () => route(request, env, config, log, url));
-    }
-    // Routes behind a token: never kept by a browser or a shared cache.
-    if (isPrivate(url.pathname)) return withPrivateHeaders(await route(request, env, config, log, url));
-    return route(request, env, config, log, url);
+    // Every answer gets the security headers (src/security.ts).
+    return withSecurityHeaders(await answer(request, env, ctx));
   },
 
   // The cron in wrangler.toml: rates incomplete matches whose grace period has passed, and
@@ -72,6 +57,27 @@ export default {
     }
   },
 } satisfies ExportedHandler<Env>;
+
+async function answer(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const config = loadConfig(env);
+  const log = createLogger(config.logLevel);
+  const url = new URL(request.url);
+
+  // A public write (a tourney sign-up): same origin only, never cached (src/public.ts).
+  if (isPublicWrite(request.method, url.pathname)) {
+    if (!isSameOrigin(request)) return withPrivateHeaders(fail(403, "cross_origin", "Sign up from the site's own pages"));
+    return withPrivateHeaders(await route(request, env, config, log, url));
+  }
+  // Every public read route gets CORS and caching headers here, not in its handler, and goes through
+  // Cloudflare's cache (src/public.ts).
+  if (isPublicRead(url.pathname)) {
+    if (request.method === "OPTIONS") return preflight(config);
+    return withEdgeCache(request, ctx, config, () => route(request, env, config, log, url));
+  }
+  // Routes behind a token: never kept by a browser or a shared cache.
+  if (isPrivate(url.pathname)) return withPrivateHeaders(await route(request, env, config, log, url));
+  return route(request, env, config, log, url);
+}
 
 async function route(request: Request, env: Env, config: Config, log: Logger, url: URL): Promise<Response> {
   if (url.pathname === "/api/health") {

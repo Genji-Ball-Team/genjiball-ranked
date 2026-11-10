@@ -15,18 +15,25 @@ function load({ query = "", stored = {}, timeZone = "Europe/Amsterdam" } = {}) {
   const storage = new Map(Object.entries(stored).map(([key, value]) => [key, JSON.stringify(value)]));
   const dataset = {};
   const redirects = [];
+  const head = [];
   let resolve, reject;
   const response = new Promise((yes, no) => { resolve = yes; reject = no; });
   const site = runInNewContext(`var window = globalThis;\n${script}\nwindow.gbSite;`, {
     URL, URLSearchParams,
     Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone }) }) },
     localStorage: { getItem: (key) => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
-    location: { pathname: "/", search: query, href: `https://example.com/${query}`, replace: (url) => redirects.push(url) },
-    document: { documentElement: { dataset }, addEventListener() {}, querySelector: () => null },
+    location: { pathname: "/", search: query, origin: "https://example.com", href: `https://example.com/${query}`, replace: (url) => redirects.push(url) },
+    document: {
+      documentElement: { dataset },
+      head: { querySelector: () => null, append: (el) => head.push(el) },
+      createElement: (tag) => ({ tag }),
+      addEventListener() {},
+      querySelector: () => null,
+    },
     fetch: () => response,
   });
   return {
-    site, dataset, storage, redirects,
+    site, dataset, storage, redirects, head,
     async finish(list = regions) {
       resolve({ ok: true, json: async () => ({ regions: list }) });
       await site.server;
@@ -60,6 +67,8 @@ test("a first-visit NA link works immediately and is saved only after validation
 test("a cached valid selection beats the time zone guess when the URL is invalid", async () => {
   const page = load({ query: "?region=xx", stored: { regions, region: "na" } });
   assert.equal(page.site.region, "na");
+  // The canonical names the region the page shows (site/lib/canonical.ts).
+  assert.deepEqual(page.head.map((link) => link.href), ["https://example.com/?region=na"]);
   await page.finish();
   assert.equal(page.site.region, "na");
 });
