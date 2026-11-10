@@ -34,6 +34,7 @@ async function page(path: string, agent = discord) {
     ogDescription: meta("property", "og:description"),
     image: meta("property", "og:image"),
     url: meta("property", "og:url"),
+    canonical: /<link rel="canonical" href="([^"]*)">/.exec(html)?.[1]?.replaceAll("&amp;", "&"),
   };
 }
 
@@ -48,6 +49,7 @@ describe("link previews", () => {
     expect(p.description).toBe(p.ogDescription);
     expect(p.image).toBe("https://example.com/og.png");
     expect(p.url).toBe(`https://example.com/player?id=${id}&region=eu`);
+    expect(p.canonical).toBe(p.url);
     expect(p.res.headers.get("Cache-Control")).toBe("no-store");
     expect(p.res.headers.get("Vary")).toBe("User-Agent");
   });
@@ -55,6 +57,7 @@ describe("link previews", () => {
   it("says a player has no rating in a region they haven't played", async () => {
     const p = await page(`/player?id=${await playerId("Alpha")}&region=na`);
     expect(p.ogTitle).toBe("Alpha (North America)");
+    expect(p.canonical).toMatch(/^https:\/\/example\.com\/player\?id=\d+&region=na$/);
     expect(p.ogDescription).toContain("No rated rounds in North America yet");
   });
 
@@ -63,6 +66,7 @@ describe("link previews", () => {
     const p = await page(`/match?id=${id}`, "TelegramBot (like TwitterBot)");
     // Alpha and Bravo each won a round, with as many kills.
     expect(p.ogTitle).toBe(`Match ${id} · Alpha & Bravo share the win`);
+    expect(p.canonical).toBe(`https://example.com/match?id=${id}`);
     expect(p.ogDescription).toMatch(/^4 players, 2 rounds in Europe, \d{4}-\d\d-\d\d\. 1\. /);
   });
 
@@ -70,6 +74,9 @@ describe("link previews", () => {
     const [a, b] = [await playerId("Alpha"), await playerId("Bravo")];
     const p = await page(`/compare?ids=${a},${b},999&region=eu`, "facebookexternalhit/1.1");
     expect(p.ogTitle).toBe("Alpha vs Bravo");
+    // Only the players there are, each once.
+    expect(p.canonical).toBe(`https://example.com/compare?ids=${a},${b}&region=eu`);
+    expect(p.url).toBe(p.canonical);
     expect(p.ogDescription).toMatch(/^Alpha: .+ · Bravo: .+\. Side by side in Europe\.$/);
   });
 
@@ -78,13 +85,22 @@ describe("link previews", () => {
       const p = await page(path);
       expect(p.title, path).toMatch(/^\w+ – Genji Ball Ranked$/);
       expect(p.image, path).toBe("https://example.com/og.png");
+      expect(p.canonical, path).toBeUndefined();
     }
+  });
+
+  it("names the region a player link without one shows a crawler: the first", async () => {
+    const id = await playerId("Alpha");
+    const p = await page(`/player?id=${id}&region=xx`);
+    expect(p.canonical).toBe(`https://example.com/player?id=${id}&region=eu`);
   });
 
   it("hands a visitor the page as it is", async () => {
     const p = await page(`/player?id=${await playerId("Alpha")}&region=eu`, browser);
     expect(p.title).toBe("Player – Genji Ball Ranked");
     expect(p.url).toBe("https://genjiball.us/player");
+    // The head script names the canonical in the browser (site/lib/canonical.ts).
+    expect(p.canonical).toBeUndefined();
     expect(p.html).toMatch(/<script type="module" src="\/build\/chunks\/player-[A-Z0-9]{8}\.js"><\/script>/);
   });
 });

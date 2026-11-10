@@ -17,6 +17,8 @@ export type PreviewConfig = StandingConfig & Pick<Config, "regions" | "linkPrevi
 export interface Preview {
   title: string;
   description: string;
+  /** The page's canonical path and query, as the head script names it for a browser (site/lib/canonical.ts). */
+  canonical: string;
 }
 
 /** The pages with a preview of their own. */
@@ -54,10 +56,11 @@ async function rated(db: D1Database, config: PreviewConfig, region: Region, id: 
   const player = await findCanonicalPlayer(db, id);
   if (!player) return null;
   const rating = await findRating(db, region.id, player.id);
-  if (!rating) return { name: player.name, alt: player.alt, rating: null, rank: null, line: "" };
+  if (!rating) return { id: player.id, name: player.name, alt: player.alt, rating: null, rank: null, line: "" };
   const { siteTier } = standing(rating, config, now);
   const ranked = rating.rounds >= config.minRankedRounds && !player.alt;
   return {
+    id: player.id,
     name: player.name,
     alt: player.alt,
     rating,
@@ -69,7 +72,9 @@ async function rated(db: D1Database, config: PreviewConfig, region: Region, id: 
 async function playerPreview(db: D1Database, config: PreviewConfig, region: Region, id: number, now: Date): Promise<Preview | null> {
   const p = await rated(db, config, region, id, now);
   if (!p) return null;
-  if (!p.rating) return { title: `${p.name} (${region.label})`, description: `No rated rounds in ${region.label} yet. Genji Ball ranked stats.` };
+  // The player's own id: a link to a merged alt names the player it was merged into.
+  const canonical = `/player?id=${p.id}&region=${region.id}`;
+  if (!p.rating) return { title: `${p.name} (${region.label})`, description: `No rated rounds in ${region.label} yet. Genji Ball ranked stats.`, canonical };
   const r = p.rating;
   const won = r.rounds ? Math.round((100 * r.wins) / r.rounds) : 0;
   return {
@@ -78,6 +83,7 @@ async function playerPreview(db: D1Database, config: PreviewConfig, region: Regi
       p.rank ? `#${p.rank} on the ${region.label} leaderboard.` : p.alt ? "Alt account." : `Not on the ${region.label} leaderboard yet.`,
       `${r.rounds} rated ${r.rounds === 1 ? "round" : "rounds"}, ${won}% won.`,
     ].join(" "),
+    canonical,
   };
 }
 
@@ -101,6 +107,7 @@ async function matchPreview(db: D1Database, config: PreviewConfig, id: number): 
     ]
       .filter(Boolean)
       .join(" "),
+    canonical: `/match?id=${m.id}`,
   };
 }
 
@@ -110,21 +117,30 @@ async function comparePreview(db: D1Database, config: PreviewConfig, region: Reg
   return {
     title: players.length > 1 ? players.map((p) => p.name).join(" vs ") : `Compare ${players[0]!.name}`,
     description: `${players.map((p) => `${p.name}: ${p.rating ? p.line || "unranked" : "not rated"}`).join(" · ")}. Side by side in ${region.label}.`,
+    canonical: `/compare?ids=${[...new Set(players.map((p) => p.id))].join(",")}&region=${region.id}`,
   };
 }
 
-/** The page with the preview in its title and meta tags, and the share image's address made absolute (crawlers want one). */
+/**
+ * The page with the preview in its title and meta tags, its canonical address (og:url and a
+ * <link rel="canonical">, which the page's own script would add), and the share image's address made
+ * absolute (crawlers want one). The image is the site's for every page: a per-player one would have
+ * to be drawn, and no image library draws one inside the free plan's CPU time.
+ */
 export function withPreview(page: Response, preview: Preview | null, url: URL): Response {
   const image = new URL("/og.png", url).href;
   const content = (value: string) => ({ element: (el: Element) => void el.setAttribute("content", value) });
+  const address = preview ? new URL(preview.canonical, url).href : url.href;
   let rewriter = new HTMLRewriter()
     .on('meta[property="og:image"]', content(image))
-    .on('meta[property="og:url"]', content(url.href));
+    .on('meta[property="og:url"]', content(address));
   if (preview) {
+    // The address is a URL's href (quotes and brackets percent-encoded): only its & needs escaping.
     rewriter = rewriter
       .on("title", { element: (el) => void el.setInnerContent(`${preview.title} – ${siteName}`) })
       .on('meta[name="description"], meta[property="og:description"]', content(preview.description))
-      .on('meta[property="og:title"]', content(preview.title));
+      .on('meta[property="og:title"]', content(preview.title))
+      .on("head", { element: (el) => void el.append(`<link rel="canonical" href="${address.replaceAll("&", "&amp;")}">`, { html: true }) });
   }
   const res = rewriter.transform(page);
   const headers = new Headers(res.headers);
