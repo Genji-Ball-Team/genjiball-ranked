@@ -60,14 +60,16 @@ main { flex: 1; padding-block: 32px 48px; }
 .num { font-variant-numeric: tabular-nums; }
 .muted { color: var(--muted); }
 
-/* Leaderboard: the ladder. Rows straight on the page in tier bands, each band's heading pinned while
-   its tier scrolls by. */
+/* Leaderboard: the ladder. Rows straight on the page in tier bands. The column heads stay pinned at
+   the top, and each band's heading under them while its tier scrolls by. */
 .headline h1 { font-size: var(--display-size); font-stretch: var(--display-width); }
 .cols, .entry {
   display: grid; grid-template-columns: 3rem minmax(0, 1fr) 5.5rem 4.5rem 4.5rem 4.5rem 7rem; gap: 16px; align-items: center;
 }
+.board { --cols-h: 28px; }
 .cols {
-  margin-block-start: 24px; padding: 0 12px 4px 16px; color: var(--muted);
+  position: sticky; top: 0; z-index: 3; align-items: end; block-size: var(--cols-h);
+  margin-block-start: 16px; padding: 0 12px 4px 16px; background: var(--bg); color: var(--muted);
   font-size: var(--label-size); font-weight: var(--label-weight); font-stretch: var(--label-width);
   letter-spacing: var(--label-tracking); text-transform: uppercase;
 }
@@ -76,11 +78,12 @@ main { flex: 1; padding-block: 32px 48px; }
 .ladder[data-loading] { display: grid; gap: 6px; }
 .ladder gb-skeleton { min-block-size: 52px; }
 .band {
-  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
+  position: sticky; top: var(--cols-h); z-index: 2;
   margin-block-start: 20px; padding: 8px 0 6px; background: var(--bg); color: var(--muted); font-size: 0.8rem;
 }
+.band > span { display: flex; align-items: center; gap: 10px; }
 .band:first-child { margin-block-start: 0; }
-.band::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.band > span::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 [data-tier="rookie"] { --tier: var(--t-rookie); }
 [data-tier="apprentice"] { --tier: var(--t-apprentice); }
 [data-tier="master"] { --tier: var(--t-master); }
@@ -89,17 +92,22 @@ main { flex: 1; padding-block: 32px 48px; }
 [data-tier="champion"] { --tier: var(--t-champion); }
 [data-tier="sovereign"] { --tier: var(--t-sovereign); }
 .entry {
-  position: relative; padding: 11px 12px 11px 16px; color: var(--fg); text-decoration: none;
+  position: relative; padding: 11px 12px 11px 16px; color: var(--fg);
   border-radius: var(--r); -webkit-tap-highlight-color: transparent;
 }
+/* The row is a table row: its player's link covers all of it, and its focus ring goes round it. */
+.entry .go { color: inherit; text-decoration: none; }
+.entry .go::after { content: ""; position: absolute; inset: 0; z-index: 1; border-radius: inherit; }
+.entry .go:focus-visible { outline: none; }
+.entry:has(.go:focus-visible) { outline: 2px solid var(--green); outline-offset: 2px; }
 /* The tier bar: the tier's colour shows here and on the chip, never on text. */
 .entry::before {
   content: ""; position: absolute; inset-inline-start: 0; inset-block: 8px; width: 3px; border-radius: 2px;
   background: var(--tier, var(--border));
 }
 /* Hovered, a row steps up to `panel` with a hint of its tier, and its tier bar thickens. */
-a.entry:hover, a.entry:active { background: color-mix(in oklab, var(--tier, var(--panel)) 6%, var(--panel)); }
-a.entry:hover::before { width: 4px; }
+.entry:hover, .entry:active { background: color-mix(in oklab, var(--tier, var(--panel)) 6%, var(--panel)); }
+.entry:hover::before { width: 4px; }
 .entry .pos { color: var(--muted); font-size: 1.05rem; font-weight: 600; font-stretch: var(--heading-width); }
 .entry .pos.high { color: var(--fg); font-weight: 700; }
 .who { min-width: 0; }
@@ -108,14 +116,14 @@ a.entry:hover::before { width: 4px; }
   font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width);
 }
 .who small { display: block; color: var(--muted); font-size: 0.8rem; }
-.who .stats { display: none; }
+.entry .stats { display: none; }
 .entry .rating { font-size: 1.35rem; font-weight: 700; font-stretch: var(--display-width); }
 .entry .rating.floor { color: var(--muted); font-weight: 400; }
 .entry.inactive .who b, .entry.inactive .rating { color: var(--muted); }
 .entry.inactive::before { opacity: 0.45; }
 .entry .played { font-size: 0.85rem; white-space: nowrap; }
 /* "This is me": a raised row with a label, so it shows without taking a colour. */
-a.entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
+.entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border); }
 .you {
   padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; color: var(--muted);
   font-size: var(--label-size); font-weight: var(--label-weight); letter-spacing: var(--label-tracking); text-transform: uppercase;
@@ -138,7 +146,7 @@ a.entry.me { background: var(--raised); box-shadow: inset 0 0 0 1px var(--border
 }
 .filter-box input { inline-size: 100%; }
 .filter-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.filter-foot { display: flex; justify-content: end; padding-block-start: 12px; border-block-start: 1px solid var(--line); }
+.filter-foot { display: flex; justify-content: space-between; align-items: center; padding-block-start: 12px; border-block-start: 1px solid var(--line); }
 .filter-pills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .filter-pills:empty { display: none; }
 .filter-pill, .filter-pill-clear {
@@ -167,15 +175,16 @@ gb-search kbd:empty { display: none; }
    row has only its dark red chip and keeps its tier's look. Without motion, the rim and glows stay
    and nothing moves. */
 @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
-a.entry.god { isolation: isolate; overflow: hidden; border: 1.5px solid transparent; }
-.entry.god > :not(.fx) { position: relative; z-index: 1; }
-a.entry.god::before { z-index: 2; inset-inline-start: 2px; width: 4px; }
-a.entry.god::before {
+.entry.god { isolation: isolate; overflow: hidden; border: 1.5px solid transparent; }
+/* Under the row's content, over its background (the row is the stacking context). */
+.entry.god > .fx { z-index: -1; }
+.entry.god::before { z-index: 2; inset-inline-start: 2px; width: 4px; }
+.entry.god::before {
   background: linear-gradient(var(--god-cream), var(--god));
   box-shadow: 0 0 8px color-mix(in oklab, var(--god-cream) 90%, transparent);
 }
 .entry > .fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-a.entry.god {
+.entry.god {
   --fill: var(--panel); margin-block: 4px;
   background:
     linear-gradient(90deg, color-mix(in oklab, var(--god-cream) 14%, transparent), transparent 80%) padding-box,
@@ -183,7 +192,7 @@ a.entry.god {
     conic-gradient(from var(--spin), var(--line) 0 55%, var(--god) 72%, var(--god-rim) 80%, var(--line) 92% 100%) border-box;
   box-shadow: 0 0 18px color-mix(in oklab, var(--god-cream) 12%, transparent);
 }
-a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
+.entry.god:hover, .entry.god:active { --fill: var(--raised); }
 .entry.god .pos, .entry.god .rating { color: var(--god); text-shadow: 0 0 12px color-mix(in oklab, var(--god-rim) 80%, transparent); }
 .entry.god .name {
   background: linear-gradient(110deg, var(--god) 0 35%, var(--god-rim) 45%, var(--god) 50%, var(--god-cream) 55%, var(--god) 65% 100%) 0 0 / 200% 100%;
@@ -200,7 +209,7 @@ a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
   mask: radial-gradient(circle, #000 0 30%, transparent 70%);
 }
 @media (prefers-reduced-motion: no-preference) {
-  a.entry.god { animation: title-spin 4s linear infinite; }
+  .entry.god { animation: title-spin 4s linear infinite; }
     .entry.god .name { animation: title-shimmer 3s linear infinite; }
   .fx .mote { animation: title-mote var(--t) linear infinite; }
   .fx .spark { animation: title-twinkle var(--t) ease-in-out infinite; }
@@ -208,7 +217,7 @@ a.entry.god:hover, a.entry.god:active { --fill: var(--raised); }
   @keyframes title-shimmer { to { background-position: -200% 0; } }
   @keyframes title-mote { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 100% { transform: translate(var(--dx), var(--dy)); opacity: 0; } }
   @keyframes title-twinkle { 0%, 100% { opacity: 0; scale: 0.2; rotate: 0deg; } 50% { opacity: 1; scale: 1; rotate: 45deg; } }
-  a.entry { transition: background-color 0.15s; }
+  .entry { transition: background-color 0.15s; }
   .entry::before { transition: width 0.15s; }
 }
 
@@ -377,11 +386,20 @@ gb-chip.void { color: var(--down); }
   .back gb-icon { inline-size: 24px; block-size: 24px; }
   .headline:has(.back) { justify-content: start; }
   .headline h1 { font-size: 2rem; }
-  .entry { padding-block: 12px; }
-  .cols, .entry { grid-template-columns: 2.25rem minmax(0, 1fr) 4.5rem; gap: 12px; }
-  .who .stats gb-delta { font-size: inherit; }
+  /* One height for every row: the name and one line under it on the left, the rating and its 7-day
+     change on the right. Neither line wraps. */
+  .entry { padding-block: 8px; }
+  .cols, .entry { grid-template-columns: 2.25rem minmax(0, 1fr) 4rem; gap: 10px; }
+  .entry .stats gb-delta { font-size: inherit; }
   .cols > :nth-child(n + 4), .entry > :nth-child(n + 4) { display: none; }
-  .who .stats { display: block; }
+  .entry .stats { display: block; }
+  .who b { flex-wrap: nowrap; }
+  .who .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who b > :not(.name) { flex: none; }
+  .who .stats { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who .inactive-note { display: none; }
+  .entry .rating { line-height: 1.1; }
+  .rating .stats { color: var(--muted); font-size: 0.8rem; font-weight: 400; font-stretch: normal; line-height: 1.4; }
   /* Three figures a row, so K/D doesn't wrap alone. */
   .figures { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; }
   .figures div { padding-inline: 16px; }

@@ -1,4 +1,4 @@
-import { ratingVersionStatement, staleFromPlayersStatement } from "../rating/store";
+import { boardPlayersStatement, ratingVersionStatement, staleFromPlayersStatement } from "../rating/store";
 import { queueRecountStatement, recordsUrgentStatement } from "../records/store";
 import { matchPairsInsert } from "../upload/pairs";
 
@@ -442,10 +442,20 @@ export async function writeName(
   await db.batch([...statements, mergeActionStatement(db, log.adminId, "player_name", log.detail, log.at, "NULL")]);
 }
 
-/** Marks a player an alt account, or not, with its `admin_actions` row. Only a player not merged into another. */
-export async function writeAlt(db: D1Database, playerId: number, alt: boolean, log: { adminId: number; detail: Record<string, unknown>; at: string }): Promise<void> {
+/**
+ * Marks a player an alt account, or not, with its `admin_actions` row. Only a player not merged into
+ * another. Recounts every region's board (`minRounds`: `minRankedRounds`), which it joins or leaves.
+ */
+export async function writeAlt(
+  db: D1Database,
+  playerId: number,
+  alt: boolean,
+  minRounds: number,
+  log: { adminId: number; detail: Record<string, unknown>; at: string },
+): Promise<void> {
   await db.batch([
     db.prepare("UPDATE players SET alt = ?2 WHERE id = ?1 AND merged_into IS NULL").bind(playerId, alt ? 1 : 0),
+    boardPlayersStatement(db, null, minRounds),
     mergeActionStatement(db, log.adminId, "player_alt", log.detail, log.at, "NULL"),
   ]);
 }
