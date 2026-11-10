@@ -16,11 +16,11 @@
   min-width: 0; color: var(--fg); font-size: var(--title-size); font-weight: 600; font-stretch: var(--title-width);
   overflow-wrap: anywhere; text-decoration-color: var(--green); text-underline-offset: 3px;
 }
-.records .where { color: var(--muted); font-size: 0.8rem; }
+.records .where { color: var(--muted); font-size: var(--small-size); }
 .records .where a { color: var(--soft); }
 .records .runners {
   display: grid; gap: 2px; margin: 14px 0 0; padding: 10px 0 0;
-  border-top: 1px solid var(--line); list-style: none; counter-reset: place 1; font-size: 0.875rem;
+  border-top: 1px solid var(--line); list-style: none; counter-reset: place 1; font-size: var(--compact-size);
 }
 .records .runners li { display: grid; grid-template-columns: 1.4em minmax(0, 1fr) auto; gap: 6px; align-items: baseline; padding-block: 2px; counter-increment: place; }
 .records .runners li::before { content: counter(place); color: var(--muted); font-weight: 600; }

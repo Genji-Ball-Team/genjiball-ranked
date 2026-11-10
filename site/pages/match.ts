@@ -80,22 +80,23 @@ function summary(m: Match, players: MatchPlayer[], idle: MatchPlayer[]): Html {
       <b>${won.map((p, i) => html`${i ? " & " : ""}<a href="${playerLink(p.id)}">${p.name}</a>`)}</b>
       <small>${count(first.roundWins, "round")} won, ${count(first.kills, "kill")}</small></div></div>`;
   const deflects = !m.legacy;
-  const th = (label: string, tip: string, extra = false) =>
-    html`<th data-sort data-type="number"${extra && raw(' class="extra"')} title="${tip}">${label}</th>`;
+  // On a narrow screen the table drops touches and streak first, then deflects, before it scrolls.
+  const th = (label: string, tip: string, priority?: "low" | "medium") =>
+    html`<th data-sort data-type="number"${priority && raw(` data-priority="${priority}"`)} title="${tip}">${label}</th>`;
   const rows = players.map(
     (p) => html`<tr${p.place === 1 && first && raw(' class="first"')}>
       <td class="num">${p.place}</td>
       <th scope="row" class="name"><a href="${playerLink(p.id)}">${p.name}</a></th>
       <td class="num">${p.roundWins}</td><td class="num">${p.kills}</td>
-      ${deflects && html`<td class="num">${p.deflects}</td><td class="num extra">${p.touches}</td>`}
-      <td class="num extra">${p.longestStreak}</td>
+      ${deflects && html`<td class="num">${p.deflects}</td><td class="num">${p.touches}</td>`}
+      <td class="num">${p.longestStreak}</td>
       <td class="num change" data-value="${p.ratingAfter ?? -1}">${change(p)}</td></tr>`,
   );
   return html`${podium}<gb-table class="standings"><table>
     <thead><tr><th data-sort data-type="number" aria-sort="ascending" title="Overall place">#</th><th data-sort>Player</th>
       ${th("Won", "Rounds won, rated or not")}${th("Kills", "Players they eliminated, not counting themselves")}
-      ${deflects && html`${th("Deflects", "Balls they deflected")}${th("Touches", "Deflects, plus times a ball someone sent eliminated them", true)}`}
-      ${th("Streak", "Most rounds won in a row", true)}${th("Rating", "Rating after the match, and the change")}</tr></thead>
+      ${deflects && html`${th("Deflects", "Balls they deflected", "medium")}${th("Touches", "Deflects, plus times a ball someone sent eliminated them", "low")}`}
+      ${th("Streak", "Most rounds won in a row", "low")}${th("Rating", "Rating after the match, and the change")}</tr></thead>
     <tbody>${rows}</tbody></table></gb-table>
     ${idle.length > 0 && html`<p class="note">Also in the lobby, no rounds played: ${idle.map((p, i) => html`${i ? ", " : ""}<a href="${playerLink(p.id)}">${p.name}</a>`)}.</p>`}`;
 }

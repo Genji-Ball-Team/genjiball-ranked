@@ -10,7 +10,7 @@ import type { GbRatingChart, TierLine } from "@genji-ball-team/ui/rating-chart.j
 import type { GbSegmented } from "@genji-ball-team/ui/segmented.js";
 import { api, idParam, inRegion, matchLink, NotFound, playerLink } from "../lib/api";
 import { duelIcon, duelsLink, record } from "../lib/duels";
-import { count, date, killDeath, mapName, matchFlags, num, ordinal, rating, tierChip, tierName, title, winRate } from "../lib/format";
+import { count, date, killDeath, mapName, matchFlags, num, ordinal, rating, shortDate, tierChip, tierName, title, winRate } from "../lib/format";
 import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { me, setMe } from "../lib/me";
@@ -243,7 +243,7 @@ const since = (points: HistoryPoint[], days: number | null): HistoryPoint[] =>
   days === null ? points : points.filter((p) => Date.parse(p.playedAt) >= Date.now() - days * 86_400_000);
 
 /**
- * The chart over 7 days, 30 days or everything, with the first and last match's dates under it. A
+ * The chart over 7 days, 30 days or everything, each point dated for the chart's date row. A
  * range with fewer than two matches can't draw a line: its button is off.
  */
 function chartRange(chart: GbRatingChart, h: History, playerId: number): void {
@@ -251,13 +251,14 @@ function chartRange(chart: GbRatingChart, h: History, playerId: number): void {
   const days = (value: string) => (value === "all" ? null : Number(value));
   const draw = () => {
     const points = since(h.points, days(range.value));
+    const year = (p: HistoryPoint | undefined) => (p ? new Date(p.playedAt).getFullYear() : 0);
+    const years = year(points[0]) !== year(points.at(-1));
     chart.points = points.map((p) => ({
       rating: p.rating,
       label: `${p.duel ? "Duel" : `Match #${p.matchId}`} · ${date(p.playedAt)}${p.matchId === h.peak?.matchId ? " · Peak" : ""}`,
+      axis: shortDate(p.playedAt, years),
       href: p.duel ? duelsLink(playerId) : matchLink(p.matchId),
     }));
-    const [first, last] = [points[0], points.at(-1)];
-    render(byId("graph-dates"), html`${first && html`<span>${date(first.playedAt)}</span>`}${last && last !== first && html`<span>${date(last.playedAt)}</span>`}`);
   };
   for (const option of range.options) if (option instanceof HTMLButtonElement) option.disabled = since(h.points, days(option.value)).length < 2;
   range.value = "all";
