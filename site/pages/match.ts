@@ -3,7 +3,9 @@ import "@genji-ball-team/ui/chip.js";
 import "@genji-ball-team/ui/delta.js";
 import "@genji-ball-team/ui/empty.js";
 import "@genji-ball-team/ui/icon.js";
+import "@genji-ball-team/ui/segmented.js";
 import "@genji-ball-team/ui/table.js";
+import type { GbSegmented } from "@genji-ball-team/ui/segmented.js";
 import { api, idParam, matchLink, NotFound, playerLink } from "../lib/api";
 import { ago, count, date, dateTime, mapName, matchFlags, rating, title } from "../lib/format";
 import { byId, html, raw, render, type Html } from "../lib/html";
@@ -15,19 +17,43 @@ import { start } from "../shell";
 
 const siteName = "Genji Ball Ranked";
 
-const list = (rounds: Round[]) => rounds.map((r) => r.number).join(", ");
+const list = (rounds: { number: number }[]) => rounds.map((r) => r.number).join(", ");
 
-// Short notes under the grid: replayed and stopped rounds, and why a round isn't rated. Stopped rounds
-// have no column, so they're only named here.
-function roundNotes(all: Round[]): string[] {
-  const replayed = all.filter((r) => r.result === "NONE");
-  const stopped = all.filter((r) => r.result === "ABORT");
-  const unrated = all.filter((r) => r.result === "WIN" && !r.rated && !r.broken);
+/**
+ * A column of the rounds grid: a stored round, or a number the log skipped. The parser drops a round
+ * the log never ended (no `ROUND_END` before the next round or the end of the match), so its number is
+ * missing from the stored rounds.
+ */
+type Column = Round | { number: number; missing: true };
+
+const isMissing = (c: Column): c is { number: number; missing: true } => "missing" in c;
+
+/** Every stored round, with the numbers between them (and before the first) that have none. */
+function columns(rounds: Round[]): Column[] {
+  const sorted = [...rounds].sort((a, b) => a.number - b.number);
+  const all: Column[] = [];
+  let next = 1;
+  for (const r of sorted) {
+    for (; next < r.number; next++) all.push({ number: next, missing: true });
+    all.push(r);
+    next = r.number + 1;
+  }
+  return all;
+}
+
+// Short notes under the grid: replayed, stopped and missing rounds, and why a round isn't rated.
+function roundNotes(all: Column[]): string[] {
+  const rounds = all.filter((c): c is Round => !isMissing(c));
+  const replayed = rounds.filter((r) => r.result === "NONE");
+  const stopped = rounds.filter((r) => r.result === "ABORT");
+  const unrated = rounds.filter((r) => r.result === "WIN" && !r.rated && !r.broken);
+  const missing = all.filter(isMissing);
   return [
     replayed.length && `Replayed after everyone died: ${list(replayed)}.`,
     stopped.length && `Stopped before anyone won: ${list(stopped)}.`,
+    missing.length && `No result logged: ${list(missing)}.`,
     unrated.length && `Not rated: ${list(unrated)}.`,
-    ...all.filter((r) => r.result === "WIN" && r.broken).map((r) => `Round ${r.number} isn't rated: ${[r.broken].flat().join(", ")}.`),
+    ...rounds.filter((r) => r.result === "WIN" && r.broken).map((r) => `Round ${r.number} isn't rated: ${[r.broken].flat().join(", ")}.`),
   ].filter((n): n is string => Boolean(n));
 }
 
@@ -80,8 +106,26 @@ function roundStats(p: Placement): string {
   return parts.length ? `, ${parts.join(", ")}` : "";
 }
 
-/** One player's cell in one round: their place, L if they left, AFK for a host who was away. */
-function cell(r: Round, p: MatchPlayer, place: Placement | undefined): Html {
+/** What the rounds grid shows in a cell: the place, or what the round did to the rating. */
+type View = "place" | "rating";
+
+/** A rating change as "+12", "−5" or "0". */
+const signedChange = (n: number): string => (n > 0 ? `+${n}` : n < 0 ? `−${-n}` : "0");
+
+/** A rating change cell: up or down coloured, nothing for none. */
+function changeCell(n: number | null, extra = ""): Html {
+  if (n === null) return html`<td class="r${raw(extra)}"></td>`;
+  const tone = n > 0 ? " up" : n < 0 ? " down" : "";
+  return html`<td class="r change${raw(tone + extra)}">${signedChange(n)}</td>`;
+}
+
+/**
+ * One player's cell in one round: their place (or the round's rating change), L if they left, AFK for
+ * a host who was away. A missing round has empty cells.
+ */
+function cell(c: Column, p: MatchPlayer, place: Placement | undefined, view: View): Html {
+  if (isMissing(c)) return html`<td class="r unrated"></td>`;
+  const r = c;
   const unrated = r.rated ? "" : " unrated";
   if (!place) return html`<td class="r${unrated}"></td>`;
   // A tooltip with the mouse; read out after the place with a screen reader.
@@ -89,22 +133,49 @@ function cell(r: Round, p: MatchPlayer, place: Placement | undefined): Html {
   const sr = tip && html`<span class="sr">${tip}</span>`;
   if (place.left) return html`<td class="r left${unrated}" title="Left${tip}">L${sr}</td>`;
   if (place.afk) return html`<td class="r left${unrated}" title="Host AFK: not rated${tip}">AFK${sr}</td>`;
+  if (view === "rating") return r.rated ? changeCell(place.ratingChange) : html`<td class="r${unrated}"></td>`;
   if (r.winner === p.id) return html`<td class="r won${unrated}" title="Won${tip}"><span>1</span>${sr}</td>`;
   return html`<td class="r${unrated}"${tip && html` title="${tip.slice(2)}"`}>${place.position ?? "–"}${sr}</td>`;
 }
 
-function rounds(shown: Round[], players: MatchPlayer[]): Html {
-  const places = shown.map((r) => new Map(r.placements.map((p) => [p.playerId, p])));
-  const head = shown.map(
-    (r) => html`<th class="r${r.rated ? "" : " unrated"}" scope="col"${!r.rated && raw(' title="Not rated"')}>${r.number}</th>`,
-  );
+/** A round's column head: its number, struck through when it isn't rated, with why as a tooltip. */
+function head(c: Column): Html {
+  const why = isMissing(c)
+    ? "No result logged"
+    : c.result === "ABORT"
+      ? "Stopped before anyone won"
+      : c.result === "NONE"
+        ? "Replayed after everyone died"
+        : c.rated
+          ? ""
+          : "Not rated";
+  const unrated = !isMissing(c) && c.rated ? "" : " unrated";
+  return html`<th class="r${unrated}" scope="col"${why && html` title="${why}"`}>${c.number}</th>`;
+}
+
+/**
+ * The rounds grid. With rating changes, the "rating" view ends each row with what the match did after
+ * its rounds (a match's cap, a tourney's standings), when it did anything, and the total.
+ */
+function rounds(m: Match, shown: Column[], players: MatchPlayer[], view: View): Html {
+  const places = shown.map((c) => (isMissing(c) ? new Map<number, Placement>() : new Map(c.placements.map((p) => [p.playerId, p]))));
+  const rating = view === "rating";
+  const after = rating && players.some((p) => (p.ratingAfterRounds ?? 0) !== 0);
+  const afterHead = m.tournament
+    ? html`<th class="r end" scope="col" title="The tourney's standings bonus and limits">Tourney</th>`
+    : html`<th class="r end" scope="col" title="Held to the most one match can move a rating">Cap</th>`;
+  // The server checked that the rounds and what came after add up to the stored change.
+  const total = (p: MatchPlayer) =>
+    p.ratingAfterRounds === null ? null : shown.reduce((s, c, i) => s + (isMissing(c) ? 0 : (places[i]?.get(p.id)?.ratingChange ?? 0)), p.ratingAfterRounds);
   const rows = players.map(
     (p) =>
-      html`<tr><th scope="row" class="name"><a href="${playerLink(p.id)}">${p.name}</a></th>${shown.map((r, i) =>
-        cell(r, p, places[i]?.get(p.id)),
-      )}</tr>`,
+      html`<tr><th scope="row" class="name"><a href="${playerLink(p.id)}">${p.name}</a></th>${shown.map((c, i) => cell(c, p, places[i]?.get(p.id), view))}${
+        after && changeCell(p.ratingAfterRounds || null, " end")
+      }${rating && changeCell(total(p), " end total")}</tr>`,
   );
-  return html`<gb-table class="rounds"><table><thead><tr><th scope="col">Player</th>${head}</tr></thead>
+  return html`<gb-table class="rounds"><table><thead><tr><th scope="col">Player</th>${shown.map(head)}${after && afterHead}${
+    rating && html`<th class="r end" scope="col">Total</th>`
+  }</tr></thead>
     <tbody>${rows}</tbody></table></gb-table>`;
 }
 
@@ -164,13 +235,19 @@ async function matchPage(): Promise<void> {
     const idle = sorted.filter((p) => !inRound.has(p.id));
     loaded(byId("summary"), m.rounds.length ? summary(m, players, idle) : html`<gb-empty>No rounds in this match.</gb-empty>`);
     attach(byId("headline"), shareCard(m, players));
-    const shown = m.rounds.filter((r) => r.result !== "ABORT");
-    if (!shown.length) {
+    if (!m.rounds.length) {
       byId("rounds-section").hidden = true;
       return;
     }
-    loaded(byId("result"), rounds(shown, players));
-    render(byId("notes"), html`${roundNotes(m.rounds).map((n, i) => html`${i ? raw("<br>") : ""}${n}`)}`);
+    const shown = columns(m.rounds);
+    loaded(byId("result"), rounds(m, shown, players, "place"));
+    // Place or rating change, when the server could tell each round's change.
+    const toggle = byId<GbSegmented>("round-view");
+    if (m.ratingChanges) {
+      toggle.hidden = false;
+      toggle.addEventListener("change", () => render(byId("result"), rounds(m, shown, players, toggle.value === "rating" ? "rating" : "place")));
+    }
+    render(byId("notes"), html`${roundNotes(shown).map((n, i) => html`${i ? raw("<br>") : ""}${n}`)}`);
   } catch (error) {
     byId("name").textContent = error instanceof NotFound ? "Match not found" : "Match";
     byId("rounds-section").hidden = true;

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
+import { listPlayerDuelsBetween } from "../src/duels/store";
 import { readRatingsBefore } from "../src/rating/store";
 import { listFormRounds, listRatedRegions } from "../src/site/store";
 
@@ -78,6 +79,26 @@ describe("reads stay small", () => {
     expect(before.size).toBe(3);
     expect(before.get(1)?.rounds).toBe(20);
     expect(counter.rows).toBeLessThan(200);
+  });
+
+  it("finds a player's duels among a page of their matches from that id range only", async () => {
+    // Player 1 in 400 matches, none a duel: the page's range is the last 20.
+    await db().batch([
+      db().prepare("INSERT OR IGNORE INTO hosts (id, name, token_hash, trust, region) VALUES (1, 'host', 'abc', 'trusted', 'eu')"),
+      db().prepare("INSERT OR IGNORE INTO uploads (id, host_id, content_hash, raw_log, raw_size, status) VALUES (1, 1, 'h', x'010203', 3, 'parsed')"),
+      db().prepare(
+        `INSERT INTO matches (id, upload_id, host_id, match_key, line_count, format, game_version, status, region, played_at, complete)
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 400)
+         SELECT i, 1, 1, 'k' || i, 1, 1, '1.3.3R', 'accepted', 'eu', '2026-01-01T00:00:00.000Z', 1 FROM n`,
+      ),
+      db().prepare(
+        `INSERT INTO match_players (match_id, log_id, player_id, name, join_time)
+         WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 400) SELECT i, 1, 1, 'P1', 0 FROM n`,
+      ),
+    ]);
+    const { db: counted, counter } = counting();
+    expect(await listPlayerDuelsBetween(counted, "eu", 1, null, 380, 21)).toEqual([]);
+    expect(counter.rows).toBeLessThan(60);
   });
 
   it("is empty for a player with no history in the region", async () => {

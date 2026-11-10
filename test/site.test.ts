@@ -568,6 +568,39 @@ describe("match", () => {
     expect(alpha.ratingAfter).toEqual(expect.any(Number));
   });
 
+  type Changes = {
+    match: {
+      ratingChanges: boolean;
+      players: { id: number; ratingBefore: number | null; ratingAfter: number | null; ratingAfterRounds: number | null }[];
+      rounds: { rated: boolean; placements: { playerId: number; position: number | null; ratingChange: number | null }[] }[];
+    };
+  };
+
+  it("gives each rated round's rating change, adding up with the rest to the match's change", async () => {
+    await playMatches(2);
+    const { match } = await get<Changes>(`matches/${await matchId("000000000002")}`);
+    expect(match.ratingChanges).toBe(true);
+    for (const p of match.players) {
+      const rounds = match.rounds.flatMap((r) => r.placements.filter((x) => x.playerId === p.id)).map((x) => x.ratingChange ?? 0);
+      expect(rounds.reduce((a, b) => a + b, 0) + p.ratingAfterRounds!).toBe(p.ratingAfter! - p.ratingBefore!);
+    }
+    // The round winner gains.
+    expect(match.rounds[0]!.placements[0]!.ratingChange).toBeGreaterThan(0);
+  });
+
+  it("gives no round changes past roundChangesMaxRatedRounds, or when the replay doesn't land on the stored ratings", async () => {
+    await playMatches(1);
+    const id = await matchId("000000000001");
+    const read = async (config = defaults) => ((await (await handleSite(new Request(`https://example.com/api/matches/${id}`), db(), config))!.json()) as Changes).match;
+    expect((await read()).ratingChanges).toBe(true);
+    const capped = await read({ ...defaults, roundChangesMaxRatedRounds: 1 });
+    expect(capped.ratingChanges).toBe(false);
+    expect(capped.rounds[0]!.placements[0]!.ratingChange).toBeNull();
+    expect(capped.players[0]!.ratingAfterRounds).toBeNull();
+    await db().prepare("UPDATE rating_history SET display = display + 1 WHERE match_id = ?").bind(id).run();
+    expect((await read()).ratingChanges).toBe(false);
+  });
+
   it("marks a void match, and hides one in review", async () => {
     await playMatches(2);
     const [first, second] = [await matchId("000000000001"), await matchId("000000000002")];

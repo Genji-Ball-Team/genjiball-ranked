@@ -12,8 +12,9 @@ import { noMonthRecords, noRecords, recordsView, type RecordsConfig } from "../r
 import { readRecords } from "../records/store";
 import { staleRegions } from "../rating/store";
 import { duelStats } from "../duels/plan";
-import { listDuels, listPlayerDuels } from "../duels/store";
-import { displayRating } from "../rating/engine";
+import { listDuels, listPlayerDuels, listPlayerDuelsBetween } from "../duels/store";
+import { displayRating, type RatingConfig } from "../rating/engine";
+import { roundChanges, type RoundChanges } from "./roundChanges";
 import { downsample, peakOf, recentForm, type HistoryConfig } from "./history";
 import { isOpen, parseBoardFilter, tierRanges, type BoardFilter } from "./boardFilter";
 import { rankTags, type RankTagsConfig } from "./rankTags";
@@ -65,6 +66,7 @@ import {
 
 export type SiteConfig = RankTagsConfig &
   HistoryConfig &
+  RatingConfig &
   Pick<RecordsConfig, "recordsActivityDays"> &
   Pick<
     Config,
@@ -75,6 +77,7 @@ export type SiteConfig = RankTagsConfig &
     | "tiersMaxPlayers"
     | "matchFeedLimit"
     | "playerRecentMatches"
+    | "roundChangesMaxRatedRounds"
     | "recentMatchesPageSize"
     | "duelsPageSize"
     | "playerDuelsMax"
@@ -212,7 +215,7 @@ export async function handleSite(
       });
     },
     "players/:id/stats": async () => found(id === null ? null : await stats(db, region, id), "No such player"),
-    "matches/:id": async () => found(id === null ? null : await match(db, id), "No such match"),
+    "matches/:id": async () => found(id === null ? null : await match(db, config, id), "No such match"),
     "tourneys/:id": async () => found(id === null ? null : await tourney(db, config, id), "No such tourney"),
   };
   // The route's pattern: `players`, `players/:id`, `players/:id/history`.
@@ -377,7 +380,9 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
       },
     },
     matches: recent.matches,
+    duels: recent.duels,
     moreMatches: recent.hasMore,
+    nextBefore: recent.nextBefore,
     ...rivals,
     tourneyWins,
   };
@@ -391,14 +396,24 @@ async function player(db: D1Database, config: SiteConfig, region: Region, id: nu
 async function playerMatches(db: D1Database, config: SiteConfig, region: Region, playerId: number, before: number | null) {
   const size = config.playerRecentMatches;
   const rows = await listPlayerMatches(db, region.id, playerId, size + 1, before);
-  const page = rows.slice(0, size);
-  const totals = await listMatchTotals(db, page.map((m) => m.id));
-  const matches = page.map((m) => {
+  // The duels among these matches: from `before` down to the last match shown, when there are more.
+  const matchFloor = rows.length > size ? rows[size - 1]!.id : null;
+  const [totals, duelRows] = await Promise.all([
+    listMatchTotals(db, rows.slice(0, size).map((m) => m.id)),
+    listPlayerDuelsBetween(db, region.id, playerId, before, matchFloor, size + 1),
+  ]);
+  // More duels than a page: the page ends at the last duel shown, and the matches below it wait for the next.
+  const floor = duelRows.length > size ? duelRows[size - 1]!.id : matchFloor;
+  const shown = <T extends { id: number }>(list: T[]) => list.slice(0, size).filter((x) => floor === null || x.id >= floor);
+  const matches = shown(rows).map((m) => {
     const inMatch = totals.filter((t) => t.matchId === m.id);
     const mine = inMatch.find((t) => t.playerId === playerId);
     return { ...m, place: mine ? placeIn(inMatch, mine) : null, roundWins: mine?.roundWins ?? 0 };
   });
-  return { matches, hasMore: rows.length > size };
+  const hasMore = rows.length > size || duelRows.length > size;
+  // The next page starts below the smallest id shown: `floor`, which is set whenever there are more. A
+  // page can hold fewer matches than its size, even none, so a reader can't derive this from `matches`.
+  return { matches, duels: shown(duelRows), hasMore, nextBefore: hasMore ? floor : null };
 }
 
 type Totals = { roundWins: number; kills: number };
@@ -525,9 +540,32 @@ async function tags(db: D1Database, config: SiteConfig, region: Region, now: Dat
   return { region: region.id, ...rankTags(candidates, config, now) };
 }
 
-async function match(db: D1Database, id: number) {
+async function match(db: D1Database, config: SiteConfig, id: number) {
   const detail = await findMatchDetail(db, id);
-  return detail && { match: matchView(detail) };
+  return detail && { match: withRoundChanges(matchView(detail), roundChanges(detail, config, config.roundChangesMaxRatedRounds)) };
+}
+
+/**
+ * The match with each rated round's rating change on its placements (`ratingChange`) and what the
+ * match did after its rounds on its players (`ratingAfterRounds`), when `changes` has them
+ * (`ratingChanges` true). Otherwise those are null.
+ */
+export function withRoundChanges(view: ReturnType<typeof matchView>, changes: RoundChanges | null) {
+  return {
+    ...view,
+    ratingChanges: changes !== null,
+    players: view.players.map((p) => ({ ...p, ratingAfterRounds: changes?.after.get(p.id) ?? null })),
+    rounds: view.rounds.map((r) => {
+      const round = changes?.rounds.get(r.number);
+      return {
+        ...r,
+        placements: r.placements.map((p) => ({
+          ...p,
+          ratingChange: p.playerId === null || p.position === null ? null : (round?.get(p.playerId) ?? null),
+        })),
+      };
+    }),
+  };
 }
 
 /**

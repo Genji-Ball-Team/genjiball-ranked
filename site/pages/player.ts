@@ -15,7 +15,7 @@ import { byId, html, Html, raw, render } from "../lib/html";
 import { loaded, showError } from "../lib/load";
 import { me, setMe } from "../lib/me";
 import { site } from "../lib/site";
-import type { History, HistoryPoint, PlayerDuels, PlayerMatch, PlayerMatches, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
+import type { History, HistoryPoint, PlayerDuel, PlayerDuels, PlayerMatch, PlayerMatches, PlayerPage, PlayerRating, Rival, Tier, Titles, TitleName } from "../lib/types";
 import { attach, type PlayerCard } from "../share";
 import { start } from "../shell";
 import { titleChip, titleFx, titleLooks, titleSeals } from "../titles";
@@ -151,39 +151,75 @@ function rivals(p: PlayerPage["player"], eliminated: Rival[], eliminatedBy: Riva
   render(byId("eliminated-by"), list(eliminatedBy));
 }
 
-/** The rating after a match, and what it changed by. */
-function change(m: PlayerMatch): Html {
+/** The rating after a match or duel, and what it changed by. */
+function change(m: Pick<PlayerMatch, "ratingAfter" | "ratingBefore">): Html {
   if (m.ratingAfter === null) return html`<span class="muted">Not rated</span>`;
   if (m.ratingBefore === null) return html`${rating(m.ratingAfter)}<gb-chip title="Their first rated match">New</gb-chip>`;
   const d = m.ratingAfter - m.ratingBefore;
   return html`${rating(m.ratingAfter)}${d !== 0 && html`<gb-delta value="${d}"></gb-delta>`}`;
 }
 
-// Legacy is only worth a chip when it sets a match apart from the others in the list.
-function matchRow(m: PlayerMatch, mixed: boolean): Html {
-  const d = new Date(m.playedAt);
+/** "Nov 3, 14:05", with the year when it isn't this year's. */
+function when(iso: string): string {
+  const d = new Date(iso);
   const thisYear = d.getFullYear() === new Date().getFullYear();
-  const day = d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: thisYear ? undefined : "numeric" });
-  const time = d.toLocaleTimeString(undefined, { timeStyle: "short" });
+  return d.toLocaleString(undefined, { month: "short", day: "numeric", year: thisYear ? undefined : "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** A row of the recent list: a match, or a duel among them. */
+type Recent = { match: PlayerMatch } | { duel: PlayerDuel };
+
+/** Matches and duels together, newest first. */
+function recentRows(matches: PlayerMatch[], duels: PlayerDuel[]): Recent[] {
+  const rows: Recent[] = [...matches.map((match) => ({ match })), ...duels.map((duel) => ({ duel }))];
+  const of = (r: Recent) => ("match" in r ? r.match : r.duel);
+  return rows.sort((a, b) => of(b).playedAt.localeCompare(of(a).playedAt) || of(b).id - of(a).id);
+}
+
+// The map only when the list has more than one, and Legacy only when it sets a match apart.
+function matchRow(m: PlayerMatch, maps: boolean, mixed: boolean): Html {
+  const flags = matchFlags({ ...m, legacy: m.legacy && mixed });
   return html`<li><a href="${matchLink(m.id)}">
-    <span class="when">${day}<small>${time}</small></span>
-    <span class="map">${mapName(m.map)} ${matchFlags({ ...m, legacy: m.legacy && mixed })}</span>
-    <span class="place">${m.place !== null && html`<b${m.place === 1 && raw(' class="won"')}>${ordinal(m.place)}</b>`}<small class="num">${count(m.roundWins, "round")} won</small></span>
+    <span class="when">${when(m.playedAt)}</span>
+    ${maps && html`<span class="map">${mapName(m.map)} ${flags}</span>`}
+    <span class="place">${m.place !== null && html`<b${m.place === 1 && raw(' class="won"')}>${ordinal(m.place)}</b>`}<small class="num">${count(m.roundWins, "round")} won</small>${!maps && flags}</span>
     <span class="change num">${change(m)}</span></a></li>`;
 }
 
-/** "Show more": the next older matches under the list, until there are none. */
-function showMore(id: number, shown: PlayerMatch[]): void {
+/** A duel in the list: its result and score against whom, linking to their duels. */
+function duelRow(d: PlayerDuel, playerId: number, maps: boolean): Html {
+  return html`<li class="duel"><a href="${duelsLink(playerId)}">
+    <span class="when">${when(d.playedAt)}</span>
+    ${maps && html`<span class="map"></span>`}
+    <span class="place">${duelIcon()}<b${d.won && raw(' class="won"')}>${d.won ? "Won" : "Lost"}</b><small>Duel <span class="num">${d.score}–${d.opponentScore}</span> vs ${d.opponent.name}</small></span>
+    <span class="change num">${change(d)}</span></a></li>`;
+}
+
+/** The recent list, with the map column only when the matches in it weren't all on one map. */
+function recentList(matches: PlayerMatch[], duels: PlayerDuel[], playerId: number): Html {
+  const maps = new Set(matches.map((m) => m.map)).size > 1;
+  const mixed = new Set(matches.map((m) => m.legacy)).size > 1;
+  const rows = recentRows(matches, duels).map((r) => ("match" in r ? matchRow(r.match, maps, mixed) : duelRow(r.duel, playerId, maps)));
+  return html`${rows}`;
+}
+
+/** "Show more": the next older matches and duels under the list, until there are none. */
+function showMore(id: number, matches: PlayerMatch[], duels: PlayerDuel[], nextBefore: number): void {
   const button = byId<GbButton>("more-matches");
   const list = byId("matches");
+  let before = nextBefore;
   button.hidden = false;
   button.addEventListener("click", async () => {
     button.busy = true;
     try {
-      const more = await api<PlayerMatches>(`players/${id}/matches?${inRegion()}&before=${shown.at(-1)!.id}`);
-      shown.push(...more.matches);
-      list.insertAdjacentHTML("beforeend", html`${more.matches.map((m) => matchRow(m, shown.some((o) => o.legacy !== m.legacy)))}`.value);
-      button.hidden = !more.hasMore;
+      // The server's cursor: a page may hold no matches at all (only duels).
+      const more = await api<PlayerMatches>(`players/${id}/matches?${inRegion()}&before=${before}`);
+      matches.push(...more.matches);
+      duels.push(...(more.duels ?? []));
+      list.classList.toggle("no-map", new Set(matches.map((m) => m.map)).size <= 1);
+      render(list, recentList(matches, duels, id));
+      button.hidden = more.nextBefore === null;
+      if (more.nextBefore !== null) before = more.nextBefore;
       button.textContent = "Show more";
     } catch {
       button.textContent = "Couldn't load more: try again";
@@ -251,10 +287,9 @@ function history(h: History, r: PlayerRating | null, playerId: number): void {
   render(
     byId("form-facts"),
     f.rounds
-      ? html`${fact(`Last ${f.rounds} rated rounds`, `${f.wins} won`)}${fact("Average place", f.averagePosition.toFixed(1))}${fact(
-          "Win streak",
-          num(h.streak),
-        )}${fact("Best streak", num(h.bestStreak))}`
+      ? html`${fact(`Last ${f.rounds} rated rounds`, `${f.wins} won`)}${fact("Average place", f.averagePosition.toFixed(1))}${
+          h.streak > 0 && fact("Win streak", num(h.streak))
+        }${fact("Best streak", num(h.bestStreak))}`
       : html``,
   );
   render(byId("form"), formList(f));
@@ -284,7 +319,7 @@ async function playerPage(): Promise<void> {
     () => [],
   );
   try {
-    const { player: p, matches, moreMatches, mostEliminated, mostEliminatedBy, eliminations, tourneyWins } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
+    const { player: p, matches, duels = [], nextBefore, mostEliminated, mostEliminatedBy, eliminations, tourneyWins } = await api<PlayerPage>(`players/${id}?${inRegion()}`);
     const r = p.rating;
     title(`${p.name} (${site.short(site.region)})`);
     byId("name").textContent = p.name;
@@ -300,13 +335,15 @@ async function playerPage(): Promise<void> {
     const compare = byId<HTMLAnchorElement>("compare-link");
     compare.href = compareLink([p.id]);
     compare.hidden = false;
+    const list = byId("matches");
+    list.classList.toggle("no-map", new Set(matches.map((m) => m.map)).size <= 1);
     loaded(
-      byId("matches"),
-      matches.length
-        ? html`${matches.map((m) => matchRow(m, matches.some((o) => o.legacy !== m.legacy)))}`
+      list,
+      matches.length || duels.length
+        ? recentList(matches, duels, p.id)
         : html`<li><gb-empty>No matches in ${site.label(site.region)} yet.</gb-empty></li>`,
     );
-    if (moreMatches) showMore(p.id, matches);
+    if (nextBefore != null) showMore(p.id, matches, duels, nextBefore);
     const crown = (await titles).find((t) => t.id === p.id)?.title;
     if (crown) titleHero(crown);
     const headline = byId("headline");

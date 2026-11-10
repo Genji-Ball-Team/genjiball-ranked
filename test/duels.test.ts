@@ -7,7 +7,8 @@ import { createLogger } from "../src/log";
 import { displayRating, duelChange, newRating, rateDuel, type Ratings } from "../src/rating/engine";
 import { readState } from "../src/rating/store";
 import { recomputeRatings } from "../src/rating/update";
-import { adminFetch, adminJson, get, historyTable, hoursAgo, matchLog, playerId, ratingsTable, uploadLog } from "./helpers";
+import { adminFetch, adminJson, get, historyTable, hoursAgo, matchId, matchLog, playerId, ratingsTable, uploadLog } from "./helpers";
+import { handleSite } from "../src/site/handler";
 
 const db = () => env.DB;
 const log = createLogger("error");
@@ -230,5 +231,47 @@ describe("admin duels", () => {
   it("refuses a duel as a tournament", async () => {
     const res = await save("eu", [duel("Alpha", "Bravo")], ["Alpha", "Bravo"]);
     expect((await adminFetch(adminToken, `matches/${res.duels[0]!.id}/tournament`, { tournament: true })).status).toBe(409);
+  });
+});
+
+describe("a player's recent list", () => {
+  type Page = { matches: { id: number }[]; duels: { id: number; won: boolean; score: number; opponentScore: number; opponent: { name: string } }[]; moreMatches?: boolean; hasMore?: boolean; nextBefore: number | null };
+  const read = async (path: string, playerRecentMatches: number) =>
+    (await (await handleSite(new Request(`https://example.com/api/${path}`), db(), { ...defaults, playerRecentMatches }))!.json()) as Page;
+
+  it("has their duels among their matches, by id", async () => {
+    await uploadLog(matchLog({ key: "000000000001" }), hostToken, hoursAgo(3));
+    const first = await matchId("000000000001");
+    const [d] = (await save("eu", [duel("Alpha", "Bravo", 15, 7)])).duels;
+    await uploadLog(matchLog({ key: "000000000002" }), hostToken, hoursAgo(1));
+    const second = await matchId("000000000002");
+    const page = await get<Page>(`players/${await playerId("Bravo")}`);
+    expect(page.matches.map((m) => m.id)).toEqual([second, first]);
+    expect(page.duels).toEqual([expect.objectContaining({ id: d!.id, won: false, score: 7, opponentScore: 15, opponent: expect.objectContaining({ name: "Alpha" }) })]);
+    expect(page.moreMatches).toBe(false);
+  });
+
+  it("pages matches and duels together, each page ending at its oldest id", async () => {
+    await uploadLog(matchLog({ key: "000000000001" }), hostToken, hoursAgo(3));
+    const match = await matchId("000000000001");
+    const [older, newer] = (await save("eu", [duel("Alpha", "Bravo"), duel("Bravo", "Alpha")])).duels;
+    const alpha = await playerId("Alpha");
+    // A page of one: the newer duel, then the older, then the match below both.
+    const first = await read(`players/${alpha}`, 1);
+    expect([first.matches.map((m) => m.id), first.duels.map((x) => x.id), first.moreMatches, first.nextBefore]).toEqual([[], [newer!.id], true, newer!.id]);
+    const rest = await read(`players/${alpha}/matches?before=${first.nextBefore}`, 1);
+    expect([rest.matches.map((m) => m.id), rest.duels.map((x) => x.id), rest.hasMore, rest.nextBefore]).toEqual([[match], [older!.id], false, null]);
+  });
+
+  it("gives the next page's cursor when a page holds only duels", async () => {
+    await uploadLog(matchLog({ key: "000000000001" }), hostToken, hoursAgo(3));
+    const match = await matchId("000000000001");
+    const saved = (await save("eu", [duel("Alpha", "Bravo"), duel("Bravo", "Alpha"), duel("Alpha", "Bravo")])).duels;
+    const alpha = await playerId("Alpha");
+    // Pages of two: two duels and no match, though there are more.
+    const first = await read(`players/${alpha}/matches`, 2);
+    expect([first.matches, first.duels.map((x) => x.id), first.hasMore, first.nextBefore]).toEqual([[], [saved[2]!.id, saved[1]!.id], true, saved[1]!.id]);
+    const rest = await read(`players/${alpha}/matches?before=${first.nextBefore}`, 2);
+    expect([rest.matches.map((m) => m.id), rest.duels.map((x) => x.id), rest.hasMore, rest.nextBefore]).toEqual([[match], [saved[0]!.id], false, null]);
   });
 });

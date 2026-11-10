@@ -33,11 +33,19 @@
 .rounds td.r.left { color: color-mix(in oklab, var(--muted) 55%, transparent); }
 .rounds .r.unrated { color: color-mix(in oklab, var(--muted) 55%, transparent); background-image: repeating-linear-gradient(135deg, transparent 0 4px, #ffffff06 4px 8px); }
 .rounds thead th.r.unrated { text-decoration: line-through; }
+/* The rating view: each round's change, then what the match did after them and the total. */
+.rounds-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 24px; }
+.rounds td.r.change { color: var(--soft); }
+.rounds td.r.change.up { color: var(--up); }
+.rounds td.r.change.down { color: var(--down); }
+.rounds .r.end { border-inline-start: 1px solid var(--line); padding-inline: 8px; }
+.rounds td.r.total { font-weight: 700; }
 
 /* A phone keeps the place, name, wins, kills, deflects and rating; touches, streak and the New chip
-   go, so the rating fits without scrolling. */
+   go, and the change sits under the rating, so the rating fits without scrolling. */
 @media (max-width: 640px) {
   .standings .extra, .standings .change gb-chip { display: none; }
   .standings .name { inline-size: auto; }
   .standings :is(th, td) { padding-inline: 6px; }
+  .standings .change gb-delta { display: block; margin-inline-start: 0; line-height: 1.1; }
 }

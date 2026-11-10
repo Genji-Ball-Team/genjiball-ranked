@@ -225,22 +225,53 @@ export async function listPlayerDuels(db: D1Database, region: string, playerId: 
     )
     .bind(region, playerId, limit)
     .all<RawDuel>();
-  return results.flatMap((r) => {
-    const duel = toDuel(r);
-    if (!duel) return [];
-    const won = duel.winner.id === playerId;
-    const [mine, theirs] = won ? [duel.winner, duel.loser] : [duel.loser, duel.winner];
-    return [
-      {
-        id: duel.id,
-        playedAt: duel.playedAt,
-        won,
-        score: won ? duel.winnerScore : duel.loserScore,
-        opponentScore: won ? duel.loserScore : duel.winnerScore,
-        opponent: { id: theirs.id, name: theirs.name },
-        ratingBefore: mine.ratingBefore,
-        ratingAfter: mine.ratingAfter,
-      },
-    ];
-  });
+  return results.flatMap((r) => fromSide(r, playerId));
+}
+
+/**
+ * The player's duels in the region with an id below `before` and above `after` (either null for no
+ * bound), newest id first, at most `limit`: the duels among a page of their matches (src/site/handler.ts,
+ * `playerMatches`). Walks index `match_players_player` from `before` down, so it reads only the
+ * player's rows in that id range.
+ */
+export async function listPlayerDuelsBetween(
+  db: D1Database,
+  region: string,
+  playerId: number,
+  before: number | null,
+  after: number | null,
+  limit: number,
+): Promise<PlayerDuelRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${duelColumns}
+       FROM match_players me JOIN matches m ON m.id = me.match_id JOIN duels d ON d.match_id = m.id
+       WHERE me.player_id = ?2 AND m.region = ?1 AND m.duel = 1 AND m.status = 'accepted'
+         AND me.match_id < ?3 AND me.match_id > ?4
+       ORDER BY me.match_id DESC LIMIT ?5`,
+    )
+    // Plain bounds, not `?3 IS NULL OR …`: an OR keeps SQLite from seeking the id range in the index.
+    .bind(region, playerId, before ?? Number.MAX_SAFE_INTEGER, after ?? 0, limit)
+    .all<RawDuel>();
+  return results.flatMap((r) => fromSide(r, playerId));
+}
+
+/** A duel from the player's side, or nothing when a side is missing. */
+function fromSide(r: RawDuel, playerId: number): PlayerDuelRow[] {
+  const duel = toDuel(r);
+  if (!duel) return [];
+  const won = duel.winner.id === playerId;
+  const [mine, theirs] = won ? [duel.winner, duel.loser] : [duel.loser, duel.winner];
+  return [
+    {
+      id: duel.id,
+      playedAt: duel.playedAt,
+      won,
+      score: won ? duel.winnerScore : duel.loserScore,
+      opponentScore: won ? duel.loserScore : duel.winnerScore,
+      opponent: { id: theirs.id, name: theirs.name },
+      ratingBefore: mine.ratingBefore,
+      ratingAfter: mine.ratingAfter,
+    },
+  ];
 }

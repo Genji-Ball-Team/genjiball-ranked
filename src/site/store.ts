@@ -1,5 +1,6 @@
 import { workshopStringMax } from "./rankTags";
 import type { FormRound, StoredHistoryRow } from "./history";
+import type { PlayerRating } from "../rating/engine";
 
 /**
  * The public site's D1 queries (#14). Read-only, and each one reads through an index, so a page
@@ -548,6 +549,12 @@ export interface MatchDetail {
   players: MatchPlayerRow[];
   rounds: RoundRow[];
   roundPlayers: RoundPlayerRow[];
+  /**
+   * Each player's whole rating before the match (their last `rating_history` row before it in the
+   * match's region), by player id; a player without one is left out. To replay the match's rounds
+   * (src/site/roundChanges.ts).
+   */
+  ratingsBefore: Map<number, PlayerRating>;
 }
 
 /**
@@ -555,7 +562,7 @@ export interface MatchDetail {
  * Every statement checks the status, so asking for a match in review reads one row, not all of it.
  */
 export async function findMatchDetail(db: D1Database, id: number): Promise<MatchDetail | null> {
-  const [match, players, rounds, roundPlayers] = await db.batch([
+  const [match, players, rounds, roundPlayers, before] = await db.batch([
     db
       .prepare(
         `SELECT m.id, m.region, m.played_at AS playedAt, m.map, m.preset, m.game_version AS gameVersion, m.legacy, m.status = 'void' AS void,
@@ -589,6 +596,20 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
          WHERE m.id = ? AND m.status IN ${publicStatuses}`,
       )
       .bind(id),
+    // A primary-key seek per player, as `readRatingsBefore` (src/rating/store.ts).
+    db
+      .prepare(
+        `SELECT mp.player_id AS playerId, h.mu, h.sigma, h.rounds, h.wins, h.streak, h.best_streak AS bestStreak, h.played_at AS lastPlayedAt,
+           h.scale_base_mu AS scaleBaseMu
+         FROM (SELECT DISTINCT player_id FROM match_players WHERE match_id = ?1) mp
+           CROSS JOIN matches m ON m.id = ?1 AND m.status IN ${publicStatuses}
+           CROSS JOIN rating_history h ON h.board = m.region AND h.player_id = mp.player_id
+             AND (h.played_at, h.match_id) = (
+               SELECT played_at, match_id FROM rating_history
+               WHERE board = m.region AND player_id = mp.player_id AND (played_at, match_id) < (m.played_at, m.id)
+               ORDER BY played_at DESC, match_id DESC LIMIT 1)`,
+      )
+      .bind(id),
   ]);
   type Raw = Omit<MatchRow, "legacy" | "void" | "complete" | "tournament" | "tourney"> &
     Record<"legacy" | "void" | "complete" | "tournament", number> & { tourney: string | null };
@@ -610,6 +631,7 @@ export async function findMatchDetail(db: D1Database, id: number): Promise<Match
       left: rp.left === 1,
       afk: rp.afk === 1,
     })),
+    ratingsBefore: new Map((before!.results as (PlayerRating & { playerId: number })[]).map(({ playerId, ...rating }) => [playerId, rating])),
   };
 }
 

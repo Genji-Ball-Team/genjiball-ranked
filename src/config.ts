@@ -378,6 +378,12 @@ export const defaults = {
   leaderboardFilterMaxDays: 365,
   /** Matches on a player page, newest first. */
   playerRecentMatches: 20,
+  /**
+   * Most rated rounds a match page replays to show each round's rating change (`/api/matches/:id`,
+   * src/site/roundChanges.ts). A replay takes about 0.07 ms of CPU per round of 12 players: a longer
+   * match shows no round changes, to stay inside the free plan's CPU time.
+   */
+  roundChangesMaxRatedRounds: 60,
   /** Matches a page of the recent matches (`/api/recent`), newest first. */
   recentMatchesPageSize: 20,
   /**
