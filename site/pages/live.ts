@@ -51,7 +51,7 @@ function updateTimes(box: HTMLElement): void {
 
 function lobbyRows(lobbies: Lobby[]): Html {
   if (lobbies.length) return html`${lobbies.map(lobbyRow)}`;
-  return html`<li><gb-empty>No ranked lobby is open in ${site.label(site.region)} right now.<a slot="action" href="https://discord.gg/sv9VVjh5pT">Ask on the Discord when the next one opens, or how to host</a></gb-empty></li>`;
+  return html`<li><gb-empty>No ranked lobby is open in ${site.label(site.region)} right now.<a slot="action" href="https://discord.gg/genjiball">Ask on the Discord when the next one opens, or how to host</a></gb-empty></li>`;
 }
 
 async function livePage(): Promise<void> {
